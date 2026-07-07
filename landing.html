@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ThinkStack — AI-Powered Research Assistant</title>
+  <meta name="description" content="ThinkStack is a privacy-first, offline AI research assistant. Ingest papers, find gaps, and write with confidence — all on your machine." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@600;700;800;900&family=Caveat:wght@700&display=swap" rel="stylesheet" />
+  <style>
+    /* ── Reset & Base ──────────────────────────────────── */
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: 80px; }
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: #0A0A0A;
+      color: #E0E0E0;
+      line-height: 1.6;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Design Tokens ────────────────────────────────── */
+    :root {
+      --accent: #95FF00;
+      --accent-dim: rgba(149, 255, 0, 0.15);
+      --accent-glow: rgba(149, 255, 0, 0.3);
+      --bg: #0A0A0A;
+      --bg-card: rgba(255,255,255,0.04);
+      --bg-card-hover: rgba(255,255,255,0.07);
+      --border: rgba(255,255,255,0.08);
+      --border-hover: rgba(149,255,0,0.3);
+      --text: #E0E0E0;
+      --text-dim: #8A8A8A;
+      --radius: 16px;
+      --radius-sm: 10px;
+      --max-w: 1200px;
+      --nav-h: 72px;
+    }
+
+    /* ── Utility ──────────────────────────────────────── */
+    .container { max-width: var(--max-w); margin: 0 auto; padding: 0 24px; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+
+    /* ── Reveal Animations ────────────────────────────── */
+    .reveal {
+      opacity: 0;
+      transform: translateY(40px);
+      transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1), transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .reveal-delay-1 { transition-delay: 0.1s; }
+    .reveal-delay-2 { transition-delay: 0.2s; }
+    .reveal-delay-3 { transition-delay: 0.3s; }
+    .reveal-delay-4 { transition-delay: 0.4s; }
+
+    /* ── Navbar ────────────────────────────────────────── */
+    .navbar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+      height: var(--nav-h);
+      background: rgba(10,10,10,0.75);
+      backdrop-filter: blur(20px) saturate(1.8);
+      -webkit-backdrop-filter: blur(20px) saturate(1.8);
+      border-bottom: 1px solid var(--border);
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+    .navbar.scrolled {
+      background: rgba(10,10,10,0.92);
+      box-shadow: 0 4px 30px rgba(0,0,0,0.4);
+    }
+    .navbar .container {
+      display: flex; align-items: center; justify-content: space-between; height: 100%;
+    }
+    .nav-logo {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 800; font-size: 1.4rem; color: #fff;
+      text-decoration: none; display: flex; align-items: center; gap: 8px;
+      letter-spacing: -0.02em;
+    }
+    .nav-logo .logo-icon {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: var(--accent);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .nav-logo .logo-icon svg { width: 18px; height: 18px; }
+    .nav-links { display: flex; align-items: center; gap: 32px; list-style: none; }
+    .nav-links a {
+      color: var(--text-dim); text-decoration: none; font-size: 0.9rem; font-weight: 500;
+      transition: color 0.25s;
+      position: relative;
+    }
+    .nav-links a::after {
+      content: ''; position: absolute; bottom: -4px; left: 0; width: 0; height: 2px;
+      background: var(--accent); border-radius: 1px; transition: width 0.3s;
+    }
+    .nav-links a:hover, .nav-links a.active { color: #fff; }
+    .nav-links a:hover::after, .nav-links a.active::after { width: 100%; }
+    .nav-cta {
+      background: var(--accent); color: #0A0A0A; border: none; padding: 10px 24px;
+      border-radius: 100px; font-family: 'Inter', sans-serif; font-weight: 600;
+      font-size: 0.9rem; cursor: pointer; transition: transform 0.25s, box-shadow 0.25s;
+      text-decoration: none;
+    }
+    .nav-cta:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 0 24px var(--accent-glow);
+    }
+
+    /* Mobile nav toggle */
+    .nav-toggle {
+      display: none; background: none; border: none; cursor: pointer; padding: 4px;
+    }
+    .nav-toggle span {
+      display: block; width: 24px; height: 2px; background: #fff;
+      margin: 6px 0; border-radius: 2px; transition: transform 0.3s, opacity 0.3s;
+    }
+    .nav-toggle.open span:nth-child(1) { transform: translateY(8px) rotate(45deg); }
+    .nav-toggle.open span:nth-child(2) { opacity: 0; }
+    .nav-toggle.open span:nth-child(3) { transform: translateY(-8px) rotate(-45deg); }
+
+    /* ── Hero ─────────────────────────────────────────── */
+    .hero {
+      min-height: 100vh; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; text-align: center;
+      padding: calc(var(--nav-h) + 60px) 24px 80px;
+      position: relative; overflow: hidden;
+    }
+    .hero::before {
+      content: ''; position: absolute; top: -30%; left: 50%; transform: translateX(-50%);
+      width: 800px; height: 800px; border-radius: 50%;
+      background: radial-gradient(circle, var(--accent-dim) 0%, transparent 70%);
+      pointer-events: none; animation: heroPulse 6s ease-in-out infinite;
+    }
+    @keyframes heroPulse {
+      0%, 100% { opacity: 0.4; transform: translateX(-50%) scale(1); }
+      50% { opacity: 0.7; transform: translateX(-50%) scale(1.1); }
+    }
+
+    /* Floating grid dots bg */
+    .hero-bg-grid {
+      position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none;
+      opacity: 0.12;
+      background-image:
+        radial-gradient(circle, rgba(255,255,255,0.5) 1px, transparent 1px);
+      background-size: 40px 40px;
+    }
+
+    .hero-content { position: relative; z-index: 1; max-width: 900px; }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 100px; padding: 8px 20px; margin-bottom: 32px;
+      font-size: 0.85rem; color: var(--text-dim);
+    }
+    .hero-badge .stars { color: #FFD700; letter-spacing: 2px; }
+    .hero-badge span { color: var(--accent); font-weight: 600; }
+
+    .hero h1 {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 900; font-size: clamp(3rem, 8vw, 6.5rem);
+      line-height: 1.15; letter-spacing: -0.03em;
+      color: #fff; margin-bottom: 0;
+      text-transform: uppercase;
+    }
+
+    /* Sequential word animation */
+    .hero-word {
+      display: inline-block;
+      opacity: 0;
+      transform: translateY(30px);
+      transition: opacity 0.5s ease, transform 0.5s ease;
+    }
+    .hero-word.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* Wrapper that holds NIGHTMARE + slash + graffiti overlay */
+    .hero-nightmare-wrap {
+      position: relative;
+      display: inline-block;
+    }
+    .hero-nightmare-wrap .hero-word {
+      color: rgba(255,255,255,0.5);
+    }
+
+    /* Brushstroke slash */
+    .hero-slash {
+      position: absolute;
+      top: 50%; left: 50%;
+      width: 115%; height: auto;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 2;
+      transition: opacity 0.5s ease;
+    }
+    .hero-slash .brush-stroke {
+      stroke-dasharray: 820;
+      stroke-dashoffset: 820;
+      transition: stroke-dashoffset 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .hero-slash.draw .brush-stroke {
+      stroke-dashoffset: 0;
+    }
+    .hero-slash.faded {
+      opacity: 0.3;
+    }
+
+    /* Cursive overlay */
+    .hero-accent {
+      position: absolute;
+      left: 50%; top: 50%;
+      transform: translate(-50%, -50%) rotate(-4deg);
+      z-index: 3;
+      white-space: nowrap;
+      font-family: 'Caveat', cursive;
+      font-weight: 700;
+      font-size: clamp(3.2rem, 8vw, 6.5rem);
+      color: var(--accent);
+      line-height: 1;
+      text-shadow: 0 0 40px rgba(149,255,0,0.4), 0 0 80px rgba(149,255,0,0.15);
+      pointer-events: none;
+      opacity: 0;
+      transform: translate(-50%, -50%) rotate(-4deg) scale(0.8);
+      transition: opacity 0.5s ease, transform 0.5s ease;
+    }
+    .hero-accent.show {
+      opacity: 1;
+      transform: translate(-50%, -50%) rotate(-4deg) scale(1);
+    }
+    .hero-sub {
+      font-size: clamp(1rem, 2vw, 1.25rem);
+      color: var(--text-dim); max-width: 600px; margin: 28px auto 40px;
+      line-height: 1.7;
+    }
+    .hero-buttons { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+    .btn-primary {
+      background: var(--accent); color: #0A0A0A; border: none; padding: 16px 36px;
+      border-radius: 100px; font-family: 'Inter', sans-serif; font-weight: 700;
+      font-size: 1rem; cursor: pointer; transition: transform 0.25s, box-shadow 0.25s;
+      text-decoration: none; display: inline-flex; align-items: center; gap: 8px;
+    }
+    .btn-primary:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 0 40px var(--accent-glow), 0 8px 30px rgba(0,0,0,0.3);
+    }
+    .btn-primary svg { width: 18px; height: 18px; }
+    .btn-secondary {
+      background: transparent; color: #fff; border: 1px solid var(--border);
+      padding: 16px 36px; border-radius: 100px; font-family: 'Inter', sans-serif;
+      font-weight: 600; font-size: 1rem; cursor: pointer;
+      transition: border-color 0.25s, background 0.25s, transform 0.25s;
+      text-decoration: none;
+    }
+    .btn-secondary:hover {
+      border-color: var(--border-hover); background: var(--bg-card);
+      transform: translateY(-2px);
+    }
+
+    /* ── Section Shared ───────────────────────────────── */
+    section { padding: 120px 0; position: relative; }
+    .section-label {
+      font-size: 0.8rem; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.15em; color: var(--accent); margin-bottom: 16px;
+    }
+    .section-heading {
+      font-family: 'Outfit', sans-serif; font-weight: 800;
+      font-size: clamp(2rem, 4.5vw, 3.2rem); color: #fff;
+      line-height: 1.1; letter-spacing: -0.02em; margin-bottom: 20px;
+    }
+    .section-sub {
+      font-size: 1.05rem; color: var(--text-dim); max-width: 560px; line-height: 1.7;
+    }
+
+    /* ── Features Bento Grid ──────────────────────────── */
+    #features { overflow: hidden; }
+    .features-header { text-align: center; margin-bottom: 64px; }
+    .features-header .section-sub { margin-left: auto; margin-right: auto; }
+
+    .bento-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+    .bento-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 40px 32px;
+      transition: transform 0.4s cubic-bezier(0.16,1,0.3,1), border-color 0.4s, background 0.4s, box-shadow 0.4s;
+      position: relative; overflow: hidden;
+    }
+    .bento-card::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      opacity: 0; transition: opacity 0.4s;
+    }
+    .bento-card:hover {
+      transform: translateY(-6px);
+      border-color: var(--border-hover);
+      background: var(--bg-card-hover);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    .bento-card:hover::before { opacity: 1; }
+
+    .bento-icon {
+      width: 56px; height: 56px; border-radius: 14px;
+      background: var(--accent-dim); display: flex; align-items: center;
+      justify-content: center; margin-bottom: 24px;
+    }
+    .bento-icon svg { width: 28px; height: 28px; color: var(--accent); }
+    .bento-card h3 {
+      font-family: 'Outfit', sans-serif; font-weight: 700; font-size: 1.3rem;
+      color: #fff; margin-bottom: 12px;
+    }
+    .bento-card p { color: var(--text-dim); font-size: 0.95rem; line-height: 1.7; }
+
+    /* Large featured card spanning 2 cols */
+    .bento-card--lg {
+      grid-column: span 2;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 32px; align-items: center;
+    }
+    .bento-card--lg .bento-card-visual {
+      background: rgba(149,255,0,0.05);
+      border: 1px solid rgba(149,255,0,0.1);
+      border-radius: var(--radius-sm);
+      padding: 32px; display: flex; align-items: center; justify-content: center;
+      min-height: 200px;
+    }
+
+    /* ── How It Works ─────────────────────────────────── */
+    #how-it-works { background: rgba(255,255,255,0.015); }
+    .steps-header { text-align: center; margin-bottom: 72px; }
+    .steps-header .section-sub { margin-left: auto; margin-right: auto; }
+
+    .steps-container {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px;
+      position: relative;
+    }
+    /* Connecting line */
+    .steps-container::before {
+      content: ''; position: absolute; top: 44px; left: 15%; right: 15%;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent-dim), var(--accent), var(--accent-dim), transparent);
+    }
+
+    .step {
+      text-align: center; position: relative; z-index: 1;
+    }
+    .step-number {
+      width: 88px; height: 88px; border-radius: 50%;
+      background: var(--bg); border: 2px solid var(--accent);
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 28px;
+      font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 2rem;
+      color: var(--accent);
+      box-shadow: 0 0 30px var(--accent-dim);
+      transition: transform 0.3s, box-shadow 0.3s;
+    }
+    .step:hover .step-number {
+      transform: scale(1.1);
+      box-shadow: 0 0 50px var(--accent-glow);
+    }
+    .step h3 {
+      font-family: 'Outfit', sans-serif; font-weight: 700; font-size: 1.25rem;
+      color: #fff; margin-bottom: 12px;
+    }
+    .step p { color: var(--text-dim); font-size: 0.95rem; max-width: 280px; margin: 0 auto; line-height: 1.7; }
+
+    /* ── Audience / Use Cases ─────────────────────────── */
+    #audience { overflow: hidden; }
+    .audience-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: center;
+    }
+    .audience-text { }
+    .audience-text .section-heading { margin-bottom: 24px; }
+    .audience-list { list-style: none; margin-top: 32px; }
+    .audience-list li {
+      display: flex; align-items: flex-start; gap: 16px; margin-bottom: 24px;
+      padding: 20px; background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      transition: border-color 0.3s, transform 0.3s;
+    }
+    .audience-list li:hover {
+      border-color: var(--border-hover); transform: translateX(6px);
+    }
+    .audience-list .aud-icon {
+      width: 44px; height: 44px; min-width: 44px; border-radius: 10px;
+      background: var(--accent-dim); display: flex; align-items: center; justify-content: center;
+    }
+    .audience-list .aud-icon svg { width: 22px; height: 22px; color: var(--accent); }
+    .audience-list h4 {
+      font-family: 'Outfit', sans-serif; font-weight: 700; color: #fff;
+      font-size: 1.05rem; margin-bottom: 4px;
+    }
+    .audience-list p { color: var(--text-dim); font-size: 0.9rem; line-height: 1.6; }
+
+    .audience-visual {
+      position: relative;
+    }
+    .audience-visual-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 40px;
+      position: relative; overflow: hidden;
+    }
+    .audience-visual-card::after {
+      content: ''; position: absolute; top: -50%; right: -50%;
+      width: 100%; height: 100%; border-radius: 50%;
+      background: radial-gradient(circle, var(--accent-dim) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .vis-stack {
+      position: relative; z-index: 1;
+    }
+    .vis-paper {
+      background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 20px; margin-bottom: 12px;
+      display: flex; align-items: center; gap: 12px;
+    }
+    .vis-paper .dot {
+      width: 10px; height: 10px; border-radius: 50%; background: var(--accent);
+      box-shadow: 0 0 8px var(--accent-glow);
+    }
+    .vis-paper .line {
+      flex: 1; height: 8px; border-radius: 4px;
+      background: rgba(255,255,255,0.08);
+    }
+    .vis-paper .line-short { width: 60%; }
+    .vis-paper:nth-child(2) { margin-left: 16px; }
+    .vis-paper:nth-child(3) { margin-left: 32px; }
+
+    /* ── Testimonials ─────────────────────────────────── */
+    #testimonials {
+      background: rgba(255,255,255,0.015);
+      overflow: hidden;
+    }
+    .testimonials-header { text-align: center; margin-bottom: 64px; }
+    .testimonials-header .section-sub { margin-left: auto; margin-right: auto; }
+
+    .testimonial-track {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;
+    }
+    .testimonial-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 36px;
+      transition: border-color 0.3s, transform 0.4s cubic-bezier(0.16,1,0.3,1);
+      display: flex; flex-direction: column;
+    }
+    .testimonial-card:hover {
+      border-color: var(--border-hover); transform: translateY(-4px);
+    }
+    .testimonial-stars { color: #FFD700; font-size: 0.9rem; letter-spacing: 2px; margin-bottom: 20px; }
+    .testimonial-card blockquote {
+      font-size: 1rem; color: var(--text); line-height: 1.75; flex: 1;
+      font-style: italic; margin-bottom: 24px;
+    }
+    .testimonial-author {
+      display: flex; align-items: center; gap: 12px;
+      border-top: 1px solid var(--border); padding-top: 20px;
+    }
+    .author-avatar {
+      width: 44px; height: 44px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent-dim), rgba(149,255,0,0.3));
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Outfit', sans-serif; font-weight: 700; font-size: 1rem;
+      color: var(--accent);
+    }
+    .author-info h4 { font-size: 0.95rem; font-weight: 600; color: #fff; }
+    .author-info p { font-size: 0.8rem; color: var(--text-dim); }
+
+    /* ── Tech Stack Ribbon ────────────────────────────── */
+    #tech {
+      padding: 80px 0; overflow: hidden;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .tech-header { text-align: center; margin-bottom: 48px; }
+    .tech-ribbon {
+      display: flex; justify-content: center; flex-wrap: wrap; gap: 16px;
+    }
+    .tech-tag {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 100px; padding: 12px 24px;
+      font-size: 0.85rem; font-weight: 500; color: var(--text-dim);
+      transition: border-color 0.3s, color 0.3s, background 0.3s;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .tech-tag:hover {
+      border-color: var(--border-hover); color: var(--accent);
+      background: var(--accent-dim);
+    }
+    .tech-tag .tech-dot {
+      width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+    }
+
+    /* ── CTA Section ──────────────────────────────────── */
+    #cta {
+      padding: 140px 0; text-align: center; position: relative; overflow: hidden;
+    }
+    #cta::before {
+      content: ''; position: absolute; bottom: -200px; left: 50%; transform: translateX(-50%);
+      width: 1000px; height: 600px; border-radius: 50%;
+      background: radial-gradient(circle, var(--accent-dim) 0%, transparent 60%);
+      pointer-events: none;
+    }
+    .cta-content { position: relative; z-index: 1; }
+    .cta-content .section-heading {
+      font-size: clamp(2.2rem, 5vw, 3.8rem); margin-bottom: 20px;
+    }
+    .cta-content .section-sub {
+      margin: 0 auto 40px; max-width: 500px;
+    }
+
+    /* ── Footer ───────────────────────────────────────── */
+    .footer {
+      border-top: 1px solid var(--border);
+      padding: 48px 0;
+    }
+    .footer-inner {
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 16px;
+    }
+    .footer-left {
+      display: flex; align-items: center; gap: 12px;
+    }
+    .footer-logo {
+      font-family: 'Outfit', sans-serif; font-weight: 800;
+      font-size: 1.15rem; color: #fff;
+    }
+    .footer-copy { color: var(--text-dim); font-size: 0.85rem; }
+    .footer-links { display: flex; gap: 24px; list-style: none; }
+    .footer-links a {
+      color: var(--text-dim); text-decoration: none; font-size: 0.85rem;
+      transition: color 0.25s;
+    }
+    .footer-links a:hover { color: var(--accent); }
+
+    /* ── Floating Particles (CSS only) ────────────────── */
+    .particles {
+      position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden;
+    }
+    .particle {
+      position: absolute; width: 3px; height: 3px; border-radius: 50%;
+      background: var(--accent); opacity: 0;
+      animation: floatParticle linear infinite;
+    }
+    @keyframes floatParticle {
+      0% { opacity: 0; transform: translateY(100vh) scale(0); }
+      10% { opacity: 0.6; }
+      90% { opacity: 0.6; }
+      100% { opacity: 0; transform: translateY(-10vh) scale(1); }
+    }
+
+    /* ── Responsive ───────────────────────────────────── */
+    @media (max-width: 1024px) {
+      .bento-grid { grid-template-columns: 1fr 1fr; }
+      .bento-card--lg { grid-column: span 2; }
+    }
+    @media (max-width: 768px) {
+      .nav-links { 
+        display: none; position: fixed; top: var(--nav-h); left: 0; right: 0;
+        background: rgba(10,10,10,0.97); backdrop-filter: blur(20px);
+        flex-direction: column; padding: 32px 24px; gap: 24px;
+        border-bottom: 1px solid var(--border);
+      }
+      .nav-links.open { display: flex; }
+      .nav-toggle { display: block; }
+
+      .bento-grid { grid-template-columns: 1fr; }
+      .bento-card--lg { grid-column: span 1; grid-template-columns: 1fr; }
+      .steps-container { grid-template-columns: 1fr; gap: 48px; }
+      .steps-container::before { display: none; }
+      .audience-grid { grid-template-columns: 1fr; gap: 40px; }
+      .testimonial-track { grid-template-columns: 1fr; }
+      .hero h1 { font-size: clamp(2.4rem, 10vw, 4rem); }
+      .hero-accent { font-size: clamp(2rem, 8vw, 3.2rem); }
+      section { padding: 80px 0; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Floating Particles -->
+<div class="particles" aria-hidden="true">
+  <div class="particle" style="left:5%;animation-duration:18s;animation-delay:0s;width:2px;height:2px"></div>
+  <div class="particle" style="left:15%;animation-duration:22s;animation-delay:3s"></div>
+  <div class="particle" style="left:25%;animation-duration:16s;animation-delay:6s;width:4px;height:4px"></div>
+  <div class="particle" style="left:35%;animation-duration:20s;animation-delay:1s"></div>
+  <div class="particle" style="left:45%;animation-duration:24s;animation-delay:4s;width:2px;height:2px"></div>
+  <div class="particle" style="left:55%;animation-duration:19s;animation-delay:7s"></div>
+  <div class="particle" style="left:65%;animation-duration:21s;animation-delay:2s;width:4px;height:4px"></div>
+  <div class="particle" style="left:75%;animation-duration:17s;animation-delay:5s"></div>
+  <div class="particle" style="left:85%;animation-duration:23s;animation-delay:8s;width:2px;height:2px"></div>
+  <div class="particle" style="left:95%;animation-duration:18s;animation-delay:10s"></div>
+</div>
+
+<!-- ── Navbar ──────────────────────────────────────── -->
+<nav class="navbar" id="navbar">
+  <div class="container">
+    <a href="#" class="nav-logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#0A0A0A" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+        </svg>
+      </div>
+      ThinkStack
+    </a>
+    <ul class="nav-links" id="nav-links">
+      <li><a href="#features">Features</a></li>
+      <li><a href="#how-it-works">How It Works</a></li>
+      <li><a href="#audience">Use Cases</a></li>
+      <li><a href="#testimonials">Testimonials</a></li>
+    </ul>
+    <a href="#cta" class="nav-cta">Get Started</a>
+    <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation">
+      <span></span><span></span><span></span>
+    </button>
+  </div>
+</nav>
+
+<!-- ── Hero ────────────────────────────────────────── -->
+<section class="hero" id="hero">
+  <div class="hero-bg-grid" aria-hidden="true"></div>
+  <div class="hero-content">
+    <div class="hero-badge reveal">
+      <span class="stars">★★★★★</span>
+      Trusted by <span>500+ researchers</span>
+    </div>
+    <h1>
+      <span class="hero-word">Research</span>
+      <span class="hero-word">is</span>
+      <span class="hero-word">a</span><br/>
+      <span class="hero-nightmare-wrap">
+        <span class="hero-word">nightmare.</span>
+        <!-- Thick tapered brushstroke slash -->
+        <svg class="hero-slash" viewBox="0 0 600 60" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path class="brush-stroke" d="M10 32 C80 32, 120 32, 200 30 Q300 22, 400 30 C480 34, 540 32, 590 30" stroke="#95FF00" stroke-width="12" stroke-linecap="round" fill="none" opacity="0.85"/>
+          <path class="brush-stroke" d="M10 32 C80 32, 120 32, 200 30 Q300 22, 400 30 C480 34, 540 32, 590 30" stroke="#95FF00" stroke-width="28" stroke-linecap="round" fill="none" opacity="0.1"/>
+        </svg>
+        <span class="hero-accent">No more!</span>
+      </span>
+    </h1>
+    <p class="hero-sub reveal reveal-delay-3">
+      Ditch the chaos of literature reviews. Let ThinkStack AI analyze your papers,
+      find research gaps, and accelerate your writing — privately, offline, on your machine.
+    </p>
+    <div class="hero-buttons reveal reveal-delay-4">
+      <a href="#cta" class="btn-primary">
+        Start Free
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+      </a>
+      <a href="#features" class="btn-secondary">See How It Works</a>
+    </div>
+  </div>
+</section>
+
+<!-- ── Features ────────────────────────────────────── -->
+<section id="features">
+  <div class="container">
+    <div class="features-header">
+      <p class="section-label reveal">Features</p>
+      <h2 class="section-heading reveal reveal-delay-1">Everything you need to<br/>crush your research.</h2>
+      <p class="section-sub reveal reveal-delay-2">Powerful AI tools that run entirely on your machine. No cloud, no subscriptions, no data leaks.</p>
+    </div>
+
+    <div class="bento-grid">
+      <!-- Card 1: AI Analysis (large) -->
+      <div class="bento-card bento-card--lg reveal">
+        <div>
+          <div class="bento-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/><path d="M8 12h8"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/></svg>
+          </div>
+          <h3>AI-Powered Paper Analysis</h3>
+          <p>Ingest PDFs and get instant summaries, key claims extraction, and semantic search across your entire collection. Powered by local language models.</p>
+        </div>
+        <div class="bento-card-visual" aria-hidden="true">
+          <svg viewBox="0 0 200 160" fill="none" width="100%">
+            <rect x="10" y="10" width="80" height="100" rx="6" stroke="#95FF00" stroke-width="1.5" opacity="0.4"/>
+            <line x1="22" y1="30" x2="78" y2="30" stroke="#95FF00" stroke-width="1" opacity="0.3"/>
+            <line x1="22" y1="42" x2="68" y2="42" stroke="#95FF00" stroke-width="1" opacity="0.2"/>
+            <line x1="22" y1="54" x2="74" y2="54" stroke="#95FF00" stroke-width="1" opacity="0.2"/>
+            <line x1="22" y1="66" x2="60" y2="66" stroke="#95FF00" stroke-width="1" opacity="0.2"/>
+            <line x1="22" y1="78" x2="70" y2="78" stroke="#95FF00" stroke-width="1" opacity="0.2"/>
+            <path d="M100 50 L130 30 L160 55 L190 25" stroke="#95FF00" stroke-width="2" fill="none" opacity="0.6"/>
+            <circle cx="100" cy="50" r="4" fill="#95FF00" opacity="0.8"/>
+            <circle cx="130" cy="30" r="4" fill="#95FF00" opacity="0.8"/>
+            <circle cx="160" cy="55" r="4" fill="#95FF00" opacity="0.8"/>
+            <circle cx="190" cy="25" r="4" fill="#95FF00" opacity="0.8"/>
+            <rect x="110" y="80" width="70" height="60" rx="6" stroke="#95FF00" stroke-width="1.5" opacity="0.3"/>
+            <text x="125" y="105" fill="#95FF00" font-size="9" font-family="Inter" opacity="0.5">Summary</text>
+            <line x1="118" y1="115" x2="172" y2="115" stroke="#95FF00" stroke-width="1" opacity="0.2"/>
+            <line x1="118" y1="125" x2="160" y2="125" stroke="#95FF00" stroke-width="1" opacity="0.2"/>
+          </svg>
+        </div>
+      </div>
+
+      <!-- Card 2: Gap Finder -->
+      <div class="bento-card reveal reveal-delay-1">
+        <div class="bento-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><path d="M11 8v6"/><path d="M8 11h6"/></svg>
+        </div>
+        <h3>Research Gap Finder</h3>
+        <p>Automatically identify unexplored areas and get AI-suggested research directions based on your paper collection.</p>
+      </div>
+
+      <!-- Card 3: Encryption -->
+      <div class="bento-card reveal reveal-delay-2">
+        <div class="bento-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1"/></svg>
+        </div>
+        <h3>Military-Grade Encryption</h3>
+        <p>AES-256-GCM encryption with Argon2id key derivation. Your papers stay private, locked with your password.</p>
+      </div>
+
+      <!-- Card 4: LaTeX Editor -->
+      <div class="bento-card reveal reveal-delay-1">
+        <div class="bento-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13h2"/><path d="M8 17h6"/></svg>
+        </div>
+        <h3>AI LaTeX Paper Writer</h3>
+        <p>Write academic papers with a built-in Monaco editor, real-time LaTeX compilation, and AI-assisted drafting.</p>
+      </div>
+
+      <!-- Card 5: Offline -->
+      <div class="bento-card reveal reveal-delay-2">
+        <div class="bento-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/><path d="M7 8l3 3 7-7" stroke="#95FF00" stroke-width="2"/></svg>
+        </div>
+        <h3>100% Offline & Private</h3>
+        <p>All AI processing happens locally via llama.cpp. No cloud dependencies, no API keys, no data leaves your machine.</p>
+      </div>
+
+      <!-- Card 6: P2P Sharing -->
+      <div class="bento-card reveal reveal-delay-3">
+        <div class="bento-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </div>
+        <h3>Peer-to-Peer Sharing</h3>
+        <p>Securely share encrypted papers with collaborators over a direct P2P network powered by libp2p. No middlemen.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── How It Works ────────────────────────────────── -->
+<section id="how-it-works">
+  <div class="container">
+    <div class="steps-header">
+      <p class="section-label reveal">How It Works</p>
+      <h2 class="section-heading reveal reveal-delay-1">Three steps to research clarity.</h2>
+      <p class="section-sub reveal reveal-delay-2">From paper chaos to structured insight in minutes.</p>
+    </div>
+
+    <div class="steps-container">
+      <div class="step reveal">
+        <div class="step-number">1</div>
+        <h3>Upload Your Papers</h3>
+        <p>Drop your PDFs into ThinkStack. They're instantly indexed, vectorized, and searchable — all locally.</p>
+      </div>
+      <div class="step reveal reveal-delay-2">
+        <div class="step-number">2</div>
+        <h3>AI Analyzes Everything</h3>
+        <p>Our local SLM reads, summarizes, and maps relationships between papers automatically.</p>
+      </div>
+      <div class="step reveal reveal-delay-4">
+        <div class="step-number">3</div>
+        <h3>Discover & Write</h3>
+        <p>Find research gaps, get direction suggestions, and draft your paper with the AI-powered LaTeX editor.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Audience / Use Cases ────────────────────────── -->
+<section id="audience">
+  <div class="container">
+    <div class="audience-grid">
+      <div class="audience-text">
+        <p class="section-label reveal">Who It's For</p>
+        <h2 class="section-heading reveal reveal-delay-1">Built for researchers<br/>who value privacy.</h2>
+        <p class="section-sub reveal reveal-delay-2">Whether you're a solo grad student or part of a research lab, ThinkStack adapts to your workflow.</p>
+        <ul class="audience-list">
+          <li class="reveal reveal-delay-2">
+            <div class="aud-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 10 3 12 0v-5"/></svg>
+            </div>
+            <div>
+              <h4>Graduate Students</h4>
+              <p>Manage your literature review and identify gaps faster than ever.</p>
+            </div>
+          </li>
+          <li class="reveal reveal-delay-3">
+            <div class="aud-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a15 15 0 0 1 4 10 15 15 0 0 1-4 10 15 15 0 0 1-4-10 15 15 0 0 1 4-10z"/><path d="M2 12h20"/></svg>
+            </div>
+            <div>
+              <h4>Independent Researchers</h4>
+              <p>Full research toolkit without expensive cloud subscriptions or API costs.</p>
+            </div>
+          </li>
+          <li class="reveal reveal-delay-4">
+            <div class="aud-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </div>
+            <div>
+              <h4>Research Labs</h4>
+              <p>Share encrypted papers with your team via P2P — no cloud middlemen.</p>
+            </div>
+          </li>
+        </ul>
+      </div>
+      <div class="audience-visual reveal reveal-delay-2">
+        <div class="audience-visual-card">
+          <div class="vis-stack">
+            <div class="vis-paper">
+              <div class="dot"></div>
+              <div class="line"></div>
+            </div>
+            <div class="vis-paper">
+              <div class="dot"></div>
+              <div class="line line-short"></div>
+            </div>
+            <div class="vis-paper">
+              <div class="dot"></div>
+              <div class="line"></div>
+            </div>
+            <div style="text-align:center;margin-top:24px;color:var(--accent);font-family:'Outfit',sans-serif;font-weight:600;font-size:0.9rem;letter-spacing:0.05em;">
+              ● ANALYZING 3 PAPERS...
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Testimonials ────────────────────────────────── -->
+<section id="testimonials">
+  <div class="container">
+    <div class="testimonials-header">
+      <p class="section-label reveal">Testimonials</p>
+      <h2 class="section-heading reveal reveal-delay-1">Loved by researchers<br/>worldwide.</h2>
+      <p class="section-sub reveal reveal-delay-2">See what our users are saying about ThinkStack.</p>
+    </div>
+
+    <div class="testimonial-track">
+      <div class="testimonial-card reveal">
+        <div class="testimonial-stars">★★★★★</div>
+        <blockquote>"ThinkStack completely transformed my PhD workflow. I went from drowning in 200+ papers to having structured, actionable insights in days."</blockquote>
+        <div class="testimonial-author">
+          <div class="author-avatar">SK</div>
+          <div class="author-info">
+            <h4>Sarah K.</h4>
+            <p>PhD Candidate, MIT</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="testimonial-card reveal reveal-delay-1">
+        <div class="testimonial-stars">★★★★★</div>
+        <blockquote>"The fact that everything runs offline is a game-changer. I work with sensitive medical data and can finally use AI tools without compliance concerns."</blockquote>
+        <div class="testimonial-author">
+          <div class="author-avatar">RM</div>
+          <div class="author-info">
+            <h4>Dr. R. Martinez</h4>
+            <p>Research Lead, Stanford Medicine</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="testimonial-card reveal reveal-delay-2">
+        <div class="testimonial-stars">★★★★★</div>
+        <blockquote>"The gap finder alone saved me months of work. It identified three research directions I hadn't considered. Absolutely essential tool."</blockquote>
+        <div class="testimonial-author">
+          <div class="author-avatar">JL</div>
+          <div class="author-info">
+            <h4>James L.</h4>
+            <p>Postdoc, Oxford University</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Tech Stack ──────────────────────────────────── -->
+<section id="tech">
+  <div class="container">
+    <div class="tech-header">
+      <p class="section-label reveal">Technology</p>
+      <h2 class="section-heading reveal reveal-delay-1">Built with the best.</h2>
+    </div>
+    <div class="tech-ribbon reveal reveal-delay-2">
+      <div class="tech-tag"><span class="tech-dot"></span>Tauri</div>
+      <div class="tech-tag"><span class="tech-dot"></span>React</div>
+      <div class="tech-tag"><span class="tech-dot"></span>TypeScript</div>
+      <div class="tech-tag"><span class="tech-dot"></span>FastAPI</div>
+      <div class="tech-tag"><span class="tech-dot"></span>llama.cpp</div>
+      <div class="tech-tag"><span class="tech-dot"></span>Rust</div>
+      <div class="tech-tag"><span class="tech-dot"></span>PyInstaller</div>
+      <div class="tech-tag"><span class="tech-dot"></span>libp2p</div>
+      <div class="tech-tag"><span class="tech-dot"></span>AES-256-GCM</div>
+      <div class="tech-tag"><span class="tech-dot"></span>Tectonic</div>
+    </div>
+  </div>
+</section>
+
+<!-- ── CTA ─────────────────────────────────────────── -->
+<section id="cta">
+  <div class="container">
+    <div class="cta-content">
+      <p class="section-label reveal">Ready?</p>
+      <h2 class="section-heading reveal reveal-delay-1">Stop drowning in papers.<br/>Start discovering.</h2>
+      <p class="section-sub reveal reveal-delay-2">Download ThinkStack and take control of your research — for free, forever, offline.</p>
+      <div class="hero-buttons reveal reveal-delay-3">
+        <a href="#" class="btn-primary">
+          Download Now
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </a>
+        <a href="https://github.com/AdityaMehta2006/ScholarLens" class="btn-secondary" target="_blank">View on GitHub</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Footer ──────────────────────────────────────── -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-inner">
+      <div class="footer-left">
+        <span class="footer-logo">ThinkStack</span>
+        <span class="footer-copy">&copy; 2026 ThinkStack. All rights reserved.</span>
+      </div>
+      <ul class="footer-links">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#how-it-works">How It Works</a></li>
+        <li><a href="https://github.com/AdityaMehta2006/ScholarLens" target="_blank">GitHub</a></li>
+      </ul>
+    </div>
+  </div>
+</footer>
+
+<script>
+  /* ── Intersection Observer for reveal animations ── */
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+      }
+    });
+  }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+
+  document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+  /* ── Navbar scroll state ── */
+  const navbar = document.getElementById('navbar');
+  window.addEventListener('scroll', () => {
+    navbar.classList.toggle('scrolled', window.scrollY > 50);
+  }, { passive: true });
+
+  /* ── Active nav link on scroll ── */
+  const sections = document.querySelectorAll('section[id]');
+  const navLinks = document.querySelectorAll('.nav-links a');
+  window.addEventListener('scroll', () => {
+    let current = '';
+    sections.forEach(section => {
+      const top = section.offsetTop - 120;
+      if (window.scrollY >= top) current = section.getAttribute('id');
+    });
+    navLinks.forEach(link => {
+      link.classList.remove('active');
+      if (link.getAttribute('href') === '#' + current) link.classList.add('active');
+    });
+  }, { passive: true });
+
+  /* ── Mobile nav toggle ── */
+  const toggle = document.getElementById('nav-toggle');
+  const links = document.getElementById('nav-links');
+  toggle.addEventListener('click', () => {
+    toggle.classList.toggle('open');
+    links.classList.toggle('open');
+  });
+  links.querySelectorAll('a').forEach(a => {
+    a.addEventListener('click', () => {
+      toggle.classList.remove('open');
+      links.classList.remove('open');
+    });
+  });
+
+  /* ── Hero sequential animation ── */
+  window.addEventListener('DOMContentLoaded', () => {
+    const badge = document.querySelector('.hero-badge');
+    const words = document.querySelectorAll('.hero-word');
+    const slash = document.querySelector('.hero-slash');
+    const accent = document.querySelector('.hero-accent');
+    const sub = document.querySelector('.hero-sub');
+    const buttons = document.querySelector('.hero-buttons');
+
+    // Show badge first
+    setTimeout(() => {
+      badge.classList.add('visible');
+    }, 300);
+
+    // Show each word one by one
+    words.forEach((word, i) => {
+      setTimeout(() => {
+        word.classList.add('show');
+      }, 600 + i * 200);
+    });
+
+    // After all words shown, draw the slash
+    const slashDelay = 600 + words.length * 200 + 300;
+    setTimeout(() => {
+      slash.classList.add('draw');
+    }, slashDelay);
+
+    // After slash drawn, fade slash and pop in "Not anymore!"
+    setTimeout(() => {
+      slash.classList.add('faded');
+      accent.classList.add('show');
+    }, slashDelay + 600);
+
+    // Show subtitle and buttons
+    setTimeout(() => {
+      sub.classList.add('visible');
+    }, slashDelay + 900);
+    setTimeout(() => {
+      buttons.classList.add('visible');
+    }, slashDelay + 1100);
+  });
+</script>
+</body>
+</html>
