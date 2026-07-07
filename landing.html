@@ -150,14 +150,7 @@
     }
 
     .hero-content { position: relative; z-index: 1; max-width: 900px; }
-    .hero-badge {
-      display: inline-flex; align-items: center; gap: 8px;
-      background: var(--bg-card); border: 1px solid var(--border);
-      border-radius: 100px; padding: 8px 20px; margin-bottom: 32px;
-      font-size: 0.85rem; color: var(--text-dim);
-    }
-    .hero-badge .stars { color: #FFD700; letter-spacing: 2px; }
-    .hero-badge span { color: var(--accent); font-weight: 600; }
+
 
     .hero h1 {
       font-family: 'Outfit', sans-serif;
@@ -165,6 +158,7 @@
       line-height: 1.15; letter-spacing: -0.03em;
       color: #fff; margin-bottom: 0;
       text-transform: uppercase;
+      position: relative; z-index: 10;
     }
 
     /* Sequential word animation */
@@ -237,7 +231,7 @@
       color: var(--text-dim); max-width: 600px; margin: 28px auto 40px;
       line-height: 1.7;
     }
-    .hero-buttons { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+    .hero-buttons { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; position: relative; z-index: 10; }
     .btn-primary {
       background: var(--accent); color: #0A0A0A; border: none; padding: 16px 36px;
       border-radius: 100px; font-family: 'Inter', sans-serif; font-weight: 700;
@@ -247,6 +241,12 @@
     .btn-primary:hover {
       transform: translateY(-3px);
       box-shadow: 0 0 40px var(--accent-glow), 0 8px 30px rgba(0,0,0,0.3);
+    }
+    .btn-primary svg {
+      transition: transform 0.2s ease;
+    }
+    .btn-primary:hover svg {
+      transform: translateX(4px);
     }
     .btn-primary svg { width: 18px; height: 18px; }
     .btn-secondary {
@@ -307,6 +307,73 @@
     }
     .bento-card:hover::before { opacity: 1; }
 
+    /* Dynamic bento card mouse radial glow */
+    .bento-card::after {
+      content: ''; position: absolute; inset: 0;
+      background: radial-gradient(600px circle at var(--mouse-x, 0px) var(--mouse-y, 0px), rgba(149,255,0,0.06), transparent 40%);
+      z-index: 1; pointer-events: none; opacity: 0; transition: opacity 0.5s ease;
+    }
+    .bento-card:hover::after { opacity: 1; }
+
+
+
+    /* Ambient Blobs bg */
+    .ambient-blob {
+      position: absolute; border-radius: 50%;
+      filter: blur(140px); pointer-events: none; z-index: 0;
+      opacity: 0.08;
+      mix-blend-mode: screen;
+    }
+    .blob-1 {
+      width: 450px; height: 450px; background: var(--accent);
+      top: 5%; left: 5%;
+      animation: drift 22s ease-in-out infinite alternate;
+    }
+    .blob-2 {
+      width: 550px; height: 550px; background: #00e5ff;
+      bottom: 10%; right: 5%;
+      animation: drift-reverse 26s ease-in-out infinite alternate;
+    }
+    @keyframes drift {
+      0% { transform: translate(0, 0) scale(1) rotate(0deg); }
+      50% { transform: translate(120px, 90px) scale(1.15) rotate(180deg); }
+      100% { transform: translate(-40px, 140px) scale(0.9) rotate(360deg); }
+    }
+    @keyframes drift-reverse {
+      0% { transform: translate(0, 0) scale(0.9) rotate(360deg); }
+      50% { transform: translate(-100px, -70px) scale(1.1) rotate(180deg); }
+      100% { transform: translate(70px, 110px) scale(1) rotate(0deg); }
+    }
+
+    /* Interactive Mockup animations */
+    .vis-scanner {
+      position: absolute; left: 0; width: 100%; height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      box-shadow: 0 0 10px var(--accent);
+      animation: scan 4s ease-in-out infinite;
+      z-index: 5;
+    }
+    @keyframes scan {
+      0%, 100% { top: 0%; opacity: 0; }
+      10% { opacity: 1; }
+      90% { opacity: 1; }
+      100% { top: 100%; opacity: 0; }
+    }
+    .chat-bubble {
+      opacity: 0;
+      transform: translateY(10px);
+      animation: messageEnter 6s infinite;
+    }
+    .chat-bubble:nth-child(1) { animation-delay: 0.5s; }
+    .chat-bubble:nth-child(2) { animation-delay: 2.5s; }
+    .chat-bubble:nth-child(3) { animation-delay: 4.5s; }
+
+    @keyframes messageEnter {
+      0%, 100% { opacity: 0; transform: translateY(10px); }
+      5%, 35% { opacity: 1; transform: translateY(0); }
+      40% { opacity: 0; transform: translateY(-10px); }
+    }
+
     .bento-icon {
       width: 56px; height: 56px; border-radius: 14px;
       background: var(--accent-dim); display: flex; align-items: center;
@@ -330,6 +397,7 @@
       border-radius: var(--radius-sm);
       padding: 32px; display: flex; align-items: center; justify-content: center;
       min-height: 200px;
+      position: relative; overflow: hidden;
     }
 
     /* ── How It Works ─────────────────────────────────── */
@@ -433,44 +501,7 @@
     .vis-paper:nth-child(2) { margin-left: 16px; }
     .vis-paper:nth-child(3) { margin-left: 32px; }
 
-    /* ── Testimonials ─────────────────────────────────── */
-    #testimonials {
-      background: rgba(255,255,255,0.015);
-      overflow: hidden;
-    }
-    .testimonials-header { text-align: center; margin-bottom: 64px; }
-    .testimonials-header .section-sub { margin-left: auto; margin-right: auto; }
 
-    .testimonial-track {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;
-    }
-    .testimonial-card {
-      background: var(--bg-card); border: 1px solid var(--border);
-      border-radius: var(--radius); padding: 36px;
-      transition: border-color 0.3s, transform 0.4s cubic-bezier(0.16,1,0.3,1);
-      display: flex; flex-direction: column;
-    }
-    .testimonial-card:hover {
-      border-color: var(--border-hover); transform: translateY(-4px);
-    }
-    .testimonial-stars { color: #FFD700; font-size: 0.9rem; letter-spacing: 2px; margin-bottom: 20px; }
-    .testimonial-card blockquote {
-      font-size: 1rem; color: var(--text); line-height: 1.75; flex: 1;
-      font-style: italic; margin-bottom: 24px;
-    }
-    .testimonial-author {
-      display: flex; align-items: center; gap: 12px;
-      border-top: 1px solid var(--border); padding-top: 20px;
-    }
-    .author-avatar {
-      width: 44px; height: 44px; border-radius: 50%;
-      background: linear-gradient(135deg, var(--accent-dim), rgba(149,255,0,0.3));
-      display: flex; align-items: center; justify-content: center;
-      font-family: 'Outfit', sans-serif; font-weight: 700; font-size: 1rem;
-      color: var(--accent);
-    }
-    .author-info h4 { font-size: 0.95rem; font-weight: 600; color: #fff; }
-    .author-info p { font-size: 0.8rem; color: var(--text-dim); }
 
     /* ── Tech Stack Ribbon ────────────────────────────── */
     #tech {
@@ -575,7 +606,6 @@
       .steps-container { grid-template-columns: 1fr; gap: 48px; }
       .steps-container::before { display: none; }
       .audience-grid { grid-template-columns: 1fr; gap: 40px; }
-      .testimonial-track { grid-template-columns: 1fr; }
       .hero h1 { font-size: clamp(2.4rem, 10vw, 4rem); }
       .hero-accent { font-size: clamp(2rem, 8vw, 3.2rem); }
       section { padding: 80px 0; }
@@ -583,6 +613,8 @@
   </style>
 </head>
 <body>
+
+
 
 <!-- Floating Particles -->
 <div class="particles" aria-hidden="true">
@@ -613,7 +645,6 @@
       <li><a href="#features">Features</a></li>
       <li><a href="#how-it-works">How It Works</a></li>
       <li><a href="#audience">Use Cases</a></li>
-      <li><a href="#testimonials">Testimonials</a></li>
     </ul>
     <a href="#cta" class="nav-cta">Get Started</a>
     <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation">
@@ -625,11 +656,11 @@
 <!-- ── Hero ────────────────────────────────────────── -->
 <section class="hero" id="hero">
   <div class="hero-bg-grid" aria-hidden="true"></div>
+  <!-- Ambient blobs for hero section -->
+  <div class="ambient-blob blob-1" aria-hidden="true"></div>
+  <div class="ambient-blob blob-2" aria-hidden="true"></div>
   <div class="hero-content">
-    <div class="hero-badge reveal">
-      <span class="stars">★★★★★</span>
-      Trusted by <span>500+ researchers</span>
-    </div>
+
     <h1>
       <span class="hero-word">Research</span>
       <span class="hero-word">is</span>
@@ -678,6 +709,7 @@
           <p>Ingest PDFs and get instant summaries, key claims extraction, and semantic search across your entire collection. Powered by local language models.</p>
         </div>
         <div class="bento-card-visual" aria-hidden="true">
+          <div class="vis-scanner"></div>
           <svg viewBox="0 0 200 160" fill="none" width="100%">
             <rect x="10" y="10" width="80" height="100" rx="6" stroke="#95FF00" stroke-width="1.5" opacity="0.4"/>
             <line x1="22" y1="30" x2="78" y2="30" stroke="#95FF00" stroke-width="1" opacity="0.3"/>
@@ -838,54 +870,7 @@
   </div>
 </section>
 
-<!-- ── Testimonials ────────────────────────────────── -->
-<section id="testimonials">
-  <div class="container">
-    <div class="testimonials-header">
-      <p class="section-label reveal">Testimonials</p>
-      <h2 class="section-heading reveal reveal-delay-1">Loved by researchers<br/>worldwide.</h2>
-      <p class="section-sub reveal reveal-delay-2">See what our users are saying about ThinkStack.</p>
-    </div>
 
-    <div class="testimonial-track">
-      <div class="testimonial-card reveal">
-        <div class="testimonial-stars">★★★★★</div>
-        <blockquote>"ThinkStack completely transformed my PhD workflow. I went from drowning in 200+ papers to having structured, actionable insights in days."</blockquote>
-        <div class="testimonial-author">
-          <div class="author-avatar">SK</div>
-          <div class="author-info">
-            <h4>Sarah K.</h4>
-            <p>PhD Candidate, MIT</p>
-          </div>
-        </div>
-      </div>
-
-      <div class="testimonial-card reveal reveal-delay-1">
-        <div class="testimonial-stars">★★★★★</div>
-        <blockquote>"The fact that everything runs offline is a game-changer. I work with sensitive medical data and can finally use AI tools without compliance concerns."</blockquote>
-        <div class="testimonial-author">
-          <div class="author-avatar">RM</div>
-          <div class="author-info">
-            <h4>Dr. R. Martinez</h4>
-            <p>Research Lead, Stanford Medicine</p>
-          </div>
-        </div>
-      </div>
-
-      <div class="testimonial-card reveal reveal-delay-2">
-        <div class="testimonial-stars">★★★★★</div>
-        <blockquote>"The gap finder alone saved me months of work. It identified three research directions I hadn't considered. Absolutely essential tool."</blockquote>
-        <div class="testimonial-author">
-          <div class="author-avatar">JL</div>
-          <div class="author-info">
-            <h4>James L.</h4>
-            <p>Postdoc, Oxford University</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
 
 <!-- ── Tech Stack ──────────────────────────────────── -->
 <section id="tech">
@@ -993,27 +978,21 @@
 
   /* ── Hero sequential animation ── */
   window.addEventListener('DOMContentLoaded', () => {
-    const badge = document.querySelector('.hero-badge');
     const words = document.querySelectorAll('.hero-word');
     const slash = document.querySelector('.hero-slash');
     const accent = document.querySelector('.hero-accent');
     const sub = document.querySelector('.hero-sub');
     const buttons = document.querySelector('.hero-buttons');
 
-    // Show badge first
-    setTimeout(() => {
-      badge.classList.add('visible');
-    }, 300);
-
     // Show each word one by one
     words.forEach((word, i) => {
       setTimeout(() => {
         word.classList.add('show');
-      }, 600 + i * 200);
+      }, 300 + i * 200);
     });
 
     // After all words shown, draw the slash
-    const slashDelay = 600 + words.length * 200 + 300;
+    const slashDelay = 300 + words.length * 200 + 300;
     setTimeout(() => {
       slash.classList.add('draw');
     }, slashDelay);
@@ -1031,6 +1010,19 @@
     setTimeout(() => {
       buttons.classList.add('visible');
     }, slashDelay + 1100);
+  });
+
+
+
+  /* ── Dynamic Bento Card Glow tracking mouse coordinates ── */
+  document.querySelectorAll('.bento-card').forEach(card => {
+    card.addEventListener('mousemove', (e) => {
+      const rect = card.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      card.style.setProperty('--mouse-x', `${x}px`);
+      card.style.setProperty('--mouse-y', `${y}px`);
+    });
   });
 </script>
 </body>
