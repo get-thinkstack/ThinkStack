@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Send, Sparkles, CornerDownLeft, PanelRightOpen, PanelRightClose } from 'lucide-react';
+import { X, Send, Sparkles, CornerDownLeft, PanelRightOpen, PanelRightClose, Loader2 } from 'lucide-react';
 import Loader from './Loader';
 import { useLlmBusy } from '../utils/api';
 
