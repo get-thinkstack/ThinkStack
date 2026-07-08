@@ -72,3 +72,9 @@ docs/*.synctex.gz
 
 #local
 local/
+
+# Logs and git helper/scratch files
+backend.log
+git_branches.txt
+git_log_output.txt
+
