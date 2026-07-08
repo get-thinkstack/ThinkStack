@@ -8,35 +8,44 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { height: 100%; }
     body {
+      position: relative;
       display: flex; flex-direction: column;
       align-items: center; justify-content: center;
       gap: 1.6rem;
-      background: #16181d;
-      color: #e7e3da;
+      background: #0a0a0a;
+      color: #e9e9e6;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       -webkit-user-select: none; user-select: none;
       overflow: hidden;
     }
-    .brand {
-      font-size: 2.4rem; font-weight: 800; letter-spacing: -0.02em;
-      background: linear-gradient(120deg, #f59e0b, #fbbf24);
-      -webkit-background-clip: text; background-clip: text;
-      -webkit-text-fill-color: transparent;
+    /* ambient acid-green glow — the one neon signature, kept faint */
+    body::before {
+      content: ""; position: absolute; inset: 0;
+      background:
+        radial-gradient(600px 340px at 50% 38%, rgba(149,255,0,0.10), transparent 70%);
+      pointer-events: none;
     }
+    .brand {
+      position: relative;
+      font-size: 2.5rem; font-weight: 800; letter-spacing: -0.03em;
+    }
+    .brand .stack { color: #95ff00; text-shadow: 0 0 22px rgba(149,255,0,0.45); }
     .ring {
+      position: relative;
       width: 46px; height: 46px; border-radius: 50%;
-      border: 3px solid rgba(245, 158, 11, 0.18);
-      border-top-color: #f59e0b;
+      border: 3px solid rgba(149, 255, 0, 0.15);
+      border-top-color: #95ff00;
+      box-shadow: 0 0 18px rgba(149, 255, 0, 0.22);
       animation: spin 0.9s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .msg { font-size: 0.95rem; color: #9a958b; min-height: 1.2em; }
-    .sub { font-size: 0.78rem; color: #6b675f; }
+    .msg { position: relative; font-size: 0.95rem; color: #9a9a95; min-height: 1.2em; }
+    .sub { position: relative; font-size: 0.78rem; color: #63635f; }
     @media (prefers-reduced-motion: reduce) { .ring { animation: none; } }
   </style>
 </head>
 <body>
-  <div class="brand">ThinkStack</div>
+  <div class="brand">Think<span class="stack">Stack</span></div>
   <div class="ring"></div>
   <div class="msg" id="msg">Starting the local engine…</div>
   <div class="sub" id="sub">loading model &amp; index — this can take a moment on first launch</div>

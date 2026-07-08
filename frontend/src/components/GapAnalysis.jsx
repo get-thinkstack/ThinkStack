@@ -3,6 +3,7 @@ import { Target, Compass, FileText, AlertTriangle, TrendingUp, MessageSquare, Lo
 import { documentsApi, gapsApi, chatApi, useLlmBusy } from '../utils/api';
 import ChatDialog from './ChatDialog';
 import GapSeverityChart from './charts/GapSeverityChart';
+import PageHeader from './PageHeader';
 
 /**
  * research gap analysis component.
@@ -148,16 +149,16 @@ export default function GapAnalysis() {
 
   return (
     <div>
-      <div className="page-header fade-up stagger-1">
-        <div className="page-header-left">
-          <h2>Gap Finder</h2>
-          <p>AI-identified research gaps and novel directions in your library.</p>
-        </div>
+      <PageHeader
+        className="fade-up stagger-1"
+        title="Gap Finder"
+        subtitle="AI-identified research gaps and novel directions in your library."
+      >
         <button className="btn btn-primary" onClick={() => setShowSetup(!showSetup)}>
           <Search size={16} />
           <span>Scan Library</span>
         </button>
-      </div>
+      </PageHeader>
 
       {showSetup && (
         <div className="card fade-up stagger-2" style={{ marginBottom: '1.5rem' }}>

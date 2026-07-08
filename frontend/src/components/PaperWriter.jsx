@@ -4,6 +4,7 @@ import {
   FilePlus2, Save, Play, Download, Trash2, Sparkles, FileText, Loader2, BookOpen, ChevronDown,
 } from 'lucide-react';
 import { papersApi, documentsApi, useLlmBusy } from '../utils/api';
+import PageHeader from './PageHeader';
 
 /** insert AI-generated body just before \end{document} (else append). */
 function insertLatex(src, gen) {
@@ -169,12 +170,10 @@ export default function PaperWriter() {
 
   return (
     <div>
-      <div className="page-header">
-        <div className="page-header-left">
-          <h2>Paper Writer</h2>
-          <p>Draft, AI-generate, and compile LaTeX papers — fully offline.</p>
-        </div>
-      </div>
+      <PageHeader
+        title="Paper Writer"
+        subtitle="Draft, AI-generate, and compile LaTeX papers — fully offline."
+      />
 
       {/* project bar */}
       <div className="card pw-bar">
