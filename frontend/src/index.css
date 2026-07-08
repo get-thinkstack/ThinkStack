@@ -1531,8 +1531,29 @@ input::-webkit-credentials-auto-fill-button {
 .pw-ai .input { flex: 1; }
 .pw-ai-icon { color: var(--accent); flex-shrink: 0; }
 
-.pw-preview { padding: 0; overflow: hidden; min-height: 540px; display: flex; }
-.pw-iframe { width: 100%; height: 100%; min-height: 540px; border: none; border-radius: var(--radius-lg); background: #fff; }
+.pw-preview { padding: 0; overflow: hidden; min-height: 540px; display: flex; flex-direction: column; }
+.pw-iframe { width: 100%; flex: 1; min-height: 540px; border: none; border-radius: var(--radius-lg); background: #fff; }
+
+/* overleaf-style "compiled with warnings" banner above the preview */
+.pw-warn {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0.55rem 0.85rem;
+  background: var(--warning-bg, rgba(245, 158, 11, 0.12));
+  border-bottom: 1px solid var(--border-light);
+  color: var(--warning, #b45309);
+  font-size: 0.82rem;
+}
+.pw-warn summary { cursor: pointer; font-weight: 600; user-select: none; }
+.pw-warn pre {
+  margin: 0.6rem 0 0;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.76rem;
+  color: var(--text-2);
+}
 
 .pw-empty {
   margin: auto; text-align: center; color: var(--text-3);
@@ -1564,3 +1585,67 @@ input::-webkit-credentials-auto-fill-button {
 
 /* keep the assistant "thinking" loader from forcing overflow */
 .chat-bubble-loading { flex-wrap: wrap; }
+
+/* "model busy" hint when another task holds the single local model */
+.chat-busy-hint {
+  color: var(--accent);
+  font-weight: 600;
+  justify-content: flex-start;
+}
+
+/* multi-line agent prompt (chat) — grows with content, then scrolls */
+.chat-input {
+  min-height: 46px;
+  max-height: 160px;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+
+/* multi-line AI prompt in the paper writer */
+.pw-ai { align-items: flex-end; }
+.pw-ai-input {
+  min-height: 46px;
+  max-height: 160px;
+  resize: vertical;
+  line-height: 1.5;
+  font-family: var(--font-base);
+}
+
+/* paper-writer grounding (choose papers as AI context) */
+.pw-context { margin-top: 0.85rem; }
+.pw-context-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pw-context-toggle:hover { color: var(--text); border-color: var(--accent-border); }
+.pw-context-toggle svg:last-child { transition: transform var(--transition-base); }
+.pw-rot { transform: rotate(180deg); }
+.pw-context-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+.pw-context-list .pw-chip span {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* alignment: match the design — title + action button align to the baseline */
+.page-header { align-items: flex-end; gap: 1.5rem; }
+.page-header .btn { flex-shrink: 0; }
+
+/* chat side panel: never overflow a narrow window (also helps the desktop app) */
+.chat-side-panel { width: min(400px, 92vw); }

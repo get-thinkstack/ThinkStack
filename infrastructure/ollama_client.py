@@ -236,8 +236,6 @@ class OllamaClient:
         max_tokens: int,
         json_mode: bool = False,
     ) -> str:
-        llama = self._get_llama()
-
         # build the chat messages; create_chat_completion applies the model's
         # own chat template, so a dedicated system turn is handled correctly.
         messages = []
@@ -259,7 +257,13 @@ class OllamaClient:
             except Exception as e:
                 logger.warning("failed to load json grammar, proceeding without: %s", e)
 
+        # serialize BOTH the lazy model load and generation through one lock.
+        # llama.cpp is not safe for concurrent access on a single context, and a
+        # concurrent first-request race would otherwise load the model twice on
+        # the gpu (doubling vram -> segfault / shared-memory spill). loading
+        # inside the lock guarantees exactly one load and one in-flight call.
         async with self._get_gen_lock():
+            llama = self._get_llama()
             result = await asyncio.to_thread(
                 llama.create_chat_completion,
                 **kwargs,

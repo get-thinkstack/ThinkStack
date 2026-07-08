@@ -29,6 +29,14 @@ frontend/.eslintcache
 *.local
 *-debug.log*
 
+# ── Rust / Tauri (desktop shell) ─────────────────────────
+# build artifacts; Cargo.lock IS committed (it's an application).
+# the configured build also targets an external CARGO_TARGET_DIR.
+target/
+src-tauri/target/
+src-tauri/gen/
+*.pdb
+
 # ── Local data & runtime state (recreated on startup) ────
 # uploaded papers, the vector store, and the persisted model
 # selection (data/active_model.txt) all live here

@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  FilePlus2, Save, Play, Download, Trash2, Sparkles, FileText, Loader2,
+  FilePlus2, Save, Play, Download, Trash2, Sparkles, FileText, Loader2, BookOpen, ChevronDown,
 } from 'lucide-react';
-import { papersApi } from '../utils/api';
+import { papersApi, documentsApi, useLlmBusy } from '../utils/api';
 
 /** insert AI-generated body just before \end{document} (else append). */
 function insertLatex(src, gen) {
@@ -27,10 +27,19 @@ export default function PaperWriter() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [pdfUrl, setPdfUrl] = useState(null);
+  const [warnings, setWarnings] = useState([]);
   const [prompt, setPrompt] = useState('');
   const [generating, setGenerating] = useState(false);
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
+
+  // single shared local model — block AI generate while it's busy elsewhere
+  const { busy: llmBusy, label } = useLlmBusy();
+
+  // grounding: which uploaded papers the AI should use as context
+  const [docs, setDocs] = useState([]);
+  const [groundDocs, setGroundDocs] = useState([]);
+  const [showContext, setShowContext] = useState(false);
 
   const flash = (msg) => {
     setStatus(msg);
@@ -50,9 +59,17 @@ export default function PaperWriter() {
     loadProjects();
   }, [loadProjects]);
 
+  useEffect(() => {
+    documentsApi.list().then((d) => setDocs(d.documents || [])).catch(() => {});
+  }, []);
+
+  const toggleGround = (id) =>
+    setGroundDocs((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
   const openProject = async (id) => {
     setError('');
     setStatus('');
+    setWarnings([]);
     setPdfUrl(null);
     try {
       const d = await papersApi.get(id);
@@ -101,13 +118,16 @@ export default function PaperWriter() {
     if (!activeId) return;
     setBusy(true);
     setError('');
+    setWarnings([]);
     setStatus('compiling…');
     try {
       await papersApi.save(activeId, source);
       setDirty(false);
-      await papersApi.compile(activeId);
+      const res = await papersApi.compile(activeId);
       setPdfUrl(`${papersApi.downloadUrl(activeId)}?t=${Date.now()}`);
-      flash('compiled');
+      const w = res?.warnings || [];
+      setWarnings(w);
+      flash(w.length ? `compiled with ${w.length} warning${w.length > 1 ? 's' : ''}` : 'compiled');
       loadProjects();
     } catch (e) {
       setError(e.message);
@@ -121,7 +141,7 @@ export default function PaperWriter() {
     setGenerating(true);
     setError('');
     try {
-      const d = await papersApi.generate(activeId, prompt.trim(), source);
+      const d = await papersApi.generate(activeId, prompt.trim(), source, { docIds: groundDocs });
       setSource((prev) => insertLatex(prev, d.generated_latex || ''));
       setDirty(true);
       setPrompt('');
@@ -241,24 +261,71 @@ export default function PaperWriter() {
               placeholder="\\documentclass{article} ..."
             />
 
+            <div className="pw-context">
+              <button
+                type="button"
+                className="pw-context-toggle"
+                onClick={() => setShowContext((v) => !v)}
+              >
+                <BookOpen size={14} />
+                <span>Ground on papers{groundDocs.length ? ` · ${groundDocs.length} selected` : ''}</span>
+                <ChevronDown size={14} className={showContext ? 'pw-rot' : ''} />
+              </button>
+              {showContext && (
+                <div className="pw-context-list">
+                  {docs.length === 0 ? (
+                    <span className="pw-hint">no papers yet — upload in Library</span>
+                  ) : (
+                    docs.map((d) => (
+                      <button
+                        key={d.doc_id}
+                        type="button"
+                        className={`pw-chip ${groundDocs.includes(d.doc_id) ? 'active' : ''}`}
+                        onClick={() => toggleGround(d.doc_id)}
+                        title={d.filename}
+                      >
+                        <FileText size={13} />
+                        <span>{d.filename}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="pw-ai">
               <Sparkles size={16} className="pw-ai-icon" />
-              <input
-                className="input"
-                placeholder="Describe a section, equation, or table for the AI to write…"
+              <textarea
+                className="input pw-ai-input"
+                rows={2}
+                placeholder={llmBusy && !generating ? 'Model busy — please wait…' : 'Describe a section, equation, table, or chart for the AI to write… (Shift+Enter for a new line)'}
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && !generating && handleGenerate()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (!generating && !llmBusy && prompt.trim()) handleGenerate();
+                  }
+                }}
+                disabled={llmBusy && !generating}
               />
-              <button className="btn btn-primary" onClick={handleGenerate} disabled={generating || !prompt.trim()}>
-                {generating ? <Loader2 size={16} className="pw-spin" /> : <Sparkles size={16} />}
-                <span>Generate</span>
+              <button className="btn btn-primary" onClick={handleGenerate} disabled={generating || llmBusy || !prompt.trim()}>
+                {generating || llmBusy ? <Loader2 size={16} className="pw-spin" /> : <Sparkles size={16} />}
+                <span>{generating ? 'Generating…' : llmBusy && !generating ? (label || 'Model busy…') : 'Generate'}</span>
               </button>
             </div>
           </motion.div>
 
           {/* preview */}
           <div className="card pw-preview">
+            {warnings.length > 0 && (
+              <details className="pw-warn">
+                <summary>
+                  ⚠ Compiled with {warnings.length} warning{warnings.length > 1 ? 's' : ''} — PDF may have missing figures
+                </summary>
+                <pre>{warnings.join('\n\n')}</pre>
+              </details>
+            )}
             <AnimatePresence mode="wait">
               {pdfUrl ? (
                 <motion.iframe
