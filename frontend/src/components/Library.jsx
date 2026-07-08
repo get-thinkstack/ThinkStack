@@ -3,6 +3,7 @@ import { Clock, CheckCircle, FileText, Trash2, RefreshCw, ChevronDown, ChevronUp
 import { documentsApi, encryptionApi } from '../utils/api';
 import UploadPanel from './UploadPanel';
 import LibraryChart from './charts/LibraryChart';
+import PageHeader from './PageHeader';
 
 /**
  * paper library component.
@@ -131,12 +132,11 @@ export default function Library() {
 
   return (
     <div>
-      <div className="page-header fade-up stagger-1">
-        <div className="page-header-left">
-          <h2>Library</h2>
-          <p>Manage your collection of ingested research papers.</p>
-        </div>
-      </div>
+      <PageHeader
+        className="fade-up stagger-1"
+        title="Library"
+        subtitle="Manage your collection of ingested research papers."
+      />
 
       <div className="stat-row fade-up stagger-2">
         <div className="stat-card">

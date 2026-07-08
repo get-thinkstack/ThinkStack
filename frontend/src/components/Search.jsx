@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Search as SearchIcon, FileText, Sparkles } from 'lucide-react';
 import { searchApi } from '../utils/api';
 import SearchScoreChart from './charts/SearchScoreChart';
+import PageHeader from './PageHeader';
 
 /**
  * search interface component.
@@ -41,10 +42,10 @@ export default function Search() {
 
   return (
     <div>
-      <div className="page-header">
-        <h2>Search Papers</h2>
-        <p>Semantic and keyword search across your knowledge base</p>
-      </div>
+      <PageHeader
+        title="Search Papers"
+        subtitle="Semantic and keyword search across your knowledge base."
+      />
 
       <div className="card" style={{ marginBottom: '1.5rem' }}>
         <form onSubmit={handleSearch}>

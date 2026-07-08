@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Brain, Lightbulb, Layers, FileText, MessageSquare, Lock, Eye, EyeOff, Plus, Target } from 'lucide-react';
 import { documentsApi, analysisApi, chatApi, useLlmBusy } from '../utils/api';
 import ChatDialog from './ChatDialog';
+import PageHeader from './PageHeader';
 
 /**
  * analysis dashboard component.
@@ -138,16 +139,16 @@ export default function Analysis() {
 
   return (
     <div>
-      <div className="page-header fade-up stagger-1">
-        <div className="page-header-left">
-          <h2>Analysis</h2>
-          <p>Run cross-paper analyses and synthesize findings.</p>
-        </div>
+      <PageHeader
+        className="fade-up stagger-1"
+        title="Analysis"
+        subtitle="Run cross-paper analyses and synthesize findings."
+      >
         <button className="btn btn-primary" onClick={() => setShowNewAnalysis(!showNewAnalysis)}>
           <Plus size={16} />
           <span>New Analysis</span>
         </button>
-      </div>
+      </PageHeader>
 
       {showNewAnalysis && (
         <>
