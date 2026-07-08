@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ThinkStack — starting…</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 1.6rem;
+      background: #16181d;
+      color: #e7e3da;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      -webkit-user-select: none; user-select: none;
+      overflow: hidden;
+    }
+    .brand {
+      font-size: 2.4rem; font-weight: 800; letter-spacing: -0.02em;
+      background: linear-gradient(120deg, #f59e0b, #fbbf24);
+      -webkit-background-clip: text; background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .ring {
+      width: 46px; height: 46px; border-radius: 50%;
+      border: 3px solid rgba(245, 158, 11, 0.18);
+      border-top-color: #f59e0b;
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .msg { font-size: 0.95rem; color: #9a958b; min-height: 1.2em; }
+    .sub { font-size: 0.78rem; color: #6b675f; }
+    @media (prefers-reduced-motion: reduce) { .ring { animation: none; } }
+  </style>
+</head>
+<body>
+  <div class="brand">ThinkStack</div>
+  <div class="ring"></div>
+  <div class="msg" id="msg">Starting the local engine…</div>
+  <div class="sub" id="sub">loading model &amp; index — this can take a moment on first launch</div>
+
+  <script>
+    var BACKEND = 'http://localhost:8000/';
+    var tries = 0;
+
+    function go() { window.location.replace(BACKEND); }
+
+    async function poll() {
+      tries++;
+      try {
+        // no-cors: resolves once the server responds, rejects while it's down
+        await fetch(BACKEND, { mode: 'no-cors', cache: 'no-store' });
+        document.getElementById('msg').textContent = 'Ready — opening ThinkStack';
+        go();
+      } catch (e) {
+        if (tries > 8) {
+          document.getElementById('msg').textContent = 'Still warming up…';
+          document.getElementById('sub').textContent =
+            'first launch loads the AI model; hang tight (' + tries + 's)';
+        }
+        setTimeout(poll, 900);
+      }
+    }
+    poll();
+  </script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
 import useThemeColors from './useThemeColors';
 import ChartCard from './ChartCard';
 
@@ -17,14 +17,14 @@ export default function LibraryChart({ documents = [] }) {
   if (data.length === 0) return null;
 
   return (
-    <ChartCard title="Knowledge base — chunks per paper" height={Math.max(150, data.length * 46)} style={{ marginBottom: '2rem' }}>
+    <ChartCard title="Knowledge base — chunks per paper" height={Math.max(190, data.length * 56)} style={{ marginBottom: '2rem' }}>
       <ResponsiveContainer>
-        <BarChart data={data} layout="vertical" margin={{ left: 6, right: 28, top: 4, bottom: 4 }}>
+        <BarChart data={data} layout="vertical" margin={{ left: 6, right: 40, top: 6, bottom: 6 }} barCategoryGap="28%">
           <XAxis type="number" hide />
           <YAxis
             type="category"
             dataKey="name"
-            width={130}
+            width={150}
             tick={{ fill: c['text-2'], fontSize: 12 }}
             axisLine={false}
             tickLine={false}
@@ -35,10 +35,11 @@ export default function LibraryChart({ documents = [] }) {
             labelFormatter={(l, p) => p?.[0]?.payload?.full || l}
             formatter={(v) => [`${v} chunks`, '']}
           />
-          <Bar dataKey="chunks" radius={[6, 6, 6, 6]} isAnimationActive animationDuration={650}>
+          <Bar dataKey="chunks" radius={[6, 6, 6, 6]} barSize={22} isAnimationActive animationDuration={650}>
             {data.map((_, i) => (
               <Cell key={i} fill={i % 2 ? c['accent-2'] : c.accent} />
             ))}
+            <LabelList dataKey="chunks" position="right" fill={c['text-2']} fontSize={11} />
           </Bar>
         </BarChart>
       </ResponsiveContainer>

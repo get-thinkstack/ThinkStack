@@ -6,6 +6,7 @@ and managing latex paper projects.
 """
 
 import logging
+import re
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
@@ -19,10 +20,20 @@ from domain.paper_writer.compiler import (
     get_source,
     delete_project,
 )
+from domain.chat.chat_service import _build_context
 from infrastructure.ollama_client import ollama_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _clean_latex(text: str) -> str:
+    """strip markdown fences / stray wrapping the model may add around latex."""
+    t = (text or "").strip()
+    fence = re.search(r"```(?:latex|tex)?\s*(.*?)```", t, re.DOTALL)
+    if fence:
+        t = fence.group(1).strip()
+    return t.replace("```latex", "").replace("```tex", "").replace("```", "").strip()
 
 
 class CreateProjectRequest(BaseModel):
@@ -38,6 +49,8 @@ class GenerateLatexRequest(BaseModel):
     project_id: str
     prompt: str
     current_source: str = ""
+    doc_ids: list[str] = []          # papers to ground the writing on (rag)
+    analysis_context: str = ""       # optional analysis findings to incorporate
 
 
 class CompileRequest(BaseModel):
@@ -95,8 +108,37 @@ async def api_generate_latex(req: GenerateLatexRequest):
         "valid, compilable latex code. do not include \\documentclass, "
         "\\begin{document}, or \\end{document} — just the body content. "
         "do not include any explanation or markdown formatting. "
-        "only output raw latex code."
+        "only output raw latex code. "
+        "the document preamble already loads these packages, so you MAY use "
+        "them WITHOUT adding \\usepackage: amsmath, amssymb, graphicx, "
+        "booktabs and tabularx (for professional tables), float, caption, "
+        "xcolor, tikz and pgfplots (for charts/plots/diagrams; use "
+        "\\begin{tikzpicture} or pgfplots axis environments), multirow, array. "
+        "for tables prefer booktabs (\\toprule/\\midrule/\\bottomrule) inside a "
+        "table float with a caption. for charts use pgfplots axis environments "
+        "inside a figure float. "
+        "use only widely-supported, standard latex commands; do NOT invent or "
+        "\\newcommand-define macros, and do NOT rely on packages other than "
+        "those listed. the snippet must compile on its own."
     )
+
+    # optional grounding: relevant excerpts from selected papers + analysis
+    grounding_parts: list[str] = []
+    if req.doc_ids:
+        try:
+            context_text, _ = _build_context(req.prompt, req.doc_ids)
+            if context_text:
+                grounding_parts.append(
+                    "relevant excerpts from the user's selected papers — "
+                    "ground the writing in these and do not fabricate facts:\n"
+                    f"{context_text}"
+                )
+        except Exception as e:  # noqa: BLE001 - grounding is best-effort
+            logger.warning("paper grounding skipped: %s", e)
+    if req.analysis_context.strip():
+        grounding_parts.append(
+            f"analysis findings to incorporate:\n{req.analysis_context.strip()}"
+        )
 
     prompt = req.prompt
     if req.current_source:
@@ -105,6 +147,8 @@ async def api_generate_latex(req: GenerateLatexRequest):
             f"```\n{req.current_source}\n```\n\n"
             f"now generate latex for this request:\n{req.prompt}"
         )
+    if grounding_parts:
+        prompt = "\n\n".join(grounding_parts) + "\n\n" + prompt
 
     try:
         latex_output = await ollama_client.generate(
@@ -115,7 +159,7 @@ async def api_generate_latex(req: GenerateLatexRequest):
         )
         return {
             "project_id": req.project_id,
-            "generated_latex": latex_output.strip(),
+            "generated_latex": _clean_latex(latex_output),
         }
     except Exception as e:
         logger.error("latex generation failed: %s", e)
@@ -129,11 +173,12 @@ async def api_generate_latex(req: GenerateLatexRequest):
 async def api_compile_pdf(req: CompileRequest):
     """compile the project's latex source into a pdf."""
     try:
-        pdf_path = compile_pdf(req.project_id)
+        _, warnings = compile_pdf(req.project_id)
         return {
             "project_id": req.project_id,
             "status": "compiled",
             "pdf_url": f"/api/papers/download/{req.project_id}",
+            "warnings": warnings,
         }
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))

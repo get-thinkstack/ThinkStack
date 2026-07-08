@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Target, Compass, FileText, AlertTriangle, TrendingUp, MessageSquare, Lock, Eye, EyeOff, Search, ArrowRight } from 'lucide-react';
-import { documentsApi, gapsApi, chatApi } from '../utils/api';
+import { documentsApi, gapsApi, chatApi, useLlmBusy } from '../utils/api';
 import ChatDialog from './ChatDialog';
 import GapSeverityChart from './charts/GapSeverityChart';
 
@@ -25,6 +25,9 @@ export default function GapAnalysis() {
   // chat state
   const [chatMessages, setChatMessages] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
+
+  // single shared local model — disable runs while it's busy elsewhere
+  const { busy } = useLlmBusy();
 
   useEffect(() => {
     const loadDocs = async () => {
@@ -224,10 +227,10 @@ export default function GapAnalysis() {
             <button
               className="btn btn-primary"
               onClick={runGapAnalysis}
-              disabled={loading || selectedDocs.length < 2}
+              disabled={loading || busy || selectedDocs.length < 2}
             >
-              {loading ? <div className="spinner" /> : <Target size={16} />}
-              <span>{loading ? 'Analyzing gaps...' : 'Run Gap Analysis'}</span>
+              {loading || busy ? <div className="spinner" /> : <Target size={16} />}
+              <span>{loading ? 'Analyzing gaps...' : busy ? 'Model busy…' : 'Run Gap Analysis'}</span>
             </button>
             {selectedDocs.length < 2 && selectedDocs.length > 0 && (
               <span style={{ marginLeft: '0.75rem', fontSize: '0.8rem', color: 'var(--warning)' }}>

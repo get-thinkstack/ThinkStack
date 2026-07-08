@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
-import { X, Send, Sparkles, CornerDownLeft, PanelRightOpen, PanelRightClose } from 'lucide-react';
+import { X, Send, Sparkles, CornerDownLeft, PanelRightOpen, PanelRightClose, Loader2 } from 'lucide-react';
 import Loader from './Loader';
+import { useLlmBusy } from '../utils/api';
 
 /**
  * persistent collapsible side panel chat component.
@@ -17,6 +18,11 @@ export default function ChatDialog({
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
+  // single shared local model: if it's busy with another task (analysis, gap
+  // finder, paper generation), the assistant can't run yet — reflect that.
+  const { busy, label } = useLlmBusy();
+  const otherBusy = busy && !loading; // model busy with something other than this chat
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
@@ -29,9 +35,18 @@ export default function ChatDialog({
 
   const handleSend = () => {
     const text = input.trim();
-    if (!text || loading) return;
+    if (!text || loading || busy) return;
     onSend(text);
     setInput('');
+    if (inputRef.current) inputRef.current.style.height = 'auto';
+  };
+
+  // grow the textarea with the content (multi-line) up to a max height
+  const handleInput = (e) => {
+    setInput(e.target.value);
+    const el = e.target;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   };
 
   const handleKeyDown = (e) => {
@@ -135,23 +150,31 @@ export default function ChatDialog({
                     ref={inputRef}
                     className="chat-input"
                     value={input}
-                    onChange={(e) => setInput(e.target.value)}
+                    onChange={handleInput}
                     onKeyDown={handleKeyDown}
-                    placeholder={placeholder}
-                    rows={1}
+                    placeholder={otherBusy ? 'Model busy — please wait…' : `${placeholder}  (Shift+Enter for a new line)`}
+                    rows={2}
+                    disabled={otherBusy}
                   />
                   <button
                     className="chat-send-btn"
                     onClick={handleSend}
-                    disabled={!input.trim()}
+                    disabled={!input.trim() || busy}
                   >
-                    <Send size={14} />
+                    {busy ? <Loader2 size={14} className="pw-spin" /> : <Send size={14} />}
                   </button>
                 </div>
-                <div className="chat-input-hint">
-                  <CornerDownLeft size={11} />
-                  <span>enter to send</span>
-                </div>
+                {otherBusy ? (
+                  <div className="chat-input-hint chat-busy-hint">
+                    <Loader2 size={11} className="pw-spin" />
+                    <span>{label || 'Model busy'}… the assistant is queued (one local model).</span>
+                  </div>
+                ) : (
+                  <div className="chat-input-hint">
+                    <CornerDownLeft size={11} />
+                    <span>enter to send</span>
+                  </div>
+                )}
               </>
             )}
           </div>
