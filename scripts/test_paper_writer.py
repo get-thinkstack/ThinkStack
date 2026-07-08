@@ -110,7 +110,7 @@ all tests should pass.
 def test_compile_pdf(project_id):
     """test compiling latex to pdf."""
     print("\n[4] compile pdf")
-    pdf_path = compile_pdf(project_id)
+    pdf_path, _warnings = compile_pdf(project_id)
     report("pdf path returned", pdf_path is not None)
     report("pdf file exists", pdf_path.exists())
     report("pdf file has content", pdf_path.stat().st_size > 0)
@@ -123,21 +123,25 @@ def test_compile_pdf(project_id):
 
 
 def test_compile_bad_latex(project_id):
-    """test that invalid latex produces a clear error."""
-    print("\n[5] compile bad latex (error handling)")
+    """test that recoverable bad latex degrades gracefully (overleaf-style):
+    a PDF is still produced and the error is surfaced as a warning, rather than
+    the whole compile failing."""
+    print("\n[5] compile bad latex (graceful recovery)")
     bad_source = r"""
 \documentclass{article}
 \begin{document}
+Some valid text before the problem.
 \undefinedcommandthatwillfail{this should error}
+Some valid text after the problem.
 \end{document}
 """
     save_source(project_id, bad_source)
     try:
-        compile_pdf(project_id)
-        report("bad latex raises error", False, "no error was raised")
+        pdf_path, warnings = compile_pdf(project_id)
+        report("bad latex still produces a pdf", pdf_path.exists())
+        report("recovered errors surfaced as warnings", len(warnings) > 0)
     except RuntimeError as e:
-        report("bad latex raises RuntimeError", True)
-        report("error message is informative", len(str(e)) > 10)
+        report("bad latex degrades gracefully", False, f"raised instead: {e}")
 
 
 def test_list_projects(project_id):

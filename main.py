@@ -9,8 +9,9 @@ and startup/shutdown lifecycle events.
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from config import settings
@@ -69,7 +70,25 @@ app.include_router(papers_router, prefix="/api/papers", tags=["papers"])
 
 frontend_dist = settings.base_dir / "frontend" / "dist"
 if frontend_dist.exists():
-    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+    # serve hashed build assets directly
+    assets_dir = frontend_dist / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def spa(full_path: str):
+        """serve the SPA: real files when present, else index.html.
+
+        client-side routes (e.g. /analysis, /write) and a hard refresh on
+        them fall back to index.html instead of 404ing. api paths are left
+        to their routers.
+        """
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="not found")
+        candidate = frontend_dist / full_path
+        if full_path and candidate.is_file():
+            return FileResponse(str(candidate))
+        return FileResponse(str(frontend_dist / "index.html"))
 
 if __name__ == "__main__":
     import uvicorn

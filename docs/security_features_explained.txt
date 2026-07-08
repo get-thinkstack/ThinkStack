@@ -1,0 +1,460 @@
+============================================================
+  SCHOLARLENS — SECURITY, ENCRYPTION & DECRYPTION EXPLAINED
+============================================================
+
+This document explains, in simple terms, every security and
+cryptographic feature used in ScholarLens and how they work
+together to protect your research papers.
+
+
+------------------------------------------------------------
+1.  THE BIG PICTURE — WHAT PROBLEM ARE WE SOLVING?
+------------------------------------------------------------
+
+When you upload a research paper to ScholarLens, its text is
+stored so the app can search, summarize, and analyze it.
+But some papers are sensitive — you may not want anyone who
+has access to the database to simply read them.
+
+ScholarLens lets you **password-protect** any paper. Once
+encrypted, the original full text can only be recovered by
+entering the correct password. Even if someone copies the
+database files, they get nothing useful without the password.
+
+
+------------------------------------------------------------
+2.  KEY TECHNOLOGIES USED
+------------------------------------------------------------
+
+ScholarLens combines three industry-standard algorithms:
+
+  ┌──────────────────────────────────────────────────────┐
+  │  Argon2id     — password → encryption key            │
+  │  AES-256-GCM  — encryption key → encrypted data      │
+  │  TSENC1        — custom envelope format to store it   │
+  └──────────────────────────────────────────────────────┘
+
+Let's break each one down in detail:
+
+
+2A.  ARGON2ID — TURNING YOUR PASSWORD INTO A KEY
+─────────────────────────────────────────────────
+
+  What it is:
+    Argon2id is a "Key Derivation Function" (KDF). Its job
+    is to take a short, human-readable password like
+    "mySecret123" and turn it into a long, random-looking
+    256-bit (32-byte) encryption key that AES can use.
+
+  Why not just use the password directly?
+    AES-256 requires a key that is EXACTLY 32 bytes long and
+    should look random. Passwords are short, predictable,
+    and vary in length. Argon2id bridges this gap.
+
+  Simple analogy:
+    Think of it like a smoothie blender. You put in a
+    password (fruit) and a random salt (ice), blend them
+    with intense effort, and out comes a fixed-size key
+    (smoothie) that looks nothing like the original inputs.
+
+  Why Argon2id specifically?
+    There are older KDFs like PBKDF2 and bcrypt. Argon2id
+    is the modern winner — it won the Password Hashing
+    Competition in 2015. What makes it special:
+
+    • Memory-hard: It forces each key derivation to use a
+      LOT of RAM (64 MB in our case). This means attackers
+      can't just use thousands of cheap GPU cores to guess
+      passwords — each core would need its own 64 MB of
+      memory, which gets very expensive very fast.
+
+    • Time-hard: It runs 3 iterations, each taking real CPU
+      time. One derivation takes ~0.3–0.6 seconds on your
+      computer. Fine for a human typing a password once, but
+      an attacker trying billions of passwords would need
+      centuries.
+
+    • "id" variant: Argon2 comes in three flavors — Argon2d
+      (data-dependent), Argon2i (data-independent), and
+      Argon2id (hybrid). ScholarLens uses Argon2id because
+      it combines the GPU-resistance of Argon2d with the
+      side-channel-attack resistance of Argon2i — the best
+      of both worlds.
+
+  Parameters used in ScholarLens:
+    ┌────────────────────┬──────────────────────────────┐
+    │ Parameter          │ Value                        │
+    ├────────────────────┼──────────────────────────────┤
+    │ Time cost          │ 3 iterations                 │
+    │ Memory cost        │ 65,536 KiB (64 MB)           │
+    │ Parallelism        │ 4 threads                    │
+    │ Output key length  │ 32 bytes (256 bits)          │
+    │ Salt length        │ 16 bytes (random per paper)  │
+    └────────────────────┴──────────────────────────────┘
+
+  How the salt works:
+    Every time you encrypt a paper, a fresh 16-byte random
+    salt is generated. This means:
+      • Same password + different salt = different key
+      • Two papers with the same password have completely
+        different encryption keys
+      • An attacker can't pre-compute keys for common
+        passwords ("rainbow table" attack is impossible)
+
+  Code location: domain/encryption/kdf.py
+
+
+2B.  AES-256-GCM — THE ACTUAL ENCRYPTION
+─────────────────────────────────────────
+
+  What it is:
+    AES-256-GCM is the encryption algorithm that takes the
+    key (from Argon2id) and uses it to scramble your paper's
+    text into unreadable gibberish (ciphertext). Only the
+    same key can unscramble it back.
+
+  Breaking down the name:
+    • AES = Advanced Encryption Standard
+        The most widely used encryption algorithm in the
+        world. Adopted by the U.S. government in 2001,
+        used by banks, military, VPNs, HTTPS, and more.
+        It has been extensively studied by cryptographers
+        for 25+ years with no practical attacks found.
+
+    • 256 = 256-bit key size
+        The key is 256 bits (32 bytes) long. This means
+        there are 2^256 possible keys — that's roughly:
+        115,792,089,237,316,195,423,570,985,008,687,907,
+        853,269,984,665,640,564,039,457,584,007,913,129,
+        639,936 possible keys. Even if every computer on
+        Earth tried billions of keys per second, it would
+        take longer than the age of the universe to try
+        them all.
+
+    • GCM = Galois/Counter Mode
+        This is the "mode of operation" — it defines HOW
+        AES processes the data. GCM is special because it
+        provides AUTHENTICATED encryption (explained below).
+
+  What "authenticated encryption" means:
+    Regular encryption just scrambles data. An attacker
+    could potentially flip bits in the ciphertext, and
+    decryption would produce wrong (but not obviously wrong)
+    plaintext — you'd never know it was tampered with.
+
+    GCM prevents this by generating a 16-byte authentication
+    tag during encryption. During decryption, it recalculates
+    this tag and compares. If even a single bit of the
+    ciphertext was changed, the tags won't match, and
+    decryption is REFUSED entirely. You get an error instead
+    of corrupted data.
+
+    Simple analogy:
+    Think of GCM as a tamper-evident seal on a package.
+    If someone opens the package and puts it back, the
+    broken seal tells you it was tampered with.
+
+  The nonce (number used once):
+    Every encryption operation also needs a 12-byte random
+    nonce. The nonce ensures that encrypting the same text
+    with the same key produces DIFFERENT ciphertext each
+    time. This prevents attackers from noticing patterns
+    like "these two papers have identical encrypted sections."
+
+    CRITICAL RULE: A nonce must NEVER be reused with the
+    same key. ScholarLens generates a fresh random nonce
+    from os.urandom() every time, making reuse essentially
+    impossible.
+
+  Code location: domain/encryption/cipher.py
+
+
+2C.  TSENC1 — THE ENVELOPE FORMAT
+─────────────────────────────────
+
+  What it is:
+    TSENC1 is a custom format that ScholarLens uses to
+    package everything needed for decryption into a single
+    string. Think of it as a labeled envelope that holds
+    the encrypted letter plus instructions on how to open it
+    (but NOT the password).
+
+  Why is it needed?
+    After encryption, you have several separate pieces:
+      • The ciphertext (encrypted data)
+      • The salt (needed to re-derive the key)
+      • The nonce (needed for decryption)
+      • The KDF parameters (needed to repeat Argon2id)
+    
+    These all need to be stored together, otherwise you
+    can't decrypt later. TSENC1 bundles them into one neat
+    string that can be saved in a single database field.
+
+  The format:
+    TSENC1.<time_cost>.<memory_kib>.<parallelism>.<salt_b64>.<nonce_b64>.<ciphertext_b64>
+
+    Field-by-field breakdown:
+    ┌──────────────┬────────────────┬───────────────────────────────┐
+    │ Field        │ Example        │ Purpose                       │
+    ├──────────────┼────────────────┼───────────────────────────────┤
+    │ Version      │ TSENC1         │ Format version tag so future  │
+    │              │                │ changes don't break old data  │
+    │ Time cost    │ 3              │ Argon2id iteration count      │
+    │ Memory cost  │ 65536          │ Argon2id memory in KiB        │
+    │ Parallelism  │ 4              │ Argon2id thread count         │
+    │ Salt (b64)   │ aB3x...       │ URL-safe base64 encoded salt  │
+    │ Nonce (b64)  │ kL9m...       │ URL-safe base64 encoded nonce │
+    │ Cipher (b64) │ Zp7Q...       │ URL-safe base64 ciphertext    │
+    │              │                │ (includes 16-byte auth tag)   │
+    └──────────────┴────────────────┴───────────────────────────────┘
+
+  Why "TSENC1"?
+    The "1" is a version number. If the encryption scheme
+    ever changes (e.g., switching to a different algorithm),
+    a new version like "TSENC2" would be introduced. Old
+    papers with "TSENC1" would still decrypt correctly using
+    the old method, while new papers use the updated method.
+
+  Base64 encoding:
+    The salt, nonce, and ciphertext are raw binary data.
+    To safely store them as text in a database, they are
+    encoded using URL-safe Base64. This uses only letters,
+    numbers, hyphens, and underscores — no special
+    characters that could cause problems in URLs or
+    filenames.
+
+  What is NOT in the envelope:
+    ✗ The password — never stored anywhere
+    ✗ The derived key — never stored anywhere
+    → Without the password, the envelope is useless to
+      an attacker. They have the locked box and the
+      instructions, but not the key.
+
+  Code location: domain/encryption/envelope.py
+
+
+------------------------------------------------------------
+3.  STEP-BY-STEP: HOW ENCRYPTION WORKS
+------------------------------------------------------------
+
+When you click "Encrypt" on a paper and type a password,
+here is exactly what happens behind the scenes:
+
+  STEP 1 — Generate a random salt
+  ────────────────────────────────
+  A 16-byte random value (the "salt") is created using the
+  operating system's secure random number generator
+  (os.urandom). The salt makes sure that even if you use
+  the same password for two different papers, the resulting
+  encryption key will be completely different for each one.
+
+  STEP 2 — Derive a key from your password (Argon2id)
+  ────────────────────────────────────────────────────
+  Your password is NOT used directly as the encryption key.
+  Instead, it is fed into the Argon2id algorithm along with
+  the salt. Argon2id is a "key derivation function" (KDF) —
+  it deliberately uses a lot of memory (64 MB) and CPU time
+  (~0.3–0.6 seconds) to produce a 256-bit (32-byte) key.
+
+  Why so slow on purpose?
+  → If an attacker tries to guess your password by brute
+    force, each guess costs them significant time and memory.
+    This makes password cracking extremely expensive.
+
+  The Argon2id settings used:
+    • Time cost:    3 iterations
+    • Memory cost:  65,536 KiB (64 MB)
+    • Parallelism:  4 threads
+    • Output:       32 bytes (256-bit AES key)
+
+  STEP 3 — Encrypt the text (AES-256-GCM)
+  ────────────────────────────────────────
+  A fresh 12-byte random nonce (number-used-once) is
+  generated. The paper's full text is then encrypted using
+  AES-256-GCM with the derived key and this nonce.
+
+  What is AES-256-GCM?
+  → AES (Advanced Encryption Standard) with a 256-bit key
+    is the gold standard for symmetric encryption — used by
+    governments, banks, and military systems worldwide.
+  → GCM (Galois/Counter Mode) adds "authenticated
+    encryption." This means the ciphertext includes a
+    16-byte authentication tag. If anyone tampers with even
+    a single bit of the encrypted data, decryption will fail
+    immediately instead of silently returning garbage.
+
+  STEP 4 — Package everything into an envelope (TSENC1)
+  ────────────────────────────────────────────────────────
+  All the pieces needed for decryption are bundled into a
+  single string called the "envelope." The format looks like:
+
+    TSENC1.<time_cost>.<memory_kib>.<parallelism>.<salt>.<nonce>.<ciphertext>
+
+  Example:
+    TSENC1.3.65536.4.abc123salt.xyz789nonce.encryptedDataHere
+
+  The envelope contains:
+    • Version tag (TSENC1) — so future format changes won't
+      break old papers
+    • KDF parameters — the exact Argon2id settings used
+    • Salt — base64-encoded random salt
+    • Nonce — base64-encoded random nonce
+    • Ciphertext — base64-encoded encrypted data + auth tag
+
+  NOTE: The password is NEVER stored. Only the user knows it.
+
+  STEP 5 — Store in the database
+  ──────────────────────────────
+  The envelope string is saved in every chunk's metadata
+  under the key "encrypted_envelope", and a flag
+  "is_encrypted" is set to "true" on each chunk.
+
+  The original chunk texts in the vector store are left
+  intact so that semantic search still works — only the
+  full text is encrypted as an additional security layer.
+
+
+------------------------------------------------------------
+4.  STEP-BY-STEP: HOW DECRYPTION WORKS
+------------------------------------------------------------
+
+When you click "View" on an encrypted paper and enter your
+password, here is what happens:
+
+  STEP 1 — Parse the envelope
+  ───────────────────────────
+  The TSENC1 envelope string is split by the "." separator
+  to extract: version, KDF parameters, salt, nonce, and
+  ciphertext. If the format is wrong or corrupted, the app
+  immediately rejects it with an "EnvelopeFormatError."
+
+  STEP 2 — Re-derive the key
+  ──────────────────────────
+  Your password + the stored salt + the stored KDF parameters
+  are fed into Argon2id again. If the password is correct,
+  this produces the exact same 256-bit key that was used
+  during encryption. If the password is wrong, a completely
+  different (and useless) key is produced.
+
+  STEP 3 — Decrypt with AES-256-GCM
+  ──────────────────────────────────
+  The derived key + stored nonce are used to decrypt the
+  ciphertext. AES-256-GCM checks the authentication tag:
+
+    ✓ Correct password → tag matches → original text returned
+    ✗ Wrong password   → tag fails   → "DecryptionError"
+    ✗ Tampered data    → tag fails   → "DecryptionError"
+
+  The app deliberately does not tell you WHETHER it failed
+  because of a wrong password or corrupted data — this
+  prevents attackers from learning anything useful from
+  error messages.
+
+
+------------------------------------------------------------
+5.  REMOVING ENCRYPTION
+------------------------------------------------------------
+
+To remove encryption from a paper, you must first prove you
+know the password. The app:
+
+  1. Decrypts the envelope with the provided password
+     (verifying it is correct).
+  2. Clears the "encrypted_envelope" metadata field.
+  3. Sets "is_encrypted" to "false."
+
+If the password is wrong, the removal is refused.
+
+
+------------------------------------------------------------
+6.  ENCRYPTION + ANALYSIS / GAP FINDING
+------------------------------------------------------------
+
+When you run Analysis or Gap Analysis on encrypted papers,
+the frontend detects which selected papers are encrypted and
+prompts you for the password. The password is sent to the
+backend, which decrypts the paper on-the-fly in memory,
+passes the plaintext to the AI for analysis, and never
+stores the decrypted text anywhere.
+
+This means:
+  • Encrypted papers CAN be analyzed — you just need to
+    provide the password at analysis time.
+  • The decrypted text only exists temporarily in server
+    memory during the analysis request.
+
+
+------------------------------------------------------------
+7.  SECURITY PROPERTIES SUMMARY
+------------------------------------------------------------
+
+  ✓ Password is NEVER stored anywhere
+    → only the user knows it; losing it means losing access
+
+  ✓ Each paper gets a unique random salt
+    → same password on different papers = different keys
+
+  ✓ Each encryption gets a unique random nonce
+    → prevents pattern analysis across encryptions
+
+  ✓ Argon2id makes brute-force attacks very expensive
+    → 64 MB of memory per guess, 3 iterations, ~0.5s each
+
+  ✓ AES-256-GCM provides authenticated encryption
+    → tampered data is detected and rejected automatically
+
+  ✓ TSENC1 envelope is self-contained and versioned
+    → all metadata needed for decryption travels with the
+      data; future format upgrades won't break old papers
+
+  ✓ Decrypted text is never persisted
+    → decryption only happens in memory, on demand
+
+  ✓ Error messages are intentionally vague
+    → attackers can't tell if the password was wrong or
+      the data was corrupted
+
+
+------------------------------------------------------------
+8.  FILE STRUCTURE
+------------------------------------------------------------
+
+  domain/encryption/
+  ├── __init__.py      — marks the package
+  ├── kdf.py           — Argon2id key derivation
+  ├── cipher.py        — AES-256-GCM encrypt/decrypt
+  ├── envelope.py      — TSENC1 format serialization
+  └── vault.py         — public API: encrypt_paper(),
+                          decrypt_paper()
+
+  api/
+  └── routes_encryption.py — REST endpoints:
+                              POST /api/encryption/encrypt
+                              POST /api/encryption/decrypt
+                              POST /api/encryption/remove
+
+  frontend/src/
+  ├── utils/api.js     — encryptionApi helper functions
+  └── components/
+      ├── Library.jsx   — encrypt/decrypt/remove UI
+      ├── Analysis.jsx  — password prompt for encrypted docs
+      └── GapAnalysis.jsx — password prompt for encrypted docs
+
+
+------------------------------------------------------------
+9.  LIBRARIES USED
+------------------------------------------------------------
+
+  Python:
+    • cryptography  — provides AESGCM (AES-256-GCM)
+    • argon2-cffi    — provides Argon2id key derivation
+    • FastAPI        — REST API framework
+
+  Frontend:
+    • React          — UI framework
+    • Lucide React   — Lock/Eye/ShieldOff icons
+
+
+============================================================
+  END OF DOCUMENT
+============================================================

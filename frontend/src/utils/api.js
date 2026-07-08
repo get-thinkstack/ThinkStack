@@ -5,7 +5,49 @@
  * with consistent error handling and response parsing.
  */
 
+import { useSyncExternalStore } from 'react';
+
 const BASE_URL = '/api';
+
+/* ----------------------------------------------------------------
+ * Single-model busy tracker.
+ * There is one local LLM, serialized on the server, so only one
+ * generation runs at a time. We track in-flight LLM calls here so the
+ * UI can react (disable the assistant / run buttons, show why) instead
+ * of silently queueing and appearing to hang.
+ * ---------------------------------------------------------------- */
+let _llm = { count: 0, label: '' };
+const _llmListeners = new Set();
+const _llmEmit = () => _llmListeners.forEach((l) => l());
+
+export const llmBusyStore = {
+  subscribe(cb) {
+    _llmListeners.add(cb);
+    return () => _llmListeners.delete(cb);
+  },
+  getSnapshot() {
+    return _llm;
+  },
+  begin(label) {
+    _llm = { count: _llm.count + 1, label: label || _llm.label };
+    _llmEmit();
+  },
+  end() {
+    const count = Math.max(0, _llm.count - 1);
+    _llm = { count, label: count === 0 ? '' : _llm.label };
+    _llmEmit();
+  },
+};
+
+/** react hook → { busy, label } reflecting whether the local LLM is generating. */
+export function useLlmBusy() {
+  const snap = useSyncExternalStore(
+    llmBusyStore.subscribe,
+    llmBusyStore.getSnapshot,
+    llmBusyStore.getSnapshot,
+  );
+  return { busy: snap.count > 0, label: snap.label };
+}
 
 async function request(path, options = {}) {
   const url = `${BASE_URL}${path}`;
@@ -32,6 +74,16 @@ async function request(path, options = {}) {
   }
 
   return response.json();
+}
+
+/** wrap an LLM-bound request so the global busy tracker reflects it. */
+async function llmRequest(label, path, options) {
+  llmBusyStore.begin(label);
+  try {
+    return await request(path, options);
+  } finally {
+    llmBusyStore.end();
+  }
 }
 
 export const documentsApi = {
@@ -61,19 +113,19 @@ export const searchApi = {
 
 export const analysisApi = {
   summarize: (docIds, password) =>
-    request('/analysis/summarize', {
+    llmRequest('Summarizing papers', '/analysis/summarize', {
       method: 'POST',
       body: { doc_ids: docIds, password },
     }),
 
   extractClaims: (docIds, password) =>
-    request('/analysis/claims', {
+    llmRequest('Extracting claims', '/analysis/claims', {
       method: 'POST',
       body: { doc_ids: docIds, password },
     }),
 
   clusterThemes: (docIds, password) =>
-    request('/analysis/themes', {
+    llmRequest('Clustering themes', '/analysis/themes', {
       method: 'POST',
       body: { doc_ids: docIds, password },
     }),
@@ -81,7 +133,7 @@ export const analysisApi = {
 
 export const gapsApi = {
   analyze: (docIds, password) =>
-    request('/gaps/analyze', {
+    llmRequest('Finding research gaps', '/gaps/analyze', {
       method: 'POST',
       body: { doc_ids: docIds, password },
     }),
@@ -98,7 +150,7 @@ export const chatApi = {
    * @param {string} [opts.context] - current analysis results as extra context.
    */
   send: (message, { docIds = [], history = [], context = '' } = {}) =>
-    request('/chat', {
+    llmRequest('Assistant thinking', '/chat', {
       method: 'POST',
       body: { message, doc_ids: docIds, history, context },
     }),
@@ -146,10 +198,16 @@ export const papersApi = {
       body: { project_id: projectId, source },
     }),
 
-  generate: (projectId, prompt, currentSource = '') =>
-    request('/papers/generate', {
+  generate: (projectId, prompt, currentSource = '', { docIds = [], analysisContext = '' } = {}) =>
+    llmRequest('Generating LaTeX', '/papers/generate', {
       method: 'POST',
-      body: { project_id: projectId, prompt, current_source: currentSource },
+      body: {
+        project_id: projectId,
+        prompt,
+        current_source: currentSource,
+        doc_ids: docIds,
+        analysis_context: analysisContext,
+      },
     }),
 
   compile: (projectId) =>

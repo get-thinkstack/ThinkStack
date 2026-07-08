@@ -150,7 +150,18 @@
     }
 
     .hero-content { position: relative; z-index: 1; max-width: 900px; }
+<<<<<<< HEAD
 
+=======
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 100px; padding: 8px 20px; margin-bottom: 32px;
+      font-size: 0.85rem; color: var(--text-dim);
+    }
+    .hero-badge .stars { color: #FFD700; letter-spacing: 2px; }
+    .hero-badge span { color: var(--accent); font-weight: 600; }
+>>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
 
     .hero h1 {
       font-family: 'Outfit', sans-serif;
@@ -158,7 +169,10 @@
       line-height: 1.15; letter-spacing: -0.03em;
       color: #fff; margin-bottom: 0;
       text-transform: uppercase;
+<<<<<<< HEAD
       position: relative; z-index: 10;
+=======
+>>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
     }
 
     /* Sequential word animation */
@@ -231,7 +245,11 @@
       color: var(--text-dim); max-width: 600px; margin: 28px auto 40px;
       line-height: 1.7;
     }
+<<<<<<< HEAD
     .hero-buttons { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; position: relative; z-index: 10; }
+=======
+    .hero-buttons { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+>>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
     .btn-primary {
       background: var(--accent); color: #0A0A0A; border: none; padding: 16px 36px;
       border-radius: 100px; font-family: 'Inter', sans-serif; font-weight: 700;
@@ -242,12 +260,15 @@
       transform: translateY(-3px);
       box-shadow: 0 0 40px var(--accent-glow), 0 8px 30px rgba(0,0,0,0.3);
     }
+<<<<<<< HEAD
     .btn-primary svg {
       transition: transform 0.2s ease;
     }
     .btn-primary:hover svg {
       transform: translateX(4px);
     }
+=======
+>>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
     .btn-primary svg { width: 18px; height: 18px; }
     .btn-secondary {
       background: transparent; color: #fff; border: 1px solid var(--border);
@@ -307,6 +328,7 @@
     }
     .bento-card:hover::before { opacity: 1; }
 
+<<<<<<< HEAD
     /* Dynamic bento card mouse radial glow */
     .bento-card::after {
       content: ''; position: absolute; inset: 0;
@@ -374,6 +396,8 @@
       40% { opacity: 0; transform: translateY(-10px); }
     }
 
+=======
+>>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
     .bento-icon {
       width: 56px; height: 56px; border-radius: 14px;
       background: var(--accent-dim); display: flex; align-items: center;
@@ -397,7 +421,10 @@
       border-radius: var(--radius-sm);
       padding: 32px; display: flex; align-items: center; justify-content: center;
       min-height: 200px;
+<<<<<<< HEAD
       position: relative; overflow: hidden;
+=======
+>>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
     }
 
     /* ── How It Works ─────────────────────────────────── */
@@ -501,7 +528,48 @@
     .vis-paper:nth-child(2) { margin-left: 16px; }
     .vis-paper:nth-child(3) { margin-left: 32px; }
 
+<<<<<<< HEAD
 
+=======
+    /* ── Testimonials ─────────────────────────────────── */
+    #testimonials {
+      background: rgba(255,255,255,0.015);
+      overflow: hidden;
+    }
+    .testimonials-header { text-align: center; margin-bottom: 64px; }
+    .testimonials-header .section-sub { margin-left: auto; margin-right: auto; }
+
+    .testimonial-track {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;
+    }
+    .testimonial-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 36px;
+      transition: border-color 0.3s, transform 0.4s cubic-bezier(0.16,1,0.3,1);
+      display: flex; flex-direction: column;
+    }
+    .testimonial-card:hover {
+      border-color: var(--border-hover); transform: translateY(-4px);
+    }
+    .testimonial-stars { color: #FFD700; font-size: 0.9rem; letter-spacing: 2px; margin-bottom: 20px; }
+    .testimonial-card blockquote {
+      font-size: 1rem; color: var(--text); line-height: 1.75; flex: 1;
+      font-style: italic; margin-bottom: 24px;
+    }
+    .testimonial-author {
+      display: flex; align-items: center; gap: 12px;
+      border-top: 1px solid var(--border); padding-top: 20px;
+    }
+    .author-avatar {
+      width: 44px; height: 44px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent-dim), rgba(149,255,0,0.3));
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Outfit', sans-serif; font-weight: 700; font-size: 1rem;
+      color: var(--accent);
+    }
+    .author-info h4 { font-size: 0.95rem; font-weight: 600; color: #fff; }
+    .author-info p { font-size: 0.8rem; color: var(--text-dim); }
+>>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
 
     /* ── Tech Stack Ribbon ────────────────────────────── */
     #tech {
@@ -606,6 +674,10 @@
       .steps-container { grid-template-columns: 1fr; gap: 48px; }
       .steps-container::before { display: none; }
       .audience-grid { grid-template-columns: 1fr; gap: 40px; }
+<<<<<<< HEAD
+=======
+      .testimonial-track { grid-template-columns: 1fr; }
+>>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
       .hero h1 { font-size: clamp(2.4rem, 10vw, 4rem); }
       .hero-accent { font-size: clamp(2rem, 8vw, 3.2rem); }
       section { padding: 80px 0; }
@@ -614,8 +686,11 @@
 </head>
 <body>
 
+<<<<<<< HEAD
 
 
+=======
+>>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
 <!-- Floating Particles -->
 <div class="particles" aria-hidden="true">
   <div class="particle" style="left:5%;animation-duration:18s;animation-delay:0s;width:2px;height:2px"></div>
@@ -645,6 +720,10 @@
       <li><a href="#features">Features</a></li>
       <li><a href="#how-it-works">How It Works</a></li>
       <li><a href="#audience">Use Cases</a></li>
+<<<<<<< HEAD
+=======
+      <li><a href="#testimonials">Testimonials</a></li>
+>>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
     </ul>
     <a href="#cta" class="nav-cta">Get Started</a>
     <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation">
@@ -656,11 +735,19 @@
 <!-- ── Hero ────────────────────────────────────────── -->
 <section class="hero" id="hero">
   <div class="hero-bg-grid" aria-hidden="true"></div>
+<<<<<<< HEAD
   <!-- Ambient blobs for hero section -->
   <div class="ambient-blob blob-1" aria-hidden="true"></div>
   <div class="ambient-blob blob-2" aria-hidden="true"></div>
   <div class="hero-content">
 
+=======
+  <div class="hero-content">
+    <div class="hero-badge reveal">
+      <span class="stars">★★★★★</span>
+      Trusted by <span>500+ researchers</span>
+    </div>
+>>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
     <h1>
       <span class="hero-word">Research</span>
       <span class="hero-word">is</span>
@@ -709,7 +796,10 @@
           <p>Ingest PDFs and get instant summaries, key claims extraction, and semantic search across your entire collection. Powered by local language models.</p>
         </div>
         <div class="bento-card-visual" aria-hidden="true">
+<<<<<<< HEAD
           <div class="vis-scanner"></div>
+=======
+>>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
           <svg viewBox="0 0 200 160" fill="none" width="100%">
             <rect x="10" y="10" width="80" height="100" rx="6" stroke="#95FF00" stroke-width="1.5" opacity="0.4"/>
             <line x1="22" y1="30" x2="78" y2="30" stroke="#95FF00" stroke-width="1" opacity="0.3"/>
@@ -870,7 +960,58 @@
   </div>
 </section>
 
+<<<<<<< HEAD
 
+=======
+<!-- ── Testimonials ────────────────────────────────── -->
+<section id="testimonials">
+  <div class="container">
+    <div class="testimonials-header">
+      <p class="section-label reveal">Testimonials</p>
+      <h2 class="section-heading reveal reveal-delay-1">Loved by researchers<br/>worldwide.</h2>
+      <p class="section-sub reveal reveal-delay-2">See what our users are saying about ThinkStack.</p>
+    </div>
+
+    <div class="testimonial-track">
+      <div class="testimonial-card reveal">
+        <div class="testimonial-stars">★★★★★</div>
+        <blockquote>"ThinkStack completely transformed my PhD workflow. I went from drowning in 200+ papers to having structured, actionable insights in days."</blockquote>
+        <div class="testimonial-author">
+          <div class="author-avatar">SK</div>
+          <div class="author-info">
+            <h4>Sarah K.</h4>
+            <p>PhD Candidate, MIT</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="testimonial-card reveal reveal-delay-1">
+        <div class="testimonial-stars">★★★★★</div>
+        <blockquote>"The fact that everything runs offline is a game-changer. I work with sensitive medical data and can finally use AI tools without compliance concerns."</blockquote>
+        <div class="testimonial-author">
+          <div class="author-avatar">RM</div>
+          <div class="author-info">
+            <h4>Dr. R. Martinez</h4>
+            <p>Research Lead, Stanford Medicine</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="testimonial-card reveal reveal-delay-2">
+        <div class="testimonial-stars">★★★★★</div>
+        <blockquote>"The gap finder alone saved me months of work. It identified three research directions I hadn't considered. Absolutely essential tool."</blockquote>
+        <div class="testimonial-author">
+          <div class="author-avatar">JL</div>
+          <div class="author-info">
+            <h4>James L.</h4>
+            <p>Postdoc, Oxford University</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+>>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
 
 <!-- ── Tech Stack ──────────────────────────────────── -->
 <section id="tech">
@@ -978,21 +1119,41 @@
 
   /* ── Hero sequential animation ── */
   window.addEventListener('DOMContentLoaded', () => {
+<<<<<<< HEAD
+=======
+    const badge = document.querySelector('.hero-badge');
+>>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
     const words = document.querySelectorAll('.hero-word');
     const slash = document.querySelector('.hero-slash');
     const accent = document.querySelector('.hero-accent');
     const sub = document.querySelector('.hero-sub');
     const buttons = document.querySelector('.hero-buttons');
 
+<<<<<<< HEAD
+=======
+    // Show badge first
+    setTimeout(() => {
+      badge.classList.add('visible');
+    }, 300);
+
+>>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
     // Show each word one by one
     words.forEach((word, i) => {
       setTimeout(() => {
         word.classList.add('show');
+<<<<<<< HEAD
       }, 300 + i * 200);
     });
 
     // After all words shown, draw the slash
     const slashDelay = 300 + words.length * 200 + 300;
+=======
+      }, 600 + i * 200);
+    });
+
+    // After all words shown, draw the slash
+    const slashDelay = 600 + words.length * 200 + 300;
+>>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
     setTimeout(() => {
       slash.classList.add('draw');
     }, slashDelay);
@@ -1011,6 +1172,7 @@
       buttons.classList.add('visible');
     }, slashDelay + 1100);
   });
+<<<<<<< HEAD
 
 
 
@@ -1024,6 +1186,8 @@
       card.style.setProperty('--mouse-y', `${y}px`);
     });
   });
+=======
+>>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
 </script>
 </body>
 </html>

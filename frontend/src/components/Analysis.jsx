@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Brain, Lightbulb, Layers, FileText, MessageSquare, Lock, Eye, EyeOff, Plus, Target } from 'lucide-react';
-import { documentsApi, analysisApi, chatApi } from '../utils/api';
+import { documentsApi, analysisApi, chatApi, useLlmBusy } from '../utils/api';
 import ChatDialog from './ChatDialog';
 
 /**
@@ -25,6 +25,9 @@ export default function Analysis() {
   // chat state
   const [chatMessages, setChatMessages] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
+
+  // single shared local model — disable runs while it's busy elsewhere
+  const { busy } = useLlmBusy();
 
   useEffect(() => {
     const loadDocs = async () => {
@@ -228,11 +231,11 @@ export default function Analysis() {
           <button
             className="btn btn-primary fade-up stagger-4"
             onClick={runAnalysis}
-            disabled={loading || selectedDocs.length === 0}
+            disabled={loading || busy || selectedDocs.length === 0}
             style={{ marginBottom: '1.5rem' }}
           >
-            {loading ? <div className="spinner" /> : <Brain size={16} />}
-            <span>{loading ? 'Analyzing...' : `Run ${activeTab}`}</span>
+            {loading || busy ? <div className="spinner" /> : <Brain size={16} />}
+            <span>{loading ? 'Analyzing...' : busy ? 'Model busy…' : `Run ${activeTab}`}</span>
           </button>
         </>
       )}
