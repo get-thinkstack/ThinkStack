@@ -287,27 +287,39 @@ body::after {
 }
 
 .sidebar-brand h1 {
-  font-family: var(--font-display);
-  font-size: 2.2rem;
-  font-weight: 400;
-  color: var(--accent-secondary);
-  letter-spacing: 0.02em;
+  font-family: 'Outfit', sans-serif;
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #000000;
+  letter-spacing: -0.02em;
   line-height: 1;
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  gap: 10px;
   position: relative;
-  text-shadow: 0 0 20px rgba(245, 158, 11, 0.4);
-}
-
-.brand-cursive {
-  font-family: var(--font-cursive);
-  color: #fff;
-  font-size: 2.6rem;
-  font-weight: 400;
-  margin-left: 4px;
-  transform: rotate(-4deg);
   text-shadow: none;
 }
+
+[data-theme="dark"] .sidebar-brand h1 {
+  color: #ffffff;
+}
+
+.brand-logo-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: #95FF00;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.brand-logo-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
 
 .sidebar-nav {
   flex: 1;
@@ -997,6 +1009,16 @@ input::-webkit-credentials-auto-fill-button {
 
 .chat-side-panel.collapsed {
   transform: translateX(100%);
+  background: transparent;
+  border-left: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  pointer-events: none;
+}
+
+.chat-side-panel.collapsed .chat-collapsed-tab {
+  pointer-events: auto;
 }
 
 .chat-side-panel.expanded {
@@ -1011,32 +1033,36 @@ input::-webkit-credentials-auto-fill-button {
   transform: translateY(-50%);
   writing-mode: vertical-rl;
   text-orientation: mixed;
-  background: var(--bg-card);
-  border: 1px solid var(--border-light);
+  background: var(--surface);
+  border: 1px solid var(--border-2);
   border-right: none;
-  backdrop-filter: blur(32px);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   padding: 1rem 0.65rem;
   display: flex;
   align-items: center;
   gap: 0.5rem;
   border-radius: 12px 0 0 12px;
-  color: var(--text-primary);
+  color: var(--text);
   cursor: pointer;
   font-weight: 600;
   font-size: 0.85rem;
   letter-spacing: 0.05em;
   transition: all var(--transition-fast);
   white-space: nowrap;
+  box-shadow: var(--shadow-sm);
+  z-index: 1001;
 }
 
 .chat-collapsed-tab:hover {
-  background: var(--bg-card-hover);
-  color: var(--accent-secondary);
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent);
 }
 
 .chat-collapsed-badge {
-  background: var(--danger);
-  color: #fff;
+  background: var(--accent);
+  color: var(--on-accent);
   border-radius: 50%;
   padding: 2px 6px;
   font-size: 0.7rem;
@@ -1289,9 +1315,13 @@ input::-webkit-credentials-auto-fill-button {
   font-size: 0.66rem;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: var(--text-3);
+  color: #000000;
   margin-top: 0.55rem;
   font-weight: 500;
+}
+
+[data-theme="dark"] .brand-subtitle {
+  color: #ffffff;
 }
 
 /* ---- sidebar footer + theme toggle ---- */

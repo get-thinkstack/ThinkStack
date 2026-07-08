@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Send, Sparkles, CornerDownLeft, PanelRightOpen, PanelRightClose } from 'lucide-react';
 import Loader from './Loader';
 
@@ -41,7 +42,7 @@ export default function ChatDialog({
     }
   };
 
-  return (
+  return createPortal(
     <div className={`chat-side-panel ${collapsed ? 'collapsed' : 'expanded'}`}>
       {/* collapsed tab */}
       {collapsed && (
@@ -157,6 +158,7 @@ export default function ChatDialog({
           </div>
         </div>
       )}
-    </div>
+    </div>,
+    document.body
   );
 }
