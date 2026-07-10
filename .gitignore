@@ -72,3 +72,10 @@ docs/*.synctex.gz
 
 #local
 local/
+
+# ── PyInstaller build artifacts ──────────────────────────
+thinkstack-api.spec
+*.spec
+
+# ── Tauri sidecar binaries (built, not committed) ────────
+src-tauri/bin/

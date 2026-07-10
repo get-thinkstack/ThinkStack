@@ -21,6 +21,7 @@ from domain.paper_writer.compiler import (
     delete_project,
 )
 from domain.chat.chat_service import _build_context
+from domain.fine_tuning.data_collector import save_latex_pair
 from infrastructure.ollama_client import ollama_client
 
 logger = logging.getLogger(__name__)
@@ -157,9 +158,23 @@ async def api_generate_latex(req: GenerateLatexRequest):
             temperature=0.2,
             max_tokens=2048,
         )
+        cleaned = _clean_latex(latex_output)
+
+        # save training pair for future fine-tuning (best-effort)
+        try:
+            save_latex_pair(
+                prompt=prompt,
+                system=system,
+                generated_latex=cleaned,
+                current_source=req.current_source,
+                grounding_context="\n".join(grounding_parts),
+            )
+        except Exception:  # noqa: BLE001 - data collection is non-critical
+            pass
+
         return {
             "project_id": req.project_id,
-            "generated_latex": _clean_latex(latex_output),
+            "generated_latex": cleaned,
         }
     except Exception as e:
         logger.error("latex generation failed: %s", e)

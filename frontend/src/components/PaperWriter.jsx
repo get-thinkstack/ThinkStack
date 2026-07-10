@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  FilePlus2, Save, Play, Download, Trash2, Sparkles, FileText, Loader2, BookOpen, ChevronDown,
+  FilePlus2, Save, Play, Download, Trash2, Sparkles, FileText, Loader2, BookOpen, ChevronDown, Eye, FileOutput,
 } from 'lucide-react';
 import { papersApi, documentsApi, useLlmBusy } from '../utils/api';
+import LatexPreview from './LatexPreview';
 
 /** insert AI-generated body just before \end{document} (else append). */
 function insertLatex(src, gen) {
@@ -32,6 +33,7 @@ export default function PaperWriter() {
   const [generating, setGenerating] = useState(false);
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
+  const [previewTab, setPreviewTab] = useState('preview'); // 'preview' | 'pdf'
 
   // single shared local model — block AI generate while it's busy elsewhere
   const { busy: llmBusy, label } = useLlmBusy();
@@ -316,9 +318,24 @@ export default function PaperWriter() {
             </div>
           </motion.div>
 
-          {/* preview */}
+          {/* preview pane */}
           <div className="card pw-preview">
-            {warnings.length > 0 && (
+            <div className="pw-preview-tabs">
+              <button
+                className={`pw-preview-tab ${previewTab === 'preview' ? 'active' : ''}`}
+                onClick={() => setPreviewTab('preview')}
+              >
+                <Eye size={14} /> Live Preview
+              </button>
+              <button
+                className={`pw-preview-tab ${previewTab === 'pdf' ? 'active' : ''}`}
+                onClick={() => setPreviewTab('pdf')}
+              >
+                <FileOutput size={14} /> Compiled PDF
+              </button>
+            </div>
+
+            {warnings.length > 0 && previewTab === 'pdf' && (
               <details className="pw-warn">
                 <summary>
                   ⚠ Compiled with {warnings.length} warning{warnings.length > 1 ? 's' : ''} — PDF may have missing figures
@@ -326,24 +343,31 @@ export default function PaperWriter() {
                 <pre>{warnings.join('\n\n')}</pre>
               </details>
             )}
-            <AnimatePresence mode="wait">
-              {pdfUrl ? (
-                <motion.iframe
-                  key={pdfUrl}
-                  title="pdf preview"
-                  src={pdfUrl}
-                  className="pw-iframe"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.3 }}
-                />
-              ) : (
-                <div className="pw-empty">
-                  <FileText size={42} />
-                  <p>Compile to preview the PDF here.</p>
-                </div>
-              )}
-            </AnimatePresence>
+
+            {previewTab === 'preview' ? (
+              <div className="pw-live-preview">
+                <LatexPreview source={source} />
+              </div>
+            ) : (
+              <AnimatePresence mode="wait">
+                {pdfUrl ? (
+                  <motion.iframe
+                    key={pdfUrl}
+                    title="pdf preview"
+                    src={pdfUrl}
+                    className="pw-iframe"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.3 }}
+                  />
+                ) : (
+                  <div className="pw-empty">
+                    <FileText size={42} />
+                    <p>Click Compile to generate a PDF.</p>
+                  </div>
+                )}
+              </AnimatePresence>
+            )}
           </div>
         </div>
       )}

@@ -22,12 +22,12 @@ class Settings(BaseSettings):
 
     # llm runtime
     llm_provider: str = "llama_cpp"
-    llm_model_path: Path = Path(r"E:\odysseus\data\models\Qwen3-4B-Instruct-2507-Q4_K_M.gguf")
+    llm_model_path: Path = Path(__file__).parent / "data" / "models"
     llm_ctx_size: int = 4096
-    # -1 offloads all model layers to the gpu. the ~2.5 gb qwen3-4b q4 model
-    # fits comfortably in gpu vram; override with
-    # THINKSTACK_LLM_GPU_LAYERS=0 to force cpu-only inference.
-    llm_gpu_layers: int = -1
+    # 0 = cpu-only (works everywhere). set to -1 to offload all layers
+    # to gpu if you have cuda drivers installed and sufficient vram.
+    # override with THINKSTACK_LLM_GPU_LAYERS=-1 for gpu acceleration.
+    llm_gpu_layers: int = 0
 
     # generation defaults for interactive chat (kept small for low latency)
     chat_max_tokens: int = 512

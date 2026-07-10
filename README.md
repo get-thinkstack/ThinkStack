@@ -12,9 +12,11 @@ write latex papers — all locally. runs as a desktop app (tauri) or as a local 
 - **analysis** — paper summaries and key-claim extraction
 - **gap finder** — surfaces under-explored areas and suggests directions
 - **chat** — a research assistant grounded on your selected papers (rag)
-- **paper writer** — ai-assisted latex editor with a live, overleaf-style pdf preview:
-  it auto-adds missing packages, wraps bare snippets into full documents, recovers
-  from errors, and still produces a pdf (with warnings) when a figure/table is broken
+- **paper writer** — ai-assisted latex editor with a live, client-side preview (KaTeX for math,
+  HTML rendering for structure) + compiled PDF tab. auto-adds missing packages, wraps bare
+  snippets into full documents, recovers from errors, and still produces a pdf when a
+  figure/table is broken
+- **fine-tuning data** — passively collects prompt → LaTeX pairs for future QLoRA fine-tuning
 - **encryption vault** — encrypt papers locally with password-derived keys
   (kdf + authenticated cipher); nothing is uploaded
 
@@ -32,7 +34,7 @@ config.py          pydantic-settings config (env prefix: THINKSTACK_)
 api/               rest endpoints (documents, search, analysis, gaps, chat, papers,
                    encryption, system)
 domain/            core logic — ingestion, knowledge_base, search, analysis,
-                   gap_finder, chat, paper_writer, encryption
+                   gap_finder, chat, paper_writer, encryption, fine_tuning
 infrastructure/    llm client (llama.cpp wrapper) + vector store
 frontend/          react 19 + vite spa (built to frontend/dist, served by fastapi)
 src-tauri/         tauri 2 desktop shell (rust) — starts & supervises the backend
@@ -41,86 +43,136 @@ data/              runtime state — uploaded papers, vector store, papers works
                    (gitignored, recreated on demand)
 ```
 
-> note: the active frontend is `frontend/`. a leftover create-tauri-app scaffold
-> remains at the repo root (`src/`, `index.html`, `vite.config.ts`) and is unused.
+## quick start
 
-## running
+### 1. clone & bootstrap
 
-### option a — desktop app (tauri)
+```bash
+git clone <repo-url> && cd ScholarLens
+./scripts/setup.sh
+```
+
+this installs system deps, rust, python venv + packages, node modules, and a
+latex compiler. run with `--skip-system` or `--skip-rust` to skip steps you've
+already done.
+
+### 2. download a model
+
+```bash
+mkdir -p data/models
+pip install huggingface-hub
+huggingface-cli download Qwen/Qwen3-1.7B-GGUF qwen3-1.7b-q4_k_m.gguf --local-dir data/models
+```
+
+for better quality (slower): use `Qwen3-4B` instead of `1.7B`.
+
+### 3. run
+
+#### option a — web app (browser)
+
+```bash
+./scripts/dev.sh
+```
+
+opens the backend on `http://localhost:8000/docs` and the vite dev server on
+`http://localhost:3000` with hot-reload + api proxy.
+
+#### option b — desktop app (tauri)
+
+```bash
+# single command — starts backend, frontend, and the native desktop window
+./scripts/dev.sh --tauri
+```
+
+or manually in two terminals:
+
+```bash
+# terminal 1: backend + frontend
+./scripts/dev.sh
+
+# terminal 2: desktop window
+source "$HOME/.cargo/env"   # if rust was installed this session
+npm run tauri dev
+```
 
 the desktop shell ([src-tauri/src/lib.rs](src-tauri/src/lib.rs)) starts the python
-backend itself, shows a loading screen that polls until the backend is ready (so a
-slow first-launch model load never shows "localhost refused to connect"), opens the
-ui, and **kills the backend it spawned when you close the window** so nothing is left
-running on port 8000.
+backend itself, shows a loading screen that polls until the backend is ready, opens
+the ui, and **kills the backend it spawned when you close the window**.
 
-build (windows + msvc rust toolchain):
+> set `THINKSTACK_PYTHON`, `THINKSTACK_PROJECT_DIR`, or `THINKSTACK_LLM_MODEL_PATH`
+> env vars if auto-detection doesn't work for your setup.
 
-```bash
-# 1. build the spa first — it is embedded into the exe at compile time
-npm --prefix frontend run build
+## scripts
 
-# 2. compile the desktop binary (needs cargo/rustup on PATH)
-cargo build --release --manifest-path src-tauri/Cargo.toml
-```
+| script | purpose |
+|--------|---------|
+| `./scripts/setup.sh` | one-time bootstrap (system deps, rust, python, node, latex) |
+| `./scripts/dev.sh` | start backend + frontend dev servers (add `--tauri` for desktop) |
+| `./scripts/validate.sh` | pre-commit checks (python syntax, imports, lint, rust check) |
+| `./scripts/build.sh` | production build (frontend → pyinstaller → sidecar → tauri) |
 
-the binary is written to your cargo target dir, e.g. `target/release/tauri-app.exe`.
-double-click it to launch.
+`build.sh` flags: `--skip-pyinstaller`, `--skip-tauri`.
 
-> heads up (mvp): `lib.rs` currently hardcodes this machine's python venv, project
-> directory, and model path in the `PYTHON` / `PROJECT_DIR` / `MODEL_PATH` constants.
-> change those for another machine, or bundle the backend as a sidecar (pyinstaller)
-> for a portable distribution.
-
-### option b — local web app
+## production build
 
 ```bash
-python -m venv .venv
-.venv\Scripts\activate              # windows  (use source .venv/bin/activate on unix)
-pip install -r requirements.txt
-npm --prefix frontend install
-npm --prefix frontend run build
-
-# point at a local gguf model, then run the server
-set THINKSTACK_LLM_MODEL_PATH=E:\path\to\model.gguf
-python -m uvicorn main:app --host 127.0.0.1 --port 8000
+./scripts/build.sh
 ```
 
-then open <http://localhost:8000>.
+this runs a 4-step pipeline:
+1. **builds the react frontend** → `frontend/dist/`
+2. **freezes the python backend** with pyinstaller → `dist/thinkstack-api`
+3. **places the sidecar binary** → `src-tauri/bin/thinkstack-api-<triple>`
+4. **compiles the tauri desktop app** → `src-tauri/target/release/bundle/`
+
+the final distributable is in `src-tauri/target/release/bundle/` (`.deb`, `.AppImage`
+on linux, `.dmg` on macos, `.msi` on windows).
 
 ## prerequisites
 
-- **python** 3.11–3.13
+- **python** 3.11+
 - **node.js** 18+
-- **rust toolchain** (`rustup`, msvc on windows) — only needed for the desktop build
-- a **gguf model** for llama.cpp (e.g. `Qwen3-4B-Instruct`, `gemma`)
-- **pdflatex** on PATH — miktex (windows) or tex live — required by the paper writer
-  to compile and preview pdfs
+- **rust toolchain** (`rustup`) — only needed for the desktop build
+- a **gguf model** for llama.cpp (see quick start above)
+- **pdflatex** on PATH — required by the paper writer
+  ```bash
+  # fedora
+  sudo dnf install texlive-scheme-basic texlive-collection-latexrecommended
+  # ubuntu/debian
+  sudo apt install texlive-latex-recommended
+  # macOS
+  brew install --cask mactex-no-gui
+  ```
 
 ## configuration
 
 all settings use the `THINKSTACK_` env prefix (see [config.py](config.py)). common ones:
 
-| variable                     | purpose                                   |
-|------------------------------|-------------------------------------------|
-| `THINKSTACK_LLM_MODEL_PATH`  | path to the gguf model (or a models dir)  |
-| `THINKSTACK_LLM_CTX_SIZE`    | context window size (desktop shell: 8192) |
+| variable                       | purpose                                    | default          |
+|--------------------------------|--------------------------------------------|------------------|
+| `THINKSTACK_LLM_MODEL_PATH`    | path to the gguf model (or a models dir)   | `data/models/`   |
+| `THINKSTACK_LLM_GPU_LAYERS`    | gpu layer offloading (-1 = all, 0 = cpu)   | `0` (cpu-only)   |
+| `THINKSTACK_LLM_CTX_SIZE`      | context window size                        | `4096`           |
+| `THINKSTACK_PYTHON`            | override python interpreter path           | auto-detected    |
+| `THINKSTACK_PROJECT_DIR`       | override project root path                 | auto-detected    |
 
 the active model selection is persisted in `data/active_model.txt` and applied on start.
 
 ## technology stack
 
-| component        | technology                                        |
-|------------------|---------------------------------------------------|
-| desktop shell    | tauri 2 (rust) + webview2                         |
-| frontend         | react 19 + vite, recharts, framer-motion          |
-| backend          | python fastapi + uvicorn                           |
-| slm runtime      | llama.cpp (`llama-cpp-python`, gguf; cpu/gpu)     |
-| embeddings       | sentence-transformers                             |
-| vector store     | file-based numpy cosine store (json)              |
-| pdf processing   | pymupdf + pdfplumber                              |
-| latex            | system pdflatex (miktex / tex live) + auto-healing compiler |
-| encryption       | password-based kdf + authenticated cipher (local vault) |
+| component        | technology                                         |
+|------------------|-----------------------------------------------------|
+| desktop shell    | tauri 2 (rust) + webview                            |
+| frontend         | react 19 + vite, recharts, framer-motion, katex     |
+| backend          | python fastapi + uvicorn                             |
+| slm runtime      | llama.cpp (`llama-cpp-python`, gguf; cpu default)   |
+| embeddings       | sentence-transformers                               |
+| vector store     | file-based numpy cosine store (json)                |
+| pdf processing   | pymupdf + pdfplumber                                |
+| latex            | system pdflatex + auto-healing compiler             |
+| live preview     | KaTeX (client-side math + structure rendering)      |
+| encryption       | password-based kdf + authenticated cipher           |
+| fine-tuning      | JSONL data collection → QLoRA (planned)             |
 
 ## tests
 
@@ -128,7 +180,8 @@ the paper-writer suite validates project management, latex compilation, graceful
 error recovery, and the api over http:
 
 ```bash
-.venv\Scripts\python scripts\test_paper_writer.py
+source .venv/bin/activate
+python scripts/test_paper_writer.py
 ```
 
 ## license

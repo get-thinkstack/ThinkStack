@@ -1,14 +1,44 @@
-# team member: rithesh
+# rithesh — feature ownership
 
-### key commits and responsibilities:
-- **backend engineering & ai**: led the major backend refactor (`refactor/thinkstack-backend`), resolved core backend issues, integrated the chatbot module, and engineered the complete paper compiler pipeline (`pdflatex` compilation with error parsing).
-- **frontend & ui**: drove multiple frontend updates (`front end update`, `demo1`, `fronttest`), finalized ui testing, and built the CodeMirror-integrated React editor component (`PaperWriter.tsx`) for `.ths` files in the Tauri desktop application.
-- **testing & qa**: authored the comprehensive unit and integration test suite (`scripts/test_paper_writer.py`) verifying project management, compiler error handling, and API endpoints.
-- **technical writing**: single-handedly established the documentation layer, adding the main documentation, adrs (architecture decision records), features list, and future scope documents.
+## what i'm responsible for
 
-## current focus
-with the transition to the tauri desktop architecture, rithesh's focus shifts to:
-1. maintaining the automated devops pipeline.
-2. ensuring seamless integration between the react frontend and the rust/python sidecars.
-3. implementing secure, authorized p2p document sharing using libp2p.
+### paper writer (latex workflow)
+- the editor → AI → compiler → PDF pipeline
+- `domain/paper_writer/compiler.py` — auto-healing pdflatex compilation, error parsing, package injection
+- `api/routes_papers.py` — project CRUD + generate + compile endpoints
+- `frontend/src/components/PaperWriter.jsx` — editor UI, AI prompt bar, real-time preview tabs
+- `frontend/src/components/LatexPreview.jsx` — client-side LaTeX → HTML renderer (KaTeX for math)
 
+### real-time latex preview
+- client-side rendering using KaTeX: sections, math, lists, tables rendered live as you type
+- two-tab preview pane: "Live Preview" (instant, no compilation) + "Compiled PDF" (pdflatex output)
+
+### fine-tuning data pipeline
+- `domain/fine_tuning/data_collector.py` — passively collects prompt → LaTeX pairs from every generate call
+- training data stored as JSONL in `data/training/` for future QLoRA fine-tuning
+- covers both `latex_generation` and `gap_analysis` task types
+
+### desktop application & cross-platform bundling
+- `src-tauri/src/lib.rs` — cross-platform Tauri shell: auto-detects python venv, project dir, model path; sidecar-first backend launch for production, python fallback for dev
+- `src-tauri/tauri.conf.json` — configured `externalBin` sidecar, bundle targets (deb/rpm/AppImage/dmg/msi/exe)
+- `.github/workflows/build-release.yml` — CI/CD pipeline that builds for Linux (x64), macOS (universal), and Windows (x64), publishes binaries to GitHub Releases on tag push
+- `docs/landing/index.html` — download landing page for GitHub Pages with OS auto-detection and per-platform install buttons
+
+### devops & automation scripts
+- `scripts/setup.sh` — one-command bootstrap (system deps, rust, python, node, latex); macOS/Fedora/Ubuntu/Arch support; `--skip-system`/`--skip-rust` flags; verification matrix
+- `scripts/dev.sh` — starts backend + frontend with `--tauri` flag for desktop; port-in-use detection
+- `scripts/build.sh` — 4-step production pipeline (frontend → pyinstaller → sidecar → tauri); `--skip-pyinstaller`/`--skip-tauri` flags
+- `scripts/validate.sh` — pre-commit checks (python syntax, imports, stale refs, frontend lint, cargo check)
+
+### backend infrastructure
+- refactored and audited the backend (`refactor/thinkstack-backend`)
+- integrated chatbot module and fixed core backend issues
+- added GBNF grammar to llama.cpp client for strict JSON/LaTeX output
+- added GPU → CPU fallback logic in the LLM client
+- fixed `config.py` defaults for CPU-only operation (portable model paths, `llm_gpu_layers=0`)
+
+### testing
+- `scripts/test_paper_writer.py` — unit + integration tests for compiler and API
+
+### documentation
+- ADR entries, features list, future scope, README, this file
