@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ThinkStack — Download</title>
+  <meta name="description" content="Download ThinkStack — offline SLM-based research assistant for students and researchers." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #fafafa;
+      --surface: #ffffff;
+      --border: #e5e5e5;
+      --text: #1a1a1a;
+      --muted: #6b7280;
+      --dim: #9ca3af;
+      --primary: #111827;
+      --primary-hover: #1f2937;
+      --accent: #f59e0b;
+      --accent-glow: rgba(245, 158, 11, 0.08);
+      --radius: 12px;
+    }
+
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── header ──────────────────────────────────── */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 1.5rem 2rem;
+    }
+    .logo {
+      font-size: 1.35rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      text-decoration: none;
+    }
+    .logo span {
+      background: linear-gradient(135deg, var(--accent), #fbbf24);
+      -webkit-background-clip: text; background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .header-links { display: flex; gap: 1.5rem; }
+    .header-links a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: color 0.15s;
+    }
+    .header-links a:hover { color: var(--text); }
+
+    /* ── hero ────────────────────────────────────── */
+    .hero {
+      text-align: center;
+      padding: 3rem 2rem 2rem;
+      max-width: 700px;
+      margin: 0 auto;
+    }
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 2.8rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin-bottom: 0.75rem;
+    }
+    .hero p {
+      font-size: 1.05rem;
+      color: var(--muted);
+      max-width: 550px;
+      margin: 0 auto;
+    }
+
+    /* ── download grid ──────────────────────────── */
+    .download-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2rem;
+      max-width: 1100px;
+      margin: 3rem auto 4rem;
+      padding: 0 2rem;
+    }
+
+    .platform-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .platform-label {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 1rem;
+      font-weight: 700;
+      margin-bottom: 0.25rem;
+    }
+    .platform-icon {
+      font-size: 1.1rem;
+    }
+
+    .btn-primary {
+      display: block;
+      width: 100%;
+      padding: 0.75rem 1rem;
+      font-size: 0.92rem;
+      font-weight: 600;
+      font-family: inherit;
+      color: #fff;
+      background: var(--primary);
+      border: none;
+      border-radius: 10px;
+      text-decoration: none;
+      text-align: center;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .btn-primary:hover {
+      background: var(--primary-hover);
+      transform: translateY(-1px);
+    }
+    .btn-primary:active { transform: translateY(0); }
+
+    .btn-secondary {
+      display: block;
+      width: 100%;
+      padding: 0.65rem 1rem;
+      font-size: 0.88rem;
+      font-weight: 600;
+      font-family: inherit;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      text-decoration: none;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .btn-secondary:hover {
+      border-color: var(--text);
+      background: #f3f4f6;
+    }
+
+    .platform-reqs {
+      margin-top: auto;
+      padding-top: 1rem;
+    }
+    .platform-reqs h4 {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 0.3rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .platform-reqs p {
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    /* ── features ────────────────────────────────── */
+    .features-section {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 2rem 5rem;
+    }
+    .features-section h2 {
+      font-size: 1.6rem;
+      font-weight: 800;
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.25rem;
+    }
+    .feature-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.5rem;
+      transition: border-color 0.2s;
+    }
+    .feature-card:hover { border-color: var(--accent); }
+    .feature-card h3 {
+      font-size: 0.95rem;
+      font-weight: 700;
+      margin-bottom: 0.3rem;
+    }
+    .feature-card p {
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    /* ── footer ──────────────────────────────────── */
+    .footer {
+      text-align: center;
+      padding: 2rem;
+      color: var(--dim);
+      font-size: 0.8rem;
+      border-top: 1px solid var(--border);
+    }
+    .footer a { color: var(--muted); text-decoration: none; }
+    .footer a:hover { color: var(--accent); }
+
+    /* ── responsive ──────────────────────────────── */
+    @media (max-width: 768px) {
+      .download-grid {
+        grid-template-columns: 1fr;
+        gap: 1.5rem;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ═══════ HEADER ═══════ -->
+  <header class="header">
+    <a href="#" class="logo"><span>ThinkStack</span></a>
+    <nav class="header-links">
+      <a href="https://github.com/Rithesh077/ThinkStack">GitHub</a>
+      <a href="https://github.com/Rithesh077/ThinkStack#features">Docs</a>
+    </nav>
+  </header>
+
+  <!-- ═══════ HERO ═══════ -->
+  <section class="hero">
+    <h1>Download ThinkStack</h1>
+    <p>Offline research assistant — ingest papers, search, chat, and write LaTeX.
+       All locally, all private. No cloud, no accounts.</p>
+  </section>
+
+  <!-- ═══════ DOWNLOAD GRID ═══════ -->
+  <section class="download-grid">
+
+    <!-- macOS -->
+    <div class="platform-card">
+      <div class="platform-label">
+        <span class="platform-icon">🍎</span> macOS
+      </div>
+      <a class="btn-primary" id="mac-arm"  href="#">Download for Apple Silicon</a>
+      <a class="btn-secondary" id="mac-x64" href="#">Download for Intel</a>
+      <div class="platform-reqs">
+        <h4>Minimum Requirements</h4>
+        <p>macOS 12 (Monterey) or later. Universal binary — works on both Apple Silicon and Intel Macs.</p>
+      </div>
+    </div>
+
+    <!-- Windows -->
+    <div class="platform-card">
+      <div class="platform-label">
+        <span class="platform-icon">🪟</span> Windows
+      </div>
+      <a class="btn-primary" id="win-x64" href="#">Download for x64</a>
+      <a class="btn-secondary" id="win-msi" href="#">Download .msi installer</a>
+      <div class="platform-reqs">
+        <h4>Minimum Requirements</h4>
+        <p>Windows 10 (64-bit) or later. If SmartScreen warns, click "More info" → "Run anyway".</p>
+      </div>
+    </div>
+
+    <!-- Linux -->
+    <div class="platform-card">
+      <div class="platform-label">
+        <span class="platform-icon">🐧</span> Linux
+      </div>
+      <a class="btn-primary" id="linux-x64" href="#">Download for x64</a>
+      <a class="btn-secondary" id="linux-deb" href="#">Download .deb (Debian/Ubuntu)</a>
+      <div class="platform-reqs">
+        <h4>Minimum Requirements</h4>
+        <p>glibc ≥ 2.28, glibcxx ≥ 3.4.25 (e.g. Ubuntu 20, Debian 10, Fedora 36, RHEL 8). AppImage — works on any distro.</p>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ═══════ FEATURES ═══════ -->
+  <section class="features-section">
+    <h2>What you get</h2>
+    <div class="features-grid">
+      <div class="feature-card">
+        <h3>📄 Paper Ingestion & Search</h3>
+        <p>Upload PDFs, auto-extract text, create embeddings, and search across your library with meaning.</p>
+      </div>
+      <div class="feature-card">
+        <h3>🤖 Research Chat (RAG)</h3>
+        <p>Ask questions grounded on your selected papers. Fully offline SLM via llama.cpp.</p>
+      </div>
+      <div class="feature-card">
+        <h3>✍️ Paper Writer + Live Preview</h3>
+        <p>AI-assisted LaTeX editor with KaTeX live preview, auto-healing compiler, and compiled PDF export.</p>
+      </div>
+      <div class="feature-card">
+        <h3>📊 Analysis & Gap Finder</h3>
+        <p>Summarize papers, extract key claims, and discover under-explored research directions.</p>
+      </div>
+      <div class="feature-card">
+        <h3>🔒 Encrypted Vault</h3>
+        <p>Encrypt your papers locally with password-derived keys. Nothing is uploaded. Ever.</p>
+      </div>
+      <div class="feature-card">
+        <h3>💻 Desktop & Web</h3>
+        <p>Runs as a native desktop app (Tauri) or as a local web server. Your choice.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════ FOOTER ═══════ -->
+  <footer class="footer">
+    <p>ThinkStack — for academic and research purposes.
+       <a href="https://github.com/Rithesh077/ThinkStack">GitHub</a></p>
+  </footer>
+
+  <!-- ═══════ DOWNLOAD LOGIC ═══════ -->
+  <script>
+    /*
+     * Download URL wiring.
+     *
+     * All links point to GitHub Releases. When a tag (e.g. v0.1.0) is pushed,
+     * CI builds for all platforms and publishes the binaries automatically.
+     *
+     * IMPORTANT: After the first successful CI build, check the exact filenames
+     * at https://github.com/Rithesh077/ThinkStack/releases/latest
+     * and update the filenames below if they differ.
+     */
+
+    const REPO = 'Rithesh077/ThinkStack';
+    const VERSION = '0.1.0';
+    const BASE = `https://github.com/${REPO}/releases/latest/download`;
+
+    const LINKS = {
+      // macOS — universal .dmg (works on both Apple Silicon + Intel)
+      'mac-arm':  `${BASE}/ThinkStack_${VERSION}_universal.dmg`,
+      'mac-x64':  `${BASE}/ThinkStack_${VERSION}_universal.dmg`,
+
+      // Windows
+      'win-x64':  `${BASE}/ThinkStack_${VERSION}_x64-setup.exe`,
+      'win-msi':  `${BASE}/ThinkStack_${VERSION}_x64_en-US.msi`,
+
+      // Linux — AppImage works on ANY distro (Fedora, Ubuntu, Arch, etc.)
+      'linux-x64': `${BASE}/ThinkStack_${VERSION}_amd64.AppImage`,
+      'linux-deb': `${BASE}/ThinkStack_${VERSION}_amd64.deb`,
+    };
+
+    for (const [id, url] of Object.entries(LINKS)) {
+      const el = document.getElementById(id);
+      if (el) el.href = url;
+    }
+  </script>
+
+</body>
+</html>

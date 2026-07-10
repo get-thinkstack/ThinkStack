@@ -78,3 +78,9 @@ backend.log
 git_branches.txt
 git_log_output.txt
 
+# ── PyInstaller build artifacts ──────────────────────────
+thinkstack-api.spec
+*.spec
+
+# ── Tauri sidecar binaries (built, not committed) ────────
+src-tauri/bin/

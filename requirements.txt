@@ -1,4 +1,4 @@
-# scholarlens / thinkstack - offline slm research agent
+# thinkstack - offline slm research agent
 # python 3.11-3.13.   install with:   pip install -r requirements.txt
 # (the react frontend has its own deps:  cd frontend && npm install)
 
@@ -29,7 +29,7 @@ httpx==0.28.1
 #   pip install nvidia-cuda-runtime-cu12 nvidia-cublas-cu12
 # then copy cudart64_12.dll / cublas64_12.dll / cublasLt64_12.dll from the
 # installed nvidia/*/bin folders into site-packages/llama_cpp/lib/, and set
-# SCHOLARLENS_LLM_GPU_LAYERS=-1 (offload all layers; the config default).
+# THINKSTACK_LLM_GPU_LAYERS=-1 (offload all layers; the config default).
 llama-cpp-python>=0.3.30  # cpu fallback; see GPU note above
 
 # ── utilities ────────────────────────────────────────────
