@@ -236,6 +236,26 @@ def _extract_errors(log_text: str) -> list[str]:
     return out[:4]
 
 
+def _detect_missing_packages(log_text: str) -> list[str]:
+    """detect 'File X.sty not found' errors and return install hints.
+
+    these happen when the TeX distribution is missing packages that our
+    preamble or the AI-generated content needs (e.g. pgfplots, multirow).
+    """
+    missing = re.findall(r"File `([^']+\.sty)' not found", log_text)
+    if not missing:
+        return []
+    hints = []
+    for sty in dict.fromkeys(missing):  # deduplicate
+        pkg = sty.replace(".sty", "")
+        hints.append(
+            f"missing TeX package: {sty} — install with: "
+            f"sudo dnf install texlive-{pkg}  (fedora) or "
+            f"sudo apt install texlive-latex-extra  (debian/ubuntu)"
+        )
+    return hints
+
+
 def _first_error_line(log_text: str) -> int | None:
     """return the source line number from the first ``l.NN`` marker in the log."""
     m = re.search(r"^l\.(\d+)", log_text, re.MULTILINE)
@@ -405,7 +425,8 @@ def compile_pdf(project_id: str) -> tuple[Path, list[str]]:
         if note is None:
             # can't localize and nothing to neutralize -> genuine hard failure
             errors = _extract_errors(log_text)
-            detail = "\n\n".join(errors) if errors else (result.stdout or "")[-1500:]
+            pkg_hints = _detect_missing_packages(log_text)
+            detail = "\n\n".join(pkg_hints + errors) if (pkg_hints or errors) else (result.stdout or "")[-1500:]
             raise RuntimeError(f"pdflatex failed:\n{detail}")
         tex_file.write_text(new_source, encoding="utf-8")
         warnings.append(note)
@@ -413,7 +434,8 @@ def compile_pdf(project_id: str) -> tuple[Path, list[str]]:
         # exhausted retries without ever producing a PDF
         log_text = log_file.read_text(encoding="utf-8", errors="replace") if log_file.exists() else ""
         errors = _extract_errors(log_text)
-        detail = "\n\n".join(errors) if errors else (result.stdout if result else "")[-1500:]
+        pkg_hints = _detect_missing_packages(log_text)
+        detail = "\n\n".join(pkg_hints + errors) if (pkg_hints or errors) else (result.stdout if result else "")[-1500:]
         raise RuntimeError(f"pdflatex failed to produce a PDF:\n{detail}")
 
     # second pass for cross-references / toc (best effort; PDF already exists)

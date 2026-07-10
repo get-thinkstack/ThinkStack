@@ -2,33 +2,10 @@
   "name": "thinkstack",
   "private": true,
   "version": "0.1.0",
-  "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
     "tauri": "tauri"
   },
-  "dependencies": {
-    "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-opener": "^2",
-    "react": "^19.2.6",
-    "react-dom": "^19.2.6",
-    "@codemirror/lang-javascript": "^6.2.3",
-    "@codemirror/theme-one-dark": "^6.1.2",
-    "codemirror": "^6.0.1",
-    "@codemirror/view": "^6.36.8",
-    "@codemirror/state": "^6.5.2",
-    "@codemirror/language": "^6.11.0",
-    "@lezer/highlight": "^1.2.1",
-    "lucide-react": "^1.17.0"
-  },
   "devDependencies": {
-    "@tauri-apps/cli": "^2",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.1",
-    "vite": "^6.0.3",
-    "typescript": "~5.6.2"
+    "@tauri-apps/cli": "^2"
   }
 }

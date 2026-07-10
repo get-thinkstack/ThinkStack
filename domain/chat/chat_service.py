@@ -23,7 +23,7 @@ from infrastructure.ollama_client import ollama_client
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
-    "you are scholarlens, a concise research assistant. answer the user's "
+    "you are thinkstack, a concise research assistant. answer the user's "
     "question using the provided context from their research papers and any "
     "current analysis results. ground your answer in the context; if the "
     "context does not contain the answer, say so briefly and answer from "
