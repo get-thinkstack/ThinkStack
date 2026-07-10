@@ -125,7 +125,16 @@ export default function App() {
           <aside className="sidebar">
             <div className="sidebar-brand">
               <div className="brand-logo-container">
-                <h1>Think<span className="brand-cursive">Stack</span></h1>
+                <h1>
+                  <div className="brand-logo-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#0A0A0A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                      <path d="M2 17l10 5 10-5"/>
+                      <path d="M2 12l10 5 10-5"/>
+                    </svg>
+                  </div>
+                  ThinkStack
+                </h1>
               </div>
               <div className="brand-subtitle">Research Intelligence</div>
             </div>
