@@ -56,7 +56,14 @@ class Settings(BaseSettings):
     port: int = 8000
     debug: bool = True
 
-    model_config = {"env_prefix": "THINKSTACK_"}
+    model_config = {
+        "env_prefix": "THINKSTACK_",
+        # machine-specific overrides (model path, gpu layers) live in a
+        # gitignored .env so they never get committed into the shared repo.
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "extra": "ignore",
+    }
 
 
 settings = Settings()

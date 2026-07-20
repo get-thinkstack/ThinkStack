@@ -157,7 +157,14 @@ class OllamaClient:
         raise FileNotFoundError(f"llama.cpp model not found at {path}")
 
     def _get_llama(self):
-        """lazily initialize llama.cpp model instance with gpu fallback."""
+        """lazily initialize the llama.cpp model instance.
+
+        when gpu offload is requested (``gpu_layers != 0``) the model is loaded
+        strictly on the gpu. if the installed llama-cpp-python has no gpu
+        support, or the gpu load fails, we raise instead of silently falling
+        back to cpu -- running analysis on cpu is the slow path this project
+        deliberately avoids, so a misconfiguration must be loud, not silent.
+        """
         if self._llama is not None:
             return self._llama
 
@@ -170,24 +177,9 @@ class OllamaClient:
 
         model_path = self._resolve_llama_model_path()
 
-        # attempt gpu-accelerated load first, fallback to cpu on failure
         if self.gpu_layers != 0:
-            try:
-                logger.info(
-                    "loading llama.cpp model from %s with %d gpu layers",
-                    model_path, self.gpu_layers,
-                )
-                self._llama = Llama(
-                    model_path=str(model_path),
-                    n_ctx=self.ctx_size,
-                    n_gpu_layers=self.gpu_layers,
-                    verbose=False,
-                )
-                return self._llama
-            except Exception as e:
-                logger.warning(
-                    "gpu load failed (%s), falling back to cpu-only", e
-                )
+            self._llama = self._load_on_gpu(Llama, model_path)
+            return self._llama
 
         logger.info("loading llama.cpp model from %s (cpu-only)", model_path)
         self._llama = Llama(
@@ -197,6 +189,52 @@ class OllamaClient:
             verbose=False,
         )
         return self._llama
+
+    def _load_on_gpu(self, llama_cls, model_path: Path):
+        """load the model fully on the gpu, or raise -- never fall back to cpu.
+
+        a cpu-only build of llama-cpp-python silently ignores ``n_gpu_layers``
+        and runs on the cpu without error, so the build's gpu capability is
+        verified before the load is trusted.
+        """
+        try:
+            from llama_cpp import llama_supports_gpu_offload
+            if not llama_supports_gpu_offload():
+                raise RuntimeError(
+                    f"THINKSTACK_LLM_GPU_LAYERS={self.gpu_layers} requests gpu "
+                    "offload, but the installed llama-cpp-python is a CPU-only "
+                    "build. Install the CUDA build, e.g.:\n"
+                    "  pip install llama-cpp-python --force-reinstall --no-deps "
+                    "--extra-index-url "
+                    "https://abetlen.github.io/llama-cpp-python/whl/cu124\n"
+                    "Refusing to fall back to CPU."
+                )
+        except ImportError:
+            logger.warning(
+                "llama_supports_gpu_offload() unavailable; cannot pre-verify "
+                "the gpu build before loading"
+            )
+
+        # flash attention speeds up attention and shrinks the kv cache, which
+        # buys headroom on a 6 GB card. retry without it on older builds that
+        # do not accept the kwarg.
+        load_kwargs = dict(
+            model_path=str(model_path),
+            n_ctx=self.ctx_size,
+            n_gpu_layers=self.gpu_layers,
+            verbose=False,
+        )
+        logger.info(
+            "loading llama.cpp model from %s with %s gpu layers (flash_attn on)",
+            model_path, self.gpu_layers,
+        )
+        try:
+            return llama_cls(flash_attn=True, **load_kwargs)
+        except TypeError:
+            logger.warning(
+                "flash_attn unsupported by this build; loading without it"
+            )
+            return llama_cls(**load_kwargs)
 
     async def _generate_ollama(
         self,
