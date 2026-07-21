@@ -11,7 +11,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from infrastructure.ollama_client import ollama_client
+from infrastructure.hardware import profile_system, recommended_ctx_size
 from domain.knowledge_base.repository import get_collection_stats
+from domain.fine_tuning.data_collector import training_stats
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -33,11 +35,20 @@ async def health_check():
     llm_status = await ollama_client.check_health()
     collection_stats = get_collection_stats()
 
+    hw = profile_system()
+
     return {
         "status": "running",
         "llm": llm_status,
         "ollama": llm_status,
         "knowledge_base": collection_stats,
+        "hardware": {
+            "tier": hw.tier,
+            "total_ram_gb": hw.total_ram_gb,
+            "gpu": hw.gpu_name or "none",
+            "vram_gb": hw.vram_gb,
+            "recommended_ctx_size": recommended_ctx_size(hw.tier),
+        },
         "config": {
             "llm_provider": settings.llm_provider,
             "llm_model_path": str(settings.llm_model_path),
@@ -99,3 +110,40 @@ async def system_stats():
         total documents, chunks, and document id listing.
     """
     return get_collection_stats()
+
+
+@router.get("/hardware")
+async def hardware_info():
+    """return detected hardware specifications.
+
+    reports the machine's ram, cpu cores, gpu, vram, and the
+    computed performance tier used for model loading decisions.
+
+    returns:
+        hardware profile with recommendations.
+    """
+    from dataclasses import asdict
+    from infrastructure.hardware import max_safe_model_size_gb
+
+    hw = profile_system()
+    return {
+        **asdict(hw),
+        "recommended_ctx_size": recommended_ctx_size(hw.tier),
+        "max_safe_model_size_gb": max_safe_model_size_gb(),
+    }
+
+
+@router.get("/training-stats")
+async def get_training_stats():
+    """return counts of collected training data pairs.
+
+    privacy-safe: returns only counts, never content.
+    the training data stays on the user's machine.
+
+    returns:
+        dictionary mapping task types to example counts.
+    """
+    return {
+        "task_counts": training_stats(),
+        "privacy": "all training data is stored locally and never leaves this device",
+    }

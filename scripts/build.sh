@@ -65,6 +65,21 @@ else
     source .venv/bin/activate
     export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 
+    # verify at least one gguf model exists for bundling
+    MODEL_COUNT=$(find data/models -name "*.gguf" 2>/dev/null | wc -l)
+    if [ "$MODEL_COUNT" -eq 0 ]; then
+        echo -e "  ${YELLOW}warning: no gguf model found in data/models/${NC}"
+        echo -e "  ${YELLOW}the bundled app will require a model to be placed manually${NC}"
+    else
+        echo -e "  ${GREEN}found ${MODEL_COUNT} gguf model(s) to bundle${NC}"
+    fi
+
+    # build add-data flags
+    ADD_DATA_FLAGS="--add-data frontend/dist:frontend/dist"
+    if [ "$MODEL_COUNT" -gt 0 ]; then
+        ADD_DATA_FLAGS="$ADD_DATA_FLAGS --add-data data/models:data/models"
+    fi
+
     pyinstaller --name thinkstack-api --onefile --clean \
         --hidden-import uvicorn \
         --hidden-import uvicorn.logging \
@@ -77,7 +92,8 @@ else
         --hidden-import uvicorn.protocols.websockets.auto \
         --hidden-import uvicorn.lifespan \
         --hidden-import uvicorn.lifespan.on \
-        --add-data "frontend/dist:frontend/dist" \
+        --hidden-import psutil \
+        $ADD_DATA_FLAGS \
         main.py
 
     echo -e "  ${GREEN}backend frozen to dist/thinkstack-api${NC}"

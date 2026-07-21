@@ -150,24 +150,7 @@
     }
 
     .hero-content { position: relative; z-index: 1; max-width: 900px; }
-<<<<<<< HEAD
-<<<<<<< HEAD
 
-=======
-=======
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
-    .hero-badge {
-      display: inline-flex; align-items: center; gap: 8px;
-      background: var(--bg-card); border: 1px solid var(--border);
-      border-radius: 100px; padding: 8px 20px; margin-bottom: 32px;
-      font-size: 0.85rem; color: var(--text-dim);
-    }
-    .hero-badge .stars { color: #FFD700; letter-spacing: 2px; }
-    .hero-badge span { color: var(--accent); font-weight: 600; }
-<<<<<<< HEAD
->>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
-=======
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
 
     .hero h1 {
       font-family: 'Outfit', sans-serif;
@@ -175,14 +158,7 @@
       line-height: 1.15; letter-spacing: -0.03em;
       color: #fff; margin-bottom: 0;
       text-transform: uppercase;
-<<<<<<< HEAD
-<<<<<<< HEAD
       position: relative; z-index: 10;
-=======
->>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
-=======
-      position: relative; z-index: 10;
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
     }
 
     /* Sequential word animation */
@@ -255,15 +231,7 @@
       color: var(--text-dim); max-width: 600px; margin: 28px auto 40px;
       line-height: 1.7;
     }
-<<<<<<< HEAD
-<<<<<<< HEAD
     .hero-buttons { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; position: relative; z-index: 10; }
-=======
-    .hero-buttons { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
->>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
-=======
-    .hero-buttons { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; position: relative; z-index: 10; }
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
     .btn-primary {
       background: var(--accent); color: #0A0A0A; border: none; padding: 16px 36px;
       border-radius: 100px; font-family: 'Inter', sans-serif; font-weight: 700;
@@ -274,21 +242,12 @@
       transform: translateY(-3px);
       box-shadow: 0 0 40px var(--accent-glow), 0 8px 30px rgba(0,0,0,0.3);
     }
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
     .btn-primary svg {
       transition: transform 0.2s ease;
     }
     .btn-primary:hover svg {
       transform: translateX(4px);
     }
-<<<<<<< HEAD
-=======
->>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
-=======
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
     .btn-primary svg { width: 18px; height: 18px; }
     .btn-secondary {
       background: transparent; color: #fff; border: 1px solid var(--border);
@@ -348,10 +307,6 @@
     }
     .bento-card:hover::before { opacity: 1; }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
     /* Dynamic bento card mouse radial glow */
     .bento-card::after {
       content: ''; position: absolute; inset: 0;
@@ -359,6 +314,8 @@
       z-index: 1; pointer-events: none; opacity: 0; transition: opacity 0.5s ease;
     }
     .bento-card:hover::after { opacity: 1; }
+
+
 
     /* Ambient Blobs bg */
     .ambient-blob {
@@ -417,11 +374,6 @@
       40% { opacity: 0; transform: translateY(-10px); }
     }
 
-<<<<<<< HEAD
-=======
->>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
-=======
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
     .bento-icon {
       width: 56px; height: 56px; border-radius: 14px;
       background: var(--accent-dim); display: flex; align-items: center;
@@ -445,14 +397,7 @@
       border-radius: var(--radius-sm);
       padding: 32px; display: flex; align-items: center; justify-content: center;
       min-height: 200px;
-<<<<<<< HEAD
-<<<<<<< HEAD
       position: relative; overflow: hidden;
-=======
->>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
-=======
-      position: relative; overflow: hidden;
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
     }
 
     /* ── How It Works ─────────────────────────────────── */
@@ -556,54 +501,7 @@
     .vis-paper:nth-child(2) { margin-left: 16px; }
     .vis-paper:nth-child(3) { margin-left: 32px; }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 
-=======
-=======
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
-    /* ── Testimonials ─────────────────────────────────── */
-    #testimonials {
-      background: rgba(255,255,255,0.015);
-      overflow: hidden;
-    }
-    .testimonials-header { text-align: center; margin-bottom: 64px; }
-    .testimonials-header .section-sub { margin-left: auto; margin-right: auto; }
-
-    .testimonial-track {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;
-    }
-    .testimonial-card {
-      background: var(--bg-card); border: 1px solid var(--border);
-      border-radius: var(--radius); padding: 36px;
-      transition: border-color 0.3s, transform 0.4s cubic-bezier(0.16,1,0.3,1);
-      display: flex; flex-direction: column;
-    }
-    .testimonial-card:hover {
-      border-color: var(--border-hover); transform: translateY(-4px);
-    }
-    .testimonial-stars { color: #FFD700; font-size: 0.9rem; letter-spacing: 2px; margin-bottom: 20px; }
-    .testimonial-card blockquote {
-      font-size: 1rem; color: var(--text); line-height: 1.75; flex: 1;
-      font-style: italic; margin-bottom: 24px;
-    }
-    .testimonial-author {
-      display: flex; align-items: center; gap: 12px;
-      border-top: 1px solid var(--border); padding-top: 20px;
-    }
-    .author-avatar {
-      width: 44px; height: 44px; border-radius: 50%;
-      background: linear-gradient(135deg, var(--accent-dim), rgba(149,255,0,0.3));
-      display: flex; align-items: center; justify-content: center;
-      font-family: 'Outfit', sans-serif; font-weight: 700; font-size: 1rem;
-      color: var(--accent);
-    }
-    .author-info h4 { font-size: 0.95rem; font-weight: 600; color: #fff; }
-    .author-info p { font-size: 0.8rem; color: var(--text-dim); }
-<<<<<<< HEAD
->>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
-=======
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
 
     /* ── Tech Stack Ribbon ────────────────────────────── */
     #tech {
@@ -630,9 +528,9 @@
       width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
     }
 
-    /* ── CTA Section ──────────────────────────────────── */
+    /* ── CTA / Download Section ────────────────────────── */
     #cta {
-      padding: 140px 0; text-align: center; position: relative; overflow: hidden;
+      padding: 140px 0 100px; text-align: center; position: relative; overflow: hidden;
     }
     #cta::before {
       content: ''; position: absolute; bottom: -200px; left: 50%; transform: translateX(-50%);
@@ -645,7 +543,93 @@
       font-size: clamp(2.2rem, 5vw, 3.8rem); margin-bottom: 20px;
     }
     .cta-content .section-sub {
-      margin: 0 auto 40px; max-width: 500px;
+      margin: 0 auto 48px; max-width: 500px;
+    }
+
+    /* ── Download Cards Grid ── */
+    .download-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      max-width: 960px;
+      margin: 0 auto 48px;
+      text-align: left;
+    }
+    .download-card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 32px 28px;
+      transition: border-color 0.3s, transform 0.3s, box-shadow 0.3s;
+      position: relative;
+    }
+    .download-card:hover {
+      border-color: var(--border-hover);
+      transform: translateY(-4px);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+    }
+    .download-card-header {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 24px;
+      font-family: 'Outfit', sans-serif; font-weight: 700;
+      font-size: 1.15rem; color: #fff;
+    }
+    .download-card-header .os-icon {
+      width: 24px; height: 24px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .download-card-header .os-icon svg {
+      width: 22px; height: 22px; color: var(--accent);
+    }
+    .dl-btn {
+      display: block; width: 100%; text-align: center;
+      padding: 14px 20px; border-radius: 10px;
+      font-family: 'Inter', sans-serif; font-weight: 600;
+      font-size: 0.9rem; cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
+      text-decoration: none;
+      margin-bottom: 10px;
+    }
+    .dl-btn:last-of-type { margin-bottom: 0; }
+    .dl-btn-primary {
+      background: var(--accent); color: #0A0A0A; border: none;
+    }
+    .dl-btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 0 24px var(--accent-glow);
+    }
+    .dl-btn-secondary {
+      background: transparent; color: #fff;
+      border: 1px solid var(--border);
+    }
+    .dl-btn-secondary:hover {
+      border-color: var(--border-hover);
+      background: rgba(255,255,255,0.04);
+    }
+    .dl-requirements {
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+    }
+    .dl-requirements h5 {
+      font-family: 'Inter', sans-serif; font-weight: 600;
+      font-size: 0.75rem; color: var(--text-dim);
+      text-transform: uppercase; letter-spacing: 0.08em;
+      margin-bottom: 6px;
+    }
+    .dl-requirements p {
+      font-size: 0.8rem; color: rgba(255,255,255,0.35);
+      line-height: 1.5;
+    }
+    .dl-github-row {
+      text-align: center; margin-top: 8px;
+    }
+
+    @media (max-width: 768px) {
+      .download-grid { grid-template-columns: 1fr; max-width: 360px; }
+    }
+    @media (min-width: 769px) and (max-width: 1024px) {
+      .download-grid { grid-template-columns: 1fr 1fr; }
     }
 
     /* ── Footer ───────────────────────────────────────── */
@@ -708,14 +692,6 @@
       .steps-container { grid-template-columns: 1fr; gap: 48px; }
       .steps-container::before { display: none; }
       .audience-grid { grid-template-columns: 1fr; gap: 40px; }
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-      .testimonial-track { grid-template-columns: 1fr; }
->>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
-=======
-      .testimonial-track { grid-template-columns: 1fr; }
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
       .hero h1 { font-size: clamp(2.4rem, 10vw, 4rem); }
       .hero-accent { font-size: clamp(2rem, 8vw, 3.2rem); }
       section { padding: 80px 0; }
@@ -724,14 +700,8 @@
 </head>
 <body>
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 
 
-=======
->>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
-=======
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
 <!-- Floating Particles -->
 <div class="particles" aria-hidden="true">
   <div class="particle" style="left:5%;animation-duration:18s;animation-delay:0s;width:2px;height:2px"></div>
@@ -761,14 +731,6 @@
       <li><a href="#features">Features</a></li>
       <li><a href="#how-it-works">How It Works</a></li>
       <li><a href="#audience">Use Cases</a></li>
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-      <li><a href="#testimonials">Testimonials</a></li>
->>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
-=======
-      <li><a href="#testimonials">Testimonials</a></li>
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
     </ul>
     <a href="#cta" class="nav-cta">Get Started</a>
     <button class="nav-toggle" id="nav-toggle" aria-label="Toggle navigation">
@@ -780,28 +742,11 @@
 <!-- ── Hero ────────────────────────────────────────── -->
 <section class="hero" id="hero">
   <div class="hero-bg-grid" aria-hidden="true"></div>
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
   <!-- Ambient blobs for hero section -->
   <div class="ambient-blob blob-1" aria-hidden="true"></div>
   <div class="ambient-blob blob-2" aria-hidden="true"></div>
   <div class="hero-content">
-<<<<<<< HEAD
 
-=======
-  <div class="hero-content">
-=======
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
-    <div class="hero-badge reveal">
-      <span class="stars">★★★★★</span>
-      Trusted by <span>500+ researchers</span>
-    </div>
-<<<<<<< HEAD
->>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
-=======
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
     <h1>
       <span class="hero-word">Research</span>
       <span class="hero-word">is</span>
@@ -850,14 +795,7 @@
           <p>Ingest PDFs and get instant summaries, key claims extraction, and semantic search across your entire collection. Powered by local language models.</p>
         </div>
         <div class="bento-card-visual" aria-hidden="true">
-<<<<<<< HEAD
-<<<<<<< HEAD
           <div class="vis-scanner"></div>
-=======
->>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
-=======
-          <div class="vis-scanner"></div>
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
           <svg viewBox="0 0 200 160" fill="none" width="100%">
             <rect x="10" y="10" width="80" height="100" rx="6" stroke="#95FF00" stroke-width="1.5" opacity="0.4"/>
             <line x1="22" y1="30" x2="78" y2="30" stroke="#95FF00" stroke-width="1" opacity="0.3"/>
@@ -1018,64 +956,7 @@
   </div>
 </section>
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 
-=======
-=======
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
-<!-- ── Testimonials ────────────────────────────────── -->
-<section id="testimonials">
-  <div class="container">
-    <div class="testimonials-header">
-      <p class="section-label reveal">Testimonials</p>
-      <h2 class="section-heading reveal reveal-delay-1">Loved by researchers<br/>worldwide.</h2>
-      <p class="section-sub reveal reveal-delay-2">See what our users are saying about ThinkStack.</p>
-    </div>
-
-    <div class="testimonial-track">
-      <div class="testimonial-card reveal">
-        <div class="testimonial-stars">★★★★★</div>
-        <blockquote>"ThinkStack completely transformed my PhD workflow. I went from drowning in 200+ papers to having structured, actionable insights in days."</blockquote>
-        <div class="testimonial-author">
-          <div class="author-avatar">SK</div>
-          <div class="author-info">
-            <h4>Sarah K.</h4>
-            <p>PhD Candidate, MIT</p>
-          </div>
-        </div>
-      </div>
-
-      <div class="testimonial-card reveal reveal-delay-1">
-        <div class="testimonial-stars">★★★★★</div>
-        <blockquote>"The fact that everything runs offline is a game-changer. I work with sensitive medical data and can finally use AI tools without compliance concerns."</blockquote>
-        <div class="testimonial-author">
-          <div class="author-avatar">RM</div>
-          <div class="author-info">
-            <h4>Dr. R. Martinez</h4>
-            <p>Research Lead, Stanford Medicine</p>
-          </div>
-        </div>
-      </div>
-
-      <div class="testimonial-card reveal reveal-delay-2">
-        <div class="testimonial-stars">★★★★★</div>
-        <blockquote>"The gap finder alone saved me months of work. It identified three research directions I hadn't considered. Absolutely essential tool."</blockquote>
-        <div class="testimonial-author">
-          <div class="author-avatar">JL</div>
-          <div class="author-info">
-            <h4>James L.</h4>
-            <p>Postdoc, Oxford University</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-<<<<<<< HEAD
->>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
-=======
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
 
 <!-- ── Tech Stack ──────────────────────────────────── -->
 <section id="tech">
@@ -1099,19 +980,69 @@
   </div>
 </section>
 
-<!-- ── CTA ─────────────────────────────────────────── -->
+<!-- ── Download ────────────────────────────────────── -->
 <section id="cta">
   <div class="container">
     <div class="cta-content">
-      <p class="section-label reveal">Ready?</p>
+      <p class="section-label reveal">Download</p>
       <h2 class="section-heading reveal reveal-delay-1">Stop drowning in papers.<br/>Start discovering.</h2>
-      <p class="section-sub reveal reveal-delay-2">Download ThinkStack and take control of your research — for free, forever, offline.</p>
-      <div class="hero-buttons reveal reveal-delay-3">
-        <a href="#" class="btn-primary">
-          Download Now
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        </a>
-        <a href="https://github.com/AdityaMehta2006/ScholarLens" class="btn-secondary" target="_blank">View on GitHub</a>
+      <p class="section-sub reveal reveal-delay-2">Download ThinkStack and take control of your research — free, forever, offline.</p>
+
+      <!-- ── OS Download Cards ── -->
+      <div class="download-grid reveal reveal-delay-3">
+
+        <!-- macOS -->
+        <div class="download-card">
+          <div class="download-card-header">
+            <div class="os-icon">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+            </div>
+            macOS
+          </div>
+          <a href="#" class="dl-btn dl-btn-primary" id="dl-macos-arm">Download for Apple Silicon</a>
+          <a href="#" class="dl-btn dl-btn-secondary" id="dl-macos-intel">Download for Intel</a>
+          <div class="dl-requirements">
+            <h5>Minimum Requirements</h5>
+            <p>macOS 12 (Monterey) or later. Apple Silicon recommended. Intel x86 also supported.</p>
+          </div>
+        </div>
+
+        <!-- Windows -->
+        <div class="download-card">
+          <div class="download-card-header">
+            <div class="os-icon">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 12V6.75l8-1.25V12H3zm0 .5h8v6.5L3 17.75V12.5zM12 5.25L21 4v8.5h-9V5.25zM12 13h9v8l-9-1.25V13z"/></svg>
+            </div>
+            Windows
+          </div>
+          <a href="#" class="dl-btn dl-btn-primary" id="dl-win-x64">Download for x64</a>
+          <a href="#" class="dl-btn dl-btn-secondary" id="dl-win-arm64">Download for ARM64</a>
+          <div class="dl-requirements">
+            <h5>Minimum Requirements</h5>
+            <p>Windows 10 (64-bit) or later. 8 GB RAM recommended for model inference.</p>
+          </div>
+        </div>
+
+        <!-- Linux -->
+        <div class="download-card">
+          <div class="download-card-header">
+            <div class="os-icon">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.503 18.22s-.085.042-.103.042c-.013 0-.063-.021-.107-.042l-.009-.003c-1.093-.466-4.593-2.201-4.593-5.607l.008-.398c.022-1.183.043-2.301-.093-3.32-.135-1.013-.42-1.802-.979-2.595l-.018-.023A2.025 2.025 0 0 1 6.2 5.2c0-1.07.864-1.936 1.944-1.957h.013a2.03 2.03 0 0 1 1.397.576 8.502 8.502 0 0 1 4.895 0A2.025 2.025 0 0 1 15.843 3.24h.014c1.08.021 1.944.887 1.944 1.957a2.036 2.036 0 0 1-.41 1.074l-.018.024c-.56.793-.844 1.582-.979 2.594-.136 1.019-.115 2.137-.093 3.32l.008.4c0 3.405-3.5 5.14-4.593 5.606l-.009.004-.203.001zM8.157 4.243h-.011a.955.955 0 0 0-.951.957.964.964 0 0 0 .325.714c.736.984 1.1 1.976 1.263 3.196.147 1.1.123 2.267.1 3.484l-.006.344c0 2.587 2.66 4.077 3.623 4.529.964-.452 3.623-1.942 3.623-4.53l-.007-.343c-.023-1.217-.047-2.385.1-3.484.164-1.22.528-2.212 1.263-3.196a.964.964 0 0 0 .326-.714.955.955 0 0 0-.952-.957h-.01a1.03 1.03 0 0 0-.712.294l-.011.012a9.484 9.484 0 0 0-5.24 0l-.012-.012a1.028 1.028 0 0 0-.711-.294z"/><path d="M12.5 20.76c-.688 0-1.273-.168-1.749-.5-.933-.656-1.131-1.614-1.131-2.16 0-.124.012-.172.015-.184l.985.175c-.002.008-.002.04-.002.077 0 .227.089.863.679 1.278.337.237.776.352 1.341.314l.066.99c-.07.006-.137.01-.204.01z"/></svg>
+            </div>
+            Linux
+          </div>
+          <a href="#" class="dl-btn dl-btn-primary" id="dl-linux-x64">Download for x64</a>
+          <a href="#" class="dl-btn dl-btn-secondary" id="dl-linux-arm64">Download for ARM64</a>
+          <div class="dl-requirements">
+            <h5>Minimum Requirements</h5>
+            <p>glibc ≥ 2.28. Ubuntu 20+, Debian 10+, Fedora 36+, RHEL 8+. AppImage also available.</p>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="dl-github-row reveal reveal-delay-4">
+        <a href="https://github.com/Rithesh077/ThinkStack" class="btn-secondary" target="_blank" rel="noopener">View on GitHub</a>
       </div>
     </div>
   </div>
@@ -1128,7 +1059,7 @@
       <ul class="footer-links">
         <li><a href="#features">Features</a></li>
         <li><a href="#how-it-works">How It Works</a></li>
-        <li><a href="https://github.com/AdityaMehta2006/ScholarLens" target="_blank">GitHub</a></li>
+        <li><a href="https://github.com/Rithesh077/ThinkStack" target="_blank" rel="noopener">GitHub</a></li>
       </ul>
     </div>
   </div>
@@ -1183,57 +1114,21 @@
 
   /* ── Hero sequential animation ── */
   window.addEventListener('DOMContentLoaded', () => {
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-    const badge = document.querySelector('.hero-badge');
->>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
-=======
-    const badge = document.querySelector('.hero-badge');
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
     const words = document.querySelectorAll('.hero-word');
     const slash = document.querySelector('.hero-slash');
     const accent = document.querySelector('.hero-accent');
     const sub = document.querySelector('.hero-sub');
     const buttons = document.querySelector('.hero-buttons');
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-=======
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
-    // Show badge first
-    setTimeout(() => {
-      badge.classList.add('visible');
-    }, 300);
-
-<<<<<<< HEAD
->>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
-=======
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
     // Show each word one by one
     words.forEach((word, i) => {
       setTimeout(() => {
         word.classList.add('show');
-<<<<<<< HEAD
-<<<<<<< HEAD
       }, 300 + i * 200);
     });
 
     // After all words shown, draw the slash
     const slashDelay = 300 + words.length * 200 + 300;
-=======
-=======
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
-      }, 600 + i * 200);
-    });
-
-    // After all words shown, draw the slash
-    const slashDelay = 600 + words.length * 200 + 300;
-<<<<<<< HEAD
->>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
-=======
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
     setTimeout(() => {
       slash.classList.add('draw');
     }, slashDelay);
@@ -1252,12 +1147,8 @@
       buttons.classList.add('visible');
     }, slashDelay + 1100);
   });
-<<<<<<< HEAD
-<<<<<<< HEAD
 
 
-=======
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
 
   /* ── Dynamic Bento Card Glow tracking mouse coordinates ── */
   document.querySelectorAll('.bento-card').forEach(card => {
@@ -1269,11 +1160,6 @@
       card.style.setProperty('--mouse-y', `${y}px`);
     });
   });
-<<<<<<< HEAD
-=======
->>>>>>> cee714595f29aece60542ffb86b41635e2925e6f
-=======
->>>>>>> e8062b26cf73549dca664e9ae090a3f11c079a3b
 </script>
 </body>
 </html>

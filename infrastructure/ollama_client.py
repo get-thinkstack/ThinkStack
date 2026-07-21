@@ -156,8 +156,79 @@ class OllamaClient:
                 return candidates[0]
         raise FileNotFoundError(f"llama.cpp model not found at {path}")
 
-    def _get_llama(self):
-        """lazily initialize llama.cpp model instance with gpu fallback."""
+    # ── task-specific model registry ──────────────────────────────────
+    # maps task types to dedicated gguf filenames. if a task-specific
+    # model exists in data/models/, it's used; otherwise falls back to
+    # the base model. only one model loaded at a time (memory safety).
+    TASK_MODEL_MAP = {
+        "latex_writer": ["latex-writer.gguf", "latex_writer.gguf"],
+        "gap_analysis": ["gap-analysis.gguf", "gap_analysis.gguf"],
+        "general": [],  # always uses the base model
+    }
+
+    def _resolve_task_model_path(self, task_type: str = "general") -> Path:
+        """resolve the model path for a specific task type.
+
+        checks if a task-specific gguf exists in the models directory.
+        if found, returns it; otherwise falls back to the base model.
+
+        args:
+            task_type: one of 'latex_writer', 'gap_analysis', 'general'.
+
+        returns:
+            path to the gguf file to use.
+        """
+        candidates = self.TASK_MODEL_MAP.get(task_type, [])
+        models_dir = self._models_dir()
+        for name in candidates:
+            path = models_dir / name
+            if path.is_file():
+                logger.info("using task-specific model for %s: %s", task_type, name)
+                return path
+        return self._resolve_llama_model_path()
+
+    def _compute_load_params(self, model_path: Path) -> tuple[int, int]:
+        """compute safe ctx_size and gpu_layers using the hardware profiler.
+
+        returns:
+            (n_ctx, n_gpu_layers) tuple tuned to the detected hardware.
+        """
+        from infrastructure.hardware import (
+            profile_system, recommended_ctx_size, recommended_gpu_layers,
+            model_file_size_gb,
+        )
+
+        ctx = self.ctx_size
+        layers = self.gpu_layers
+        file_size = model_file_size_gb(model_path)
+
+        # auto-detect context size from hardware tier
+        if settings.llm_auto_ctx:
+            profile = profile_system()
+            ctx = recommended_ctx_size(profile.tier)
+            logger.info(
+                "hardware tier %s → ctx_size=%d (model %.2f gb, ram %.1f/%.1f gb)",
+                profile.tier, ctx, file_size,
+                profile.available_ram_gb, profile.total_ram_gb,
+            )
+
+        # auto-detect gpu layers (-1 = auto)
+        if layers == -1:
+            layers = recommended_gpu_layers(model_size_gb=file_size)
+            logger.info("auto-detected gpu_layers=%d for %.2f gb model", layers, file_size)
+
+        return ctx, layers
+
+    def _get_llama(self, task_type: str = "general"):
+        """lazily initialize llama.cpp model instance with hardware-aware loading.
+
+        uses the hardware profiler to auto-detect safe gpu_layers and ctx_size.
+        catches oom/memory errors and retries with minimal settings.
+
+        args:
+            task_type: optional task type for model routing.
+        """
+        # if a model is already loaded, reuse it (no hot-swap)
         if self._llama is not None:
             return self._llama
 
@@ -168,34 +239,61 @@ class OllamaClient:
                 "llama-cpp-python is required for llm_provider=llama_cpp"
             ) from e
 
-        model_path = self._resolve_llama_model_path()
+        model_path = self._resolve_task_model_path(task_type)
+        n_ctx, n_gpu_layers = self._compute_load_params(model_path)
 
-        # attempt gpu-accelerated load first, fallback to cpu on failure
-        if self.gpu_layers != 0:
+        # attempt load with computed params; catch oom and retry with minimal
+        if n_gpu_layers != 0:
             try:
                 logger.info(
-                    "loading llama.cpp model from %s with %d gpu layers",
-                    model_path, self.gpu_layers,
+                    "loading llama.cpp model from %s (ctx=%d, gpu_layers=%d)",
+                    model_path.name, n_ctx, n_gpu_layers,
                 )
                 self._llama = Llama(
                     model_path=str(model_path),
-                    n_ctx=self.ctx_size,
-                    n_gpu_layers=self.gpu_layers,
+                    n_ctx=n_ctx,
+                    n_gpu_layers=n_gpu_layers,
                     verbose=False,
                 )
                 return self._llama
-            except Exception as e:
-                logger.warning(
-                    "gpu load failed (%s), falling back to cpu-only", e
-                )
+            except (MemoryError, RuntimeError, Exception) as e:
+                err_str = str(e).lower()
+                if "memory" in err_str or "alloc" in err_str or "oom" in err_str:
+                    logger.warning(
+                        "oom during gpu load (ctx=%d, layers=%d): %s. "
+                        "retrying with ctx=2048, cpu-only",
+                        n_ctx, n_gpu_layers, e,
+                    )
+                    n_ctx = 2048
+                    n_gpu_layers = 0
+                else:
+                    logger.warning(
+                        "gpu load failed (%s), falling back to cpu-only", e
+                    )
+                    n_gpu_layers = 0
 
-        logger.info("loading llama.cpp model from %s (cpu-only)", model_path)
-        self._llama = Llama(
-            model_path=str(model_path),
-            n_ctx=self.ctx_size,
-            n_gpu_layers=0,
-            verbose=False,
+        logger.info(
+            "loading llama.cpp model from %s (cpu-only, ctx=%d)",
+            model_path.name, n_ctx,
         )
+        try:
+            self._llama = Llama(
+                model_path=str(model_path),
+                n_ctx=n_ctx,
+                n_gpu_layers=0,
+                verbose=False,
+            )
+        except (MemoryError, RuntimeError) as e:
+            # absolute last resort: minimal context
+            logger.error(
+                "cpu load failed with ctx=%d: %s. last resort ctx=2048", n_ctx, e,
+            )
+            self._llama = Llama(
+                model_path=str(model_path),
+                n_ctx=2048,
+                n_gpu_layers=0,
+                verbose=False,
+            )
         return self._llama
 
     async def _generate_ollama(
@@ -235,6 +333,7 @@ class OllamaClient:
         temperature: float,
         max_tokens: int,
         json_mode: bool = False,
+        task_type: str = "general",
     ) -> str:
         # build the chat messages; create_chat_completion applies the model's
         # own chat template, so a dedicated system turn is handled correctly.
@@ -262,8 +361,9 @@ class OllamaClient:
         # concurrent first-request race would otherwise load the model twice on
         # the gpu (doubling vram -> segfault / shared-memory spill). loading
         # inside the lock guarantees exactly one load and one in-flight call.
+
         async with self._get_gen_lock():
-            llama = self._get_llama()
+            llama = self._get_llama(task_type=task_type)
             result = await asyncio.to_thread(
                 llama.create_chat_completion,
                 **kwargs,
@@ -281,6 +381,7 @@ class OllamaClient:
         system: Optional[str] = None,
         temperature: float = 0.3,
         max_tokens: int = 2048,
+        task_type: str = "general",
     ) -> str:
         """generate text from the configured local llm runtime.
 
@@ -289,6 +390,9 @@ class OllamaClient:
             system: optional system prompt for context setting.
             temperature: sampling temperature, lower is more deterministic.
             max_tokens: maximum number of tokens in the response.
+            task_type: task identifier for model routing. if a task-specific
+                gguf exists in data/models/, it is used instead of the base
+                model. one of 'latex_writer', 'gap_analysis', or 'general'.
 
         returns:
             the generated text response from the model.
@@ -303,6 +407,7 @@ class OllamaClient:
                 system=system,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                task_type=task_type,
             )
 
         return await self._generate_ollama(
@@ -319,6 +424,7 @@ class OllamaClient:
         system: Optional[str] = None,
         temperature: float = 0.1,
         max_tokens: int = 2048,
+        task_type: str = "general",
     ) -> str:
         """generate a response intended for json parsing.
 
@@ -329,6 +435,7 @@ class OllamaClient:
             prompt: the user prompt, should instruct json output.
             system: optional system prompt.
             temperature: sampling temperature.
+            task_type: task identifier for model routing.
 
         returns:
             raw json string from the model.
@@ -340,6 +447,7 @@ class OllamaClient:
                 temperature=temperature,
                 max_tokens=max_tokens,
                 json_mode=True,
+                task_type=task_type,
             )
             return _extract_json_text(raw)
 
