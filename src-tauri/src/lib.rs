@@ -16,6 +16,40 @@ use std::time::Duration;
 
 const BACKEND_ADDR: &str = "127.0.0.1:8000";
 
+/// Detect available VRAM and compute safe gpu_layers.
+/// Returns -1 (full offload) if sufficient VRAM, 0 for CPU-only.
+fn detect_gpu_layers() -> String {
+    // check for NVIDIA GPU via nvidia-smi
+    if let Ok(output) = Command::new("nvidia-smi")
+        .args(["--query-gpu=memory.total", "--format=csv,noheader,nounits"])
+        .output()
+    {
+        if output.status.success() {
+            if let Ok(mem_str) = String::from_utf8(output.stdout) {
+                if let Ok(vram_mb) = mem_str.trim().parse::<u64>() {
+                    let vram_gb = vram_mb as f64 / 1024.0;
+                    // full offload if >= 2GB VRAM, else CPU-only
+                    if vram_gb >= 2.0 {
+                        return "-1".to_string();
+                    }
+                }
+            }
+        }
+    }
+    "0".to_string()
+}
+
+/// Resolve the models directory: bundled data/models or project data/models.
+fn models_dir() -> String {
+    let project = project_dir();
+    let bundled = format!("{project}/data/models");
+    if std::path::Path::new(&bundled).is_dir() {
+        return bundled;
+    }
+    // fallback to relative path (the backend config default)
+    "data/models".to_string()
+}
+
 /// Resolve the python interpreter: env var → project venv → system python3.
 fn python_path() -> String {
     if let Ok(p) = std::env::var("THINKSTACK_PYTHON") {
@@ -84,10 +118,17 @@ fn backend_up() -> bool {
 /// Prefers the bundled sidecar binary (production). Falls back to
 /// `python -m uvicorn` for development when no sidecar is found.
 fn start_backend() -> Option<Child> {
+    let gpu_layers = detect_gpu_layers();
+    let model_dir = models_dir();
+
     // ── try sidecar first (production builds) ──
     if let Some(sidecar) = sidecar_path() {
         let mut cmd = Command::new(&sidecar);
         cmd.args(["--host", "127.0.0.1", "--port", "8000"]);
+
+        // pass hardware-detected settings to the backend
+        cmd.env("THINKSTACK_LLM_GPU_LAYERS", &gpu_layers);
+        cmd.env("THINKSTACK_LLM_MODEL_PATH", &model_dir);
 
         if let Ok(model) = std::env::var("THINKSTACK_LLM_MODEL_PATH") {
             cmd.env("THINKSTACK_LLM_MODEL_PATH", model);
@@ -115,6 +156,10 @@ fn start_backend() -> Option<Child> {
         "--host", "127.0.0.1", "--port", "8000",
     ])
     .current_dir(&project);
+
+    // pass hardware-detected settings to the backend
+    cmd.env("THINKSTACK_LLM_GPU_LAYERS", &gpu_layers);
+    cmd.env("THINKSTACK_LLM_MODEL_PATH", &model_dir);
 
     if let Ok(model) = std::env::var("THINKSTACK_LLM_MODEL_PATH") {
         cmd.env("THINKSTACK_LLM_MODEL_PATH", model);
