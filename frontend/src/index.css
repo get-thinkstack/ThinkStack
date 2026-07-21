@@ -1,11 +1,13 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Caveat:wght@400..700&display=swap');
 
+/* ============================================================
    THEME SYSTEM
    :root holds the LIGHT theme + all theme-independent tokens.
    [data-theme="dark"] (set on <html>) overrides only colors.
    Legacy variable names used across components are defined once
    as var(--design-token) so they follow whichever theme is active.
+   ============================================================ */
 :root {
   /* ---- theme-independent ---- */
   --radius-sm: 8px;
@@ -1256,10 +1258,12 @@ input::-webkit-credentials-auto-fill-button {
   justify-content: flex-end;
 }
 
+/* ============================================================
    THEME RECONCILIATION
    re-skin elements that hard-coded light-on-dark colors so they
    read correctly in BOTH themes. these come last, so they win,
    and they reference tokens so they follow the active theme.
+   ============================================================ */
 .stat-value { color: var(--text); }
 .page-header h2 { text-shadow: none; }
 
@@ -1408,7 +1412,7 @@ input::-webkit-credentials-auto-fill-button {
   font-family: var(--font-base);
 }
 
-   PAPER WRITER
+/* ---- PAPER WRITER ---- */
 .pw-bar {
   display: flex;
   align-items: center;
@@ -1559,7 +1563,9 @@ input::-webkit-credentials-auto-fill-button {
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ============================================================
    CHAT FIX — wrap long messages so nothing gets clipped
+   ============================================================ */
 .chat-panel-content,
 .chat-message,
 .chat-bubble-content { min-width: 0; }
@@ -1643,10 +1649,12 @@ input::-webkit-credentials-auto-fill-button {
 /* chat side panel: never overflow a narrow window (also helps the desktop app) */
 .chat-side-panel { width: min(400px, 92vw); }
 
+/* ============================================================
    NEON CONTINUITY  — ports the landing page's language into the app:
    Outfit display, acid-green signal, SVG brush-slash page titles,
    bento surfaces, and definitions for the classes the components
    reference. Appended last so it wins over earlier rules.
+   ============================================================ */
 
 /* ---- display type: Outfit needs real weight (Anton was single-weight) ---- */
 .sidebar-brand h1 { font-weight: 800; letter-spacing: -0.02em; color: var(--text); text-shadow: none; }
@@ -1727,9 +1735,11 @@ input::-webkit-credentials-auto-fill-button {
 .upload-browse-btn:hover { box-shadow: 0 10px 25px var(--accent-soft); }
 .upload-zone:hover .upload-zone-icon-wrapper { box-shadow: 0 0 20px var(--accent-soft); }
 
+/* ============================================================
    MISSING-CLASS DEFINITIONS
    these were referenced by components but never styled, so they
    rendered as raw HTML. defined here on the token system.
+   ============================================================ */
 
 /* empty & loading states */
 .empty-state {
@@ -1817,7 +1827,10 @@ input::-webkit-credentials-auto-fill-button {
 .pw-chip:focus-visible, .theme-toggle:focus-visible, .chat-send-btn:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px;
 }
+
+/* ============================================================
    PAPER WRITER: PREVIEW TAB SWITCHER
+   ============================================================ */
 .pw-preview-tabs {
   display: flex;
   gap: 0;
@@ -1855,7 +1868,9 @@ input::-webkit-credentials-auto-fill-button {
   min-height: 500px;
 }
 
+/* ============================================================
    LATEX PREVIEW RENDERER STYLES
+   ============================================================ */
 .lp-root {
   font-family: 'Computer Modern', 'Latin Modern Roman', 'STIX Two Text', Georgia, 'Times New Roman', serif;
   font-size: 0.95rem;
