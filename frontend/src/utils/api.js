@@ -139,23 +139,6 @@ export const gapsApi = {
     }),
 };
 
-export const chatApi = {
-  /**
-   * ask the rag chat assistant a question.
-   *
-   * @param {string} message - the user's question.
-   * @param {object} [opts] - optional scope and grounding.
-   * @param {string[]} [opts.docIds] - restrict retrieval to these documents.
-   * @param {{role: string, content: string}[]} [opts.history] - prior turns.
-   * @param {string} [opts.context] - current analysis results as extra context.
-   */
-  send: (message, { docIds = [], history = [], context = '' } = {}) =>
-    llmRequest('Assistant thinking', '/chat', {
-      method: 'POST',
-      body: { message, doc_ids: docIds, history, context },
-    }),
-};
-
 export const systemApi = {
   health: () => request('/system/health'),
   models: () => request('/system/models'),
@@ -216,6 +199,10 @@ export const papersApi = {
   remove: (projectId) =>
     request(`/papers/projects/${projectId}`, { method: 'DELETE' }),
 
-  downloadUrl: (projectId) => `${BASE_URL}/papers/download/${projectId}`,
+  /* inline disposition — renders inside the preview <iframe> */
+  previewUrl: (projectId) => `${BASE_URL}/papers/download/${projectId}`,
+
+  /* attachment disposition — triggers a save-to-disk */
+  downloadUrl: (projectId) => `${BASE_URL}/papers/download/${projectId}?download=1`,
 };
 

@@ -80,7 +80,7 @@ export default function PaperWriter() {
       setSource(d.source || '');
       setDirty(false);
       const proj = projects.find((p) => p.project_id === id);
-      if (proj?.has_pdf) setPdfUrl(`${papersApi.downloadUrl(id)}?t=${Date.now()}`);
+      if (proj?.has_pdf) setPdfUrl(`${papersApi.previewUrl(id)}?t=${Date.now()}`);
     } catch (e) {
       setError(e.message);
     }
@@ -127,7 +127,7 @@ export default function PaperWriter() {
       await papersApi.save(activeId, source);
       setDirty(false);
       const res = await papersApi.compile(activeId);
-      setPdfUrl(`${papersApi.downloadUrl(activeId)}?t=${Date.now()}`);
+      setPdfUrl(`${papersApi.previewUrl(activeId)}?t=${Date.now()}`);
       const w = res?.warnings || [];
       setWarnings(w);
       flash(w.length ? `compiled with ${w.length} warning${w.length > 1 ? 's' : ''}` : 'compiled');
@@ -247,7 +247,7 @@ export default function PaperWriter() {
                   <span>Compile</span>
                 </button>
                 {pdfUrl && (
-                  <a className="btn btn-secondary btn-sm" href={pdfUrl} download>
+                  <a className="btn btn-secondary btn-sm" href={papersApi.downloadUrl(activeId)} download>
                     <Download size={14} /> <span>PDF</span>
                   </a>
                 )}

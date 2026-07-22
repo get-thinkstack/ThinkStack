@@ -7,7 +7,6 @@ across embedding requests.
 """
 
 import logging
-from functools import lru_cache
 
 from sentence_transformers import SentenceTransformer
 
@@ -21,17 +20,24 @@ _model: SentenceTransformer | None = None
 def get_model() -> SentenceTransformer:
     """load and cache the sentence-transformer embedding model.
 
-    the model is downloaded on first use and cached locally by the
-    sentence-transformers library. subsequent calls return the
-    cached instance.
+    prefers the copy shipped inside the bundle so a packaged build never
+    reaches out to huggingface on first use -- an offline-first app must not
+    need the network to embed its first document. falls back to the model
+    name (hub download / local hf cache) when running from source.
+
+    the model always runs on the cpu: it is a 22M-parameter MiniLM and
+    embedding a 64-chunk batch takes ~0.2s there, so spending vram on it
+    would only steal headroom from the gguf that actually needs the gpu.
 
     returns:
         the loaded SentenceTransformer model.
     """
     global _model
     if _model is None:
-        logger.info("loading embedding model: %s", settings.embedding_model)
-        _model = SentenceTransformer(settings.embedding_model)
+        bundled = settings.bundled_embedding_dir
+        source = str(bundled) if bundled.is_dir() else settings.embedding_model
+        logger.info("loading embedding model: %s (cpu)", source)
+        _model = SentenceTransformer(source, device="cpu")
         logger.info("embedding model loaded")
     return _model
 

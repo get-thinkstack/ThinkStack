@@ -25,8 +25,8 @@ papers:
 {papers}
 
 respond in json format with key "themes" containing a list of objects,
-each with keys: label, description, doc_ids (list), keywords (list).
-identify between 2 and 6 themes."""
+each with keys: label, description (1-2 sentences), doc_ids (list),
+keywords (list of 3-5). identify between 2 and 4 themes."""
 
 
 async def cluster_by_themes(texts: dict[str, str]) -> list[Theme]:
@@ -55,7 +55,9 @@ async def cluster_by_themes(texts: dict[str, str]) -> list[Theme]:
     )
 
     try:
-        response = await ollama_client.generate_json(prompt, system=system)
+        response = await ollama_client.generate_json(
+            prompt, system=system, max_tokens=640
+        )
         data = json.loads(response)
         themes_data = data.get("themes", [])
 

@@ -20,6 +20,9 @@ env/
 ENV/
 env.bak/
 venv.bak/
+# the packaging venv (CPU-only torch + a hand-copied CUDA llama_cpp). it is
+# built for this machine's GPU/driver combo, so it is never shared.
+.venv-build/
 
 # ── Node / Frontend ──────────────────────────────────────
 node_modules/
@@ -36,6 +39,12 @@ target/
 src-tauri/target/
 src-tauri/gen/
 *.pdb
+
+# ── Portable desktop build (~2.2 GB) ─────────────────────
+# the shipped artifact: ThinkStack.exe + the frozen python sidecar, which
+# carries this machine's CUDA llama.cpp DLLs and a .env pinned to a local
+# model path. rebuild it with scripts, never commit it.
+dist-portable/
 
 # ── Local data & runtime state (recreated on startup) ────
 # uploaded papers, the vector store, and the persisted model

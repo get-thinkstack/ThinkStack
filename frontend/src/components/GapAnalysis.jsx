@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Target, Compass, FileText, AlertTriangle, TrendingUp, MessageSquare, Lock, Eye, EyeOff, Search, ArrowRight } from 'lucide-react';
-import { documentsApi, gapsApi, chatApi, useLlmBusy } from '../utils/api';
-import ChatDialog from './ChatDialog';
+import { Target, AlertTriangle, Lock, Eye, EyeOff, Search, ArrowRight } from 'lucide-react';
+import { documentsApi, gapsApi, useLlmBusy } from '../utils/api';
 import GapSeverityChart from './charts/GapSeverityChart';
 import PageHeader from './PageHeader';
 
@@ -11,7 +10,6 @@ import PageHeader from './PageHeader';
  * orchestrates the full gap analysis pipeline across selected papers.
  * displays identified gaps with severity levels and actionable
  * research direction suggestions.
- * includes an AI chat dialog for interactive Q&A about gaps.
  */
 export default function GapAnalysis() {
   const [documents, setDocuments] = useState([]);
@@ -22,10 +20,6 @@ export default function GapAnalysis() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
-
-  // chat state
-  const [chatMessages, setChatMessages] = useState([]);
-  const [chatLoading, setChatLoading] = useState(false);
 
   // single shared local model — disable runs while it's busy elsewhere
   const { busy } = useLlmBusy();
@@ -73,49 +67,6 @@ export default function GapAnalysis() {
       setError(err.message);
     }
     setLoading(false);
-  };
-
-  const handleChatSend = async (text) => {
-    const userMsg = { role: 'user', content: text };
-    const history = [...chatMessages];
-    setChatMessages((prev) => [...prev, userMsg]);
-    setChatLoading(true);
-
-    try {
-      let context = '';
-      if (result) {
-        if (result.gaps?.length) {
-          context = `Identified gaps: ${result.gaps
-            .map((g) => `${g.description} (${g.severity})`)
-            .join('; ')}`;
-        }
-        if (result.suggestions?.length) {
-          context += `\nSuggested directions: ${result.suggestions
-            .map((s) => `${s.title}: ${s.description}`)
-            .join('; ')}`;
-        }
-      }
-
-      const response = await chatApi.send(text, {
-        docIds: selectedDocs,
-        history,
-        context,
-      });
-
-      setChatMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: response.answer },
-      ]);
-    } catch (err) {
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: `Sorry, I encountered an error: ${err.message}. Make sure the backend is running and papers are uploaded.`,
-        },
-      ]);
-    }
-    setChatLoading(false);
   };
 
   const severityLabel = (severity) => {
@@ -336,14 +287,6 @@ export default function GapAnalysis() {
           </p>
         </div>
       )}
-
-      <ChatDialog
-        title="Gap Finder Assistant"
-        messages={chatMessages}
-        onSend={handleChatSend}
-        loading={chatLoading}
-        placeholder="Ask about research gaps and directions..."
-      />
     </div>
   );
 }
