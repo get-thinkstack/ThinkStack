@@ -77,6 +77,7 @@ async def analyze_gaps(
             prompt,
             system=system,
             max_tokens=800,
+            task_type="gap_analysis",
         )
         data = json.loads(response)
         gaps_data = data.get("gaps", [])

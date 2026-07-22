@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from domain.knowledge_base.repository import get_chunks_by_doc_id
 from domain.gap_finder.gap_analyzer import analyze_gaps
 from domain.gap_finder.suggestion_engine import generate_suggestions
+from domain.fine_tuning.data_collector import save_gap_analysis_pair
 from infrastructure.ollama_client import ollama_client
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,8 @@ async def _analyze_document(doc_id: str, text: str) -> tuple[dict, list[dict]]:
             prompt,
             system=system,
             max_tokens=600,
+            max_tokens=800,
+            task_type="gap_analysis",
         )
         data = json.loads(response)
         summary_text = data.get("summary", "")
@@ -144,6 +147,23 @@ async def analyze(request: GapAnalysisRequest):
 
     gaps = await analyze_gaps(summaries, all_claims, request.doc_ids)
     suggestions = await generate_suggestions(gaps)
+
+    # save training pair for future fine-tuning (best-effort, privacy-safe)
+    try:
+        combined_text = "\n".join(
+            f"[{s['doc_id']}] {s['text'][:200]}" for s in summaries
+        )
+        result_json = json.dumps({
+            "gaps": [asdict(g) for g in gaps],
+            "suggestions": [asdict(s) for s in suggestions],
+        }, ensure_ascii=False)
+        save_gap_analysis_pair(
+            paper_content=combined_text,
+            system="gap analysis across research papers",
+            analysis_result=result_json,
+        )
+    except Exception:  # noqa: BLE001 - data collection is non-critical
+        pass
 
     return {
         "gaps": [asdict(g) for g in gaps],

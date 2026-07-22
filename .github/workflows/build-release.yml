@@ -96,9 +96,26 @@ jobs:
         run: npm --prefix frontend run build
         shell: bash
 
+      # ── download base model ──
+      - name: Download Qwen2.5 base models
+        run: |
+          mkdir -p data/models
+          # 0.5B ultra-lightweight (always bundled)
+          curl -L -o data/models/qwen2.5-0.5b-instruct-q4_k_m.gguf \
+            "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+          # 1.5B balanced (also bundled)
+          curl -L -o data/models/qwen2.5-1.5b-instruct-q4_k_m.gguf \
+            "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf"
+          ls -lh data/models/
+        shell: bash
+
       # ── freeze python backend ──
       - name: Freeze backend (PyInstaller)
         run: |
+          ADD_DATA="--add-data frontend/dist:frontend/dist"
+          if ls data/models/*.gguf 1>/dev/null 2>&1; then
+            ADD_DATA="$ADD_DATA --add-data data/models:data/models"
+          fi
           pyinstaller --name thinkstack-api --onefile --clean \
             --hidden-import uvicorn \
             --hidden-import uvicorn.logging \
@@ -111,7 +128,8 @@ jobs:
             --hidden-import uvicorn.protocols.websockets.auto \
             --hidden-import uvicorn.lifespan \
             --hidden-import uvicorn.lifespan.on \
-            --add-data "frontend/dist:frontend/dist" \
+            --hidden-import psutil \
+            $ADD_DATA \
             main.py
         shell: bash
 

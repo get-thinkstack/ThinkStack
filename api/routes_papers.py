@@ -143,9 +143,18 @@ async def api_generate_latex(req: GenerateLatexRequest):
 
     prompt = req.prompt
     if req.current_source:
+        # truncate to prevent exceeding the model's context window.
+        # 6000 chars ≈ 1500 tokens, leaving room for system prompt,
+        # grounding context, and the 2048 output token budget.
+        truncated_source = req.current_source[:6000]
+        if len(req.current_source) > 6000:
+            logger.info(
+                "truncated current_source from %d to 6000 chars for model safety",
+                len(req.current_source),
+            )
         prompt = (
             f"here is the current document source for context:\n"
-            f"```\n{req.current_source}\n```\n\n"
+            f"```\n{truncated_source}\n```\n\n"
             f"now generate latex for this request:\n{req.prompt}"
         )
     if grounding_parts:
@@ -157,6 +166,7 @@ async def api_generate_latex(req: GenerateLatexRequest):
             system=system,
             temperature=0.2,
             max_tokens=2048,
+            task_type="latex_writer",
         )
         cleaned = _clean_latex(latex_output)
 

@@ -48,10 +48,14 @@ class Settings(BaseSettings):
     llm_provider: str = "llama_cpp"
     llm_model_path: Path = STATE_DIR / "models"
     llm_ctx_size: int = 4096
-    # 0 = cpu-only (works everywhere). set to -1 to offload all layers
-    # to gpu if you have cuda drivers installed and sufficient vram.
-    # override with THINKSTACK_LLM_GPU_LAYERS=-1 for gpu acceleration.
-    llm_gpu_layers: int = 0
+    # -1 = auto-detect (hardware profiler picks the safe offload count).
+    # set to 0 to force cpu-only, or a positive integer for manual control.
+    # override with THINKSTACK_LLM_GPU_LAYERS=0 to force cpu-only.
+    llm_gpu_layers: int = -1
+    # when true, the hardware profiler overrides llm_ctx_size at runtime
+    # to match the machine's available memory. set false to use the static
+    # value above.
+    llm_auto_ctx: bool = True
 
     # generation defaults for interactive chat (kept small for low latency)
     chat_max_tokens: int = 512
