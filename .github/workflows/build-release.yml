@@ -160,18 +160,32 @@ jobs:
         shell: powershell
 
       # ── build tauri (linux / windows) ──
+      # the signing env vars make the bundler emit signed updater artifacts
+      # (.sig files) next to each installer, which the auto-updater verifies
+      # against the pubkey in tauri.conf.json. store the private key + password
+      # as repo secrets (see docs/DEPLOYMENT_AND_UPDATES.md). absent secrets =>
+      # unsigned build (installers still produced, just no working auto-update).
       - name: Build Tauri app
         if: runner.os != 'macOS'
         run: npm run tauri build
         shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       # ── build tauri (macOS universal) ──
       - name: Build Tauri app (macOS universal)
         if: runner.os == 'macOS'
         run: npm run tauri build -- --target universal-apple-darwin
         shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       # ── collect artifacts ──
+      # *.sig are the updater signatures (present only when signing secrets are
+      # set); the release job reads them to build latest.json. the AppImage /
+      # .app.tar.gz / .msi are also the auto-updater's install targets.
       - name: Collect artifacts (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -179,6 +193,7 @@ jobs:
           cp src-tauri/target/release/bundle/deb/*.deb artifacts/ 2>/dev/null || true
           cp src-tauri/target/release/bundle/rpm/*.rpm artifacts/ 2>/dev/null || true
           cp src-tauri/target/release/bundle/appimage/*.AppImage artifacts/ 2>/dev/null || true
+          cp src-tauri/target/release/bundle/appimage/*.AppImage.sig artifacts/ 2>/dev/null || true
           ls -lh artifacts/
 
       - name: Collect artifacts (macOS)
@@ -186,6 +201,8 @@ jobs:
         run: |
           mkdir -p artifacts
           cp src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg artifacts/ 2>/dev/null || true
+          cp src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz artifacts/ 2>/dev/null || true
+          cp src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz.sig artifacts/ 2>/dev/null || true
           ls -lh artifacts/
 
       - name: Collect artifacts (Windows)
@@ -193,7 +210,9 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
           Copy-Item src-tauri\target\release\bundle\msi\*.msi artifacts\ -ErrorAction SilentlyContinue
+          Copy-Item src-tauri\target\release\bundle\msi\*.msi.sig artifacts\ -ErrorAction SilentlyContinue
           Copy-Item src-tauri\target\release\bundle\nsis\*.exe artifacts\ -ErrorAction SilentlyContinue
+          Copy-Item src-tauri\target\release\bundle\nsis\*.exe.sig artifacts\ -ErrorAction SilentlyContinue
           Get-ChildItem artifacts\
         shell: powershell
 
@@ -221,6 +240,22 @@ jobs:
 
       - name: List release files
         run: ls -lhR all-artifacts/
+
+      # ── build the auto-updater manifest (latest.json) ──
+      # composes the signed manifest the desktop app polls. skips cleanly if no
+      # .sig files are present (unsigned build) so releases still publish.
+      - name: Checkout (for the compose script)
+        uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - name: Compose updater manifest (latest.json)
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          bash repo/scripts/compose-updater-manifest.sh \
+            "$VERSION" all-artifacts "Rithesh077/ThinkStack" \
+            > all-artifacts/latest.json || echo "no signed artifacts — skipping latest.json"
+          [ -s all-artifacts/latest.json ] && cat all-artifacts/latest.json || rm -f all-artifacts/latest.json
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

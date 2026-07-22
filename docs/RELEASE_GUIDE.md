@@ -101,11 +101,23 @@ machine when other heavy tools were also running. Before building:
 build (3 runners) and drafts a GitHub Release. To trigger it:
 
 ```bash
+# scripted: bumps the version everywhere, commits, tags, and (with --push)
+# pushes the tag to trigger CI. see scripts/release.sh.
+scripts/release.sh 0.2.0 --push
+```
+
+or manually:
+
+```bash
 # 1. bump the version everywhere it's hardcoded (see checklist below)
 # 2. commit those bumps
 git tag v0.2.0
 git push origin v0.2.0     # pushing the tag triggers the workflow
 ```
+
+> **updates for already-installed apps** are handled by the tauri auto-updater
+> (signed `latest.json` on the release). the full download / update / hotfix /
+> signing-key flow is in [DEPLOYMENT_AND_UPDATES.md](DEPLOYMENT_AND_UPDATES.md).
 
 Or trigger a dry run (build artifacts, no release published) from the Actions
 tab: **workflow_dispatch** → leave "Create a GitHub Release" unchecked.

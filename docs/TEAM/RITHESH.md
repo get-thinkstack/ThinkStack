@@ -25,12 +25,23 @@
 - `docs/landing/index.html` — download landing page for GitHub Pages with OS auto-detection and per-platform install buttons
 - `landing.html` (repo root) — the landing page actually intended for deployment; fixed its download buttons to wire real GitHub Releases URLs (they were static `href="#"` placeholders, and promised Windows/Linux ARM64 builds CI doesn't produce)
 
-### lightweight base model policy
-- CI now bundles only Qwen2.5-0.5B-Instruct (q4_k_m gguf, ~470MB) instead of both 0.5B and 1.5B, so the installer stays small and runs safely on low-end/low-RAM machines out of the box
-- see [docs/RELEASE_GUIDE.md](../RELEASE_GUIDE.md) for the full list of places to update if the default model changes again
+### lightweight base model policy + analysis-model routing
+- CI bundles only Qwen2.5-0.5B-Instruct (q4_k_m gguf, ~470MB) as the base, so the installer stays small and runs safely on low-end/low-RAM machines
+- structured-json analysis tasks (summarize/claims/themes/gaps) route to a heavier `qwen2.5-1.5b-instruct` model because 0.5B produces unparseable JSON on them; `infrastructure/ollama_client.py` keeps a **single model resident and swaps on demand** (unload current → load requested) to cap peak memory. GPU when available, safe CPU fallback (no crash on cpu-only machines)
+- validated end-to-end on a 16GB CPU-only machine: chat/search/ingest/encrypt/paper-writer on 0.5B, summarize/claims/gaps on 1.5B, memory-safe swap confirmed
 
-### release documentation
-- `docs/RELEASE_GUIDE.md` — the reference for cutting a release: pipeline stages, local build steps, the CI tag-push flow, the version-bump checklist, and a memory-pressure troubleshooting note for building Tauri releases on a dev laptop while other tools are running
+### backend merge reconciliation (demo → v1)
+- rebased onto `demo`, which shipped a **broken (non-importable) `ollama_client.py`** and a duplicate-kwarg `routes_gaps.py`; reconciled `ollama_client.py` into one clean working file (kept demo's good infra: frozen-build paths, `.env`, bundled embedding model, `max_tokens` caps, onedir `resources` packaging) rather than taking demo's verbatim
+
+### auto-updates & deployment
+- `frontend/src/utils/updater.js` + `App.jsx` — launch-time update check (no-op in web build)
+- `src-tauri` — `tauri-plugin-updater`/`-process`, `plugins.updater` config, `createUpdaterArtifacts`, capabilities
+- `.github/workflows/build-release.yml` — signs bundles + publishes `latest.json`; `scripts/compose-updater-manifest.sh` builds the manifest, `scripts/release.sh` bumps+tags
+- signing keypair generated; private key kept out of the repo (`~/.tauri`, gitignored `*.key`), public key in `tauri.conf.json`
+
+### release & deployment documentation
+- `docs/RELEASE_GUIDE.md` — cutting a release: pipeline stages, local build, the CI tag-push flow, `release.sh`, and a memory-pressure note for building Tauri on a dev laptop
+- `docs/DEPLOYMENT_AND_UPDATES.md` — per-OS download, the "install locally?" answer, the full auto-update/hotfix flow, signing-key management, and known issues to fix before the next real bundle
 
 ### devops & automation scripts
 - `scripts/setup.sh` — one-command bootstrap (system deps, rust, python, node, latex); macOS/Fedora/Ubuntu/Arch support; `--skip-system`/`--skip-rust` flags; verification matrix
