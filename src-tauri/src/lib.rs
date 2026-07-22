@@ -158,6 +158,8 @@ fn start_backend() -> Option<Child> {
         // run from the bundle's own folder so its .env (model path) resolves
         if let Some(dir) = sidecar.parent() {
             cmd.current_dir(dir);
+        }
+
         // pass hardware-detected settings to the backend
         cmd.env("THINKSTACK_LLM_GPU_LAYERS", &gpu_layers);
         cmd.env("THINKSTACK_LLM_MODEL_PATH", &model_dir);
