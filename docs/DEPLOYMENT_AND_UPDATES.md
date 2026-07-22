@@ -37,9 +37,31 @@ only fills in the URLs from `REPO` + `VERSION` constants.
 reorder that platform's card first. The other buttons must always stay visible
 (user-agent detection is unreliable, and people download for *other* machines).
 
-**To make the page live:** it's a single static HTML file — host it anywhere
-(GitHub Pages, Netlify, Vercel, a university web host). Deployment is deferred
-until the app is tested end-to-end (see git history / ADR).
+**To make the page live:** it's a single static HTML file (no build step, no
+backend), so any static host works. The download buttons point at
+`github.com/.../releases/latest/download/...`, which works regardless of where
+the page itself is hosted. Comparison:
+
+| Host | Cost | Setup effort | Auto-deploy on push | Custom domain | Notes |
+|---|---|---|---|---|---|
+| **GitHub Pages** | free | low | ✅ (Action or branch) | ✅ (CNAME) | same platform as the releases; simplest if you already tag from GitHub. serves from a branch root or `/docs` — `landing.html` would move to `/docs/index.html` or a tiny Pages Action copies it. |
+| **Cloudflare Pages** | free | low–med | ✅ (git-connected) | ✅ | fastest CDN, unlimited bandwidth; separate account; drag-and-drop or connect the repo. |
+| **Netlify** | free tier | low–med | ✅ + deploy previews | ✅ | great DX, PR previews, redirects/forms if ever needed; separate account. |
+| **Vercel** | free tier (hobby) | low–med | ✅ + previews | ✅ | same class as Netlify; shines if you later add a framework; hobby tier is non-commercial. |
+| **University / self-host** | usually free | high | ❌ (manual upload) | depends | full control, but you deploy by hand each release; fine for a one-off demo. |
+
+**Recommendation for this project:** **GitHub Pages** — it's free, HTTPS is
+automatic, it lives on the same platform as your releases and tags, and there's
+nothing new to sign up for. Point it at `/docs` and drop `landing.html` in as
+`docs/index.html` (or add a one-line Pages Action that publishes the root
+`landing.html`). Use **Cloudflare Pages** instead only if you expect heavy
+download traffic and want the bigger CDN.
+
+All the free tiers are fine for a student showcase; the real differences are
+"same-platform simplicity" (Pages) vs "best CDN" (Cloudflare) vs "richest DX +
+previews" (Netlify/Vercel).
+
+Deployment is deferred until the app is tested end-to-end (see git history / ADR).
 
 ---
 
@@ -111,6 +133,21 @@ startup.
 
 ## 4. cutting a release
 
+**Releases are always cut from `main`.** Flow: land your work on `main` (merge
+the feature branch), then run `release.sh` **on `main`** so the tag points at a
+`main` commit. CI triggers on any `v*` tag regardless of branch, but keeping
+tags on `main` means the released code always matches `main`'s history.
+
+```bash
+git checkout main && git merge --ff-only v1/fixes   # land the work (fast-forward, no conflicts)
+git push origin main
+scripts/release.sh 1.0.0 --push                      # bump + tag v1.0.0 on main + push → CI
+```
+
+> **Version number:** use the *next* number for the first working, validated
+> build (e.g. `1.0.0`). Don't tag until you've downloaded the CI artifact and
+> confirmed it runs — a tag is public and the updater treats it as "the latest."
+
 Bumping/tagging is scripted. One command does the version bump, commit, and tag:
 
 ```bash
@@ -153,20 +190,56 @@ npx tauri signer generate -w ~/.tauri/thinkstack-updater.key
 
 - **Public key** → committed in `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`). Safe to share.
 - **Private key** → lives at `~/.tauri/thinkstack-updater.key`, **never committed**
-  (gitignored via `*.key`). Add it — and its password — as GitHub repo secrets so
-  CI can sign:
-  - `TAURI_SIGNING_PRIVATE_KEY` = the contents of the private key file
-  - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` = its password (empty string if none)
+  (gitignored via `*.key`).
 
-  ```bash
-  gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/thinkstack-updater.key
-  gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --body ""
-  ```
+### where the keys go in GitHub — repo **secrets** (not variables)
 
-> ⚠️ **If you lose the private key you can't ship updates to already-installed
-> apps** — they only trust signatures from the matching key. Back it up
-> somewhere safe (a password manager). Rotating the key means shipping a normal
-> update first that carries the new pubkey, then future updates sign with the new key.
+These are **Actions secrets**, encrypted and only exposed to workflow runs.
+Two ways:
+
+**Via the web UI:**
+`repo → Settings → Secrets and variables → Actions → the "Secrets" tab →
+"New repository secret"`. Add two:
+
+| Name | Value |
+|---|---|
+| `TAURI_SIGNING_PRIVATE_KEY` | the **entire contents** of `~/.tauri/thinkstack-updater.key` (a base64 blob) |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | the key's password — **empty** for this key (leave blank) |
+
+- Use the **"Secrets"** tab, **not "Variables"** (variables are plaintext, readable in logs).
+- Use **Repository** secrets, not Environment secrets (unless you add a deploy environment).
+- Names must match the workflow **exactly** (`build-release.yml` references them verbatim).
+
+**Via the CLI** (never prints the key — it streams the file straight to GitHub):
+```bash
+gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/thinkstack-updater.key
+gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --body ""
+```
+Verify: `gh secret list` should show both names (values are never shown).
+
+### backing up the private key
+
+> ⚠️ **Lose this key and you can never update already-installed apps** — they
+> only trust signatures from the matching key. It's 348 bytes; back it up in
+> **at least two** of these:
+
+1. **Password manager** (best) — 1Password / Bitwarden / KeePass: paste the file
+   contents into a "secure note" titled `thinkstack-updater private key`.
+   ```bash
+   cat ~/.tauri/thinkstack-updater.key   # copy the output into the secure note
+   ```
+2. **Encrypted file on cloud/USB** — encrypt, then store the `.gpg` anywhere:
+   ```bash
+   gpg --symmetric --cipher-algo AES256 ~/.tauri/thinkstack-updater.key
+   # → thinkstack-updater.key.gpg  (put on Drive / a USB stick; remember the passphrase)
+   # restore: gpg --decrypt thinkstack-updater.key.gpg > ~/.tauri/thinkstack-updater.key
+   ```
+3. **GitHub secret itself** doubles as a copy — but you can't read it back out, so
+   never rely on it as your *only* backup.
+
+Never: commit it to the repo, paste it in chat/email/Slack, or store it
+unencrypted in cloud storage. Rotating a leaked/lost key means shipping a normal
+update first that carries the *new* pubkey, then signing future updates with the new key.
 
 Without the secrets, CI still builds and publishes installers — they just won't
 be signed, so `latest.json` is skipped and auto-update is inactive until you add
