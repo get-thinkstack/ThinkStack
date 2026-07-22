@@ -315,6 +315,26 @@ class OllamaClient:
                 verbose=False,
             )
         return self._llama
+        )
+        try:
+            self._llama = Llama(
+                model_path=str(model_path),
+                n_ctx=n_ctx,
+                n_gpu_layers=0,
+                verbose=False,
+            )
+        except (MemoryError, RuntimeError) as e:
+            # absolute last resort: minimal context
+            logger.error(
+                "cpu load failed with ctx=%d: %s. last resort ctx=2048", n_ctx, e,
+            )
+            self._llama = Llama(
+                model_path=str(model_path),
+                n_ctx=2048,
+                n_gpu_layers=0,
+                verbose=False,
+            )
+        return self._llama
 
     def _load_on_gpu(self, llama_cls, model_path: Path):
         """load the model fully on the gpu, or raise -- never fall back to cpu.
