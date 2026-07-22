@@ -205,11 +205,14 @@ async def api_compile_pdf(req: CompileRequest):
 
 
 @router.get("/download/{project_id}")
-async def api_download_pdf(project_id: str):
-    """download the compiled pdf for a project."""
+async def api_download_pdf(project_id: str, download: bool = False):
+    """serve the compiled pdf for a project.
+
+    served ``inline`` by default so the preview pane's <iframe> can render it —
+    an ``attachment`` disposition makes the browser download the file instead,
+    leaving the iframe blank. pass ``?download=1`` for the save-to-disk button.
+    """
     try:
-        pdf_path = compile_pdf.__wrapped__ if hasattr(compile_pdf, '__wrapped__') else None
-        # just build the path directly
         from domain.paper_writer.compiler import _get_project_dir
         pdf_file = _get_project_dir(project_id) / "main.pdf"
         if not pdf_file.exists():
@@ -218,6 +221,7 @@ async def api_download_pdf(project_id: str):
             path=str(pdf_file),
             media_type="application/pdf",
             filename=f"{project_id}.pdf",
+            content_disposition_type="attachment" if download else "inline",
         )
     except HTTPException:
         raise

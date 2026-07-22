@@ -17,17 +17,17 @@ logger = logging.getLogger(__name__)
 
 EXTRACTION_PROMPT = """analyze this research paper text and extract key claims and findings.
 for each claim, identify:
-1. the claim or finding itself
-2. the type (finding, methodology, limitation, future_work)
-3. the confidence level (high, medium, low)
-4. supporting text from the paper
+1. claim_text: the claim or finding in one concise sentence (your own words)
+2. claim_type: one of finding, methodology, limitation, future_work
+3. confidence: high, medium, or low
+4. supporting_text: a brief supporting phrase (max ~12 words)
 
 paper text:
 {text}
 
 respond in json format with key "claims" containing a list of objects,
 each with keys: claim_text, claim_type, confidence, supporting_text.
-extract at least 3 and at most 10 claims."""
+extract the 3 to 5 most important claims."""
 
 
 async def extract_claims(doc_id: str, text: str) -> list[Claim]:
@@ -54,7 +54,9 @@ async def extract_claims(doc_id: str, text: str) -> list[Claim]:
     )
 
     try:
-        response = await ollama_client.generate_json(prompt, system=system)
+        response = await ollama_client.generate_json(
+            prompt, system=system, max_tokens=768
+        )
         data = json.loads(response)
         claims_data = data.get("claims", [])
 

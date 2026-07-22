@@ -8,6 +8,7 @@ supporting both ollama and llama.cpp runtimes.
 import asyncio
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -302,10 +303,26 @@ class OllamaClient:
         # inside the lock guarantees exactly one load and one in-flight call.
         async with self._get_gen_lock():
             llama = self._get_llama()
+            started = time.perf_counter()
             result = await asyncio.to_thread(
                 llama.create_chat_completion,
                 **kwargs,
             )
+            elapsed = time.perf_counter() - started
+
+        # per-call timing: shows tok/s (confirms gpu vs cpu) and where the
+        # end-to-end analysis latency actually goes, since every call is
+        # serialized through the single-model lock above.
+        usage = result.get("usage", {}) or {}
+        completion_tokens = usage.get("completion_tokens", 0)
+        prompt_tokens = usage.get("prompt_tokens", 0)
+        tok_per_s = completion_tokens / elapsed if elapsed > 0 else 0.0
+        logger.info(
+            "llama.cpp gen: %d completion tok in %.1fs = %.1f tok/s "
+            "(prompt %d tok, json=%s, max_tokens=%d)",
+            completion_tokens, elapsed, tok_per_s, prompt_tokens,
+            json_mode, max_tokens,
+        )
 
         choices = result.get("choices", [])
         if not choices:
@@ -356,7 +373,7 @@ class OllamaClient:
         prompt: str,
         system: Optional[str] = None,
         temperature: float = 0.1,
-        max_tokens: int = 2048,
+        max_tokens: int = 1024,
     ) -> str:
         """generate a response intended for json parsing.
 

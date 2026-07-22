@@ -29,9 +29,9 @@ paper summaries and claims:
 {content}
 
 respond in json format with key "gaps" containing a list of objects,
-each with keys: gap_type, description, evidence (list of supporting quotes
-or references), severity (high/medium/low), related_doc_ids (list).
-identify at least 3 gaps."""
+each with keys: gap_type, description (concise), evidence (list of up to 2
+short supporting phrases, not long quotes), severity (high/medium/low),
+related_doc_ids (list). identify 3 to 5 gaps."""
 
 
 async def analyze_gaps(

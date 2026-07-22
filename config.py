@@ -6,23 +6,47 @@ chunking parameters, and server configuration. uses pydantic-settings
 for environment variable overrides with the THINKSTACK_ prefix.
 """
 
+import os
+import sys
 from pathlib import Path
 from pydantic_settings import BaseSettings
+
+# ── frozen-build path resolution ─────────────────────────────────────────
+# under pyinstaller, __file__ points inside the bundle (a read-only install
+# dir, or a temp extraction dir for onefile). writing user data there means
+# it is either denied or silently discarded on the next launch, so the two
+# roots are resolved separately:
+#
+#   BUNDLE_DIR -- read-only payload we ship (frontend, embedding model)
+#   STATE_DIR  -- writable, persistent user data (papers, vector store)
+
+_FROZEN = getattr(sys, "frozen", False)
+
+if _FROZEN:
+    # onedir: sys.executable sits in the folder holding the payload.
+    BUNDLE_DIR = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+    STATE_DIR = (
+        Path(os.getenv("LOCALAPPDATA") or Path.home() / ".local" / "share")
+        / "ThinkStack"
+    )
+else:
+    BUNDLE_DIR = Path(__file__).parent
+    STATE_DIR = Path(__file__).parent / "data"
 
 
 class Settings(BaseSettings):
     """application-wide configuration with sensible defaults for offline use."""
 
     # paths
-    base_dir: Path = Path(__file__).parent
-    data_dir: Path = Path(__file__).parent / "data"
-    papers_dir: Path = Path(__file__).parent / "data" / "papers"
-    chroma_dir: Path = Path(__file__).parent / "data" / "vectorstore"
-    models_dir: Path = Path(__file__).parent / "data" / "models"
+    base_dir: Path = BUNDLE_DIR
+    data_dir: Path = STATE_DIR
+    papers_dir: Path = STATE_DIR / "papers"
+    chroma_dir: Path = STATE_DIR / "vectorstore"
+    models_dir: Path = STATE_DIR / "models"
 
     # llm runtime
     llm_provider: str = "llama_cpp"
-    llm_model_path: Path = Path(__file__).parent / "data" / "models"
+    llm_model_path: Path = STATE_DIR / "models"
     llm_ctx_size: int = 4096
     # 0 = cpu-only (works everywhere). set to -1 to offload all layers
     # to gpu if you have cuda drivers installed and sufficient vram.
@@ -42,6 +66,9 @@ class Settings(BaseSettings):
     # embeddings
     embedding_model: str = "all-MiniLM-L6-v2"
     embedding_dimension: int = 384
+    # the copy of the embedding model shipped inside the bundle. present only
+    # in packaged builds; from source we fall back to the hub/hf cache.
+    bundled_embedding_dir: Path = BUNDLE_DIR / "models" / "all-MiniLM-L6-v2"
 
     # chunking
     chunk_size: int = 512
@@ -60,7 +87,17 @@ class Settings(BaseSettings):
         "env_prefix": "THINKSTACK_",
         # machine-specific overrides (model path, gpu layers) live in a
         # gitignored .env so they never get committed into the shared repo.
-        "env_file": ".env",
+        #
+        # a relative ".env" resolves against the cwd, which is whatever
+        # directory the desktop shell happened to launch us from -- so a
+        # packaged build would silently miss it and fall back to the
+        # cpu-only defaults. the candidates below are tried in order, with
+        # later entries winning, so an .env dropped next to the installed
+        # exe overrides the one baked into the bundle.
+        "env_file": (
+            BUNDLE_DIR / ".env",
+            Path(sys.executable).parent / ".env" if _FROZEN else ".env",
+        ),
         "env_file_encoding": "utf-8",
         "extra": "ignore",
     }

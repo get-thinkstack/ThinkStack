@@ -9,19 +9,22 @@
 
 import { useMemo, useState, useEffect } from 'react';
 
-/* KaTeX is loaded lazily at runtime. If not installed (npm install katex),
-   math expressions fall back to styled <code> blocks. */
+/* KaTeX is code-split into its own chunk and loaded on first render, so it
+   never weighs down the initial bundle. The import must stay resolvable by the
+   bundler — marking it @vite-ignore leaves a bare "katex" specifier in the
+   output, which no browser can resolve, and every equation then silently
+   degrades to the <code> fallback below. */
 let _katex = null;
 let _katexLoaded = false;
 let _katexPromise = null;
 
 function loadKatex() {
   if (_katexPromise) return _katexPromise;
-  _katexPromise = import(/* @vite-ignore */ 'katex')
+  _katexPromise = import('katex')
     .then((mod) => {
       _katex = mod.default || mod;
       _katexLoaded = true;
-      return import(/* @vite-ignore */ 'katex/dist/katex.min.css');
+      return import('katex/dist/katex.min.css');
     })
     .catch(() => { _katexLoaded = true; /* mark as attempted */ });
   return _katexPromise;

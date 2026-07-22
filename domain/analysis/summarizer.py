@@ -15,27 +15,24 @@ from infrastructure.ollama_client import ollama_client
 logger = logging.getLogger(__name__)
 
 SINGLE_PAPER_PROMPT = """summarize the following research paper text. provide:
-1. a concise summary (3-5 sentences)
-2. key findings and contributions
-3. methodology used
-4. limitations mentioned
+1. summary: a concise 3-5 sentence overview
+2. key_points: 4-6 short bullet strings covering the main findings,
+   methodology, and limitations -- in your own words, do not quote the paper
 
 paper text:
 {text}
 
-respond in json format with keys: summary, key_points (list of strings), methodology, limitations."""
+respond in json format with keys: summary, key_points (list of strings)."""
 
 MULTI_PAPER_PROMPT = """you are analyzing multiple research papers on a related topic.
-provide a comparative summary that covers:
-1. common themes across papers
-2. different approaches or methodologies used
-3. areas of agreement and disagreement
-4. overall state of research in this area
+provide a comparative summary covering common themes, differing methodologies,
+and points of agreement and disagreement.
 
 papers:
 {papers}
 
-respond in json format with keys: summary, key_points (list of strings), agreements, disagreements."""
+respond in json format with keys: summary (concise), key_points (4-6 short
+strings capturing the comparison, in your own words -- do not quote)."""
 
 
 async def summarize_single(doc_id: str, text: str) -> Summary:
@@ -61,7 +58,9 @@ async def summarize_single(doc_id: str, text: str) -> Summary:
     )
 
     try:
-        response = await ollama_client.generate_json(prompt, system=system)
+        response = await ollama_client.generate_json(
+            prompt, system=system, max_tokens=640
+        )
         data = json.loads(response)
         return Summary(
             doc_ids=[doc_id],
@@ -105,7 +104,9 @@ async def summarize_multiple(doc_ids: list[str], texts: dict[str, str]) -> Summa
     )
 
     try:
-        response = await ollama_client.generate_json(prompt, system=system)
+        response = await ollama_client.generate_json(
+            prompt, system=system, max_tokens=768
+        )
         data = json.loads(response)
         return Summary(
             doc_ids=doc_ids,

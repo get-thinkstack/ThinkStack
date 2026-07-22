@@ -54,25 +54,54 @@ fn project_dir() -> String {
     ".".to_string()
 }
 
-/// Try to locate the sidecar binary next to the running executable.
-/// In production Tauri bundles place sidecars adjacent to the main binary.
+/// Try to locate the backend binary.
+///
+/// The backend is a PyInstaller *onedir* bundle shipped as a Tauri resource
+/// (not an `externalBin` sidecar): a onefile build would re-extract its whole
+/// multi-gigabyte payload into %TEMP% on every launch. Tauri unpacks resources
+/// into the resource dir, which on Windows/Linux is the directory holding the
+/// main executable, so the bundle lands in `api/` beside it.
 fn sidecar_path() -> Option<std::path::PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
 
-    // Tauri names the sidecar with the target triple, but the resolved path
-    // from the bundle is just the bare name next to the exe.
     let candidates = [
-        dir.join("thinkstack-api"),
-        dir.join("thinkstack-api.exe"),
+        // packaged: resource folder next to the main binary
+        dir.join("api").join("thinkstack-api.exe"),
+        dir.join("api").join("thinkstack-api"),
+        // macOS bundles put resources in Contents/Resources
+        dir.join("../Resources/api/thinkstack-api"),
+        // locally built bundle, before packaging
+        std::path::PathBuf::from(project_dir())
+            .join("dist/thinkstack-api/thinkstack-api.exe"),
+        std::path::PathBuf::from(project_dir())
+            .join("dist/thinkstack-api/thinkstack-api"),
     ];
 
-    for candidate in &candidates {
-        if candidate.is_file() {
-            return Some(candidate.clone());
+    candidates.iter().find(|c| c.is_file()).cloned()
+}
+
+/// Forward inference settings from the real environment to the backend.
+///
+/// Deliberately sets no defaults of its own. GPU offload is machine-specific:
+/// `THINKSTACK_LLM_GPU_LAYERS=-1` requires a CUDA build of llama-cpp-python, and
+/// the loader raises rather than silently falling back to CPU — so forcing -1
+/// here would turn "no CUDA on this machine" into a hard crash at model load.
+///
+/// The machine's own value belongs in the gitignored `.env` shipped next to the
+/// sidecar, which `config.py` resolves relative to the executable rather than
+/// the working directory. Absent that, the Python default (0, CPU-only) applies
+/// and the app runs anywhere.
+fn apply_inference_env(cmd: &mut Command) {
+    for key in [
+        "THINKSTACK_LLM_GPU_LAYERS",
+        "THINKSTACK_LLM_MODEL_PATH",
+        "THINKSTACK_LLM_CTX_SIZE",
+    ] {
+        if let Ok(value) = std::env::var(key) {
+            cmd.env(key, value);
         }
     }
-    None
 }
 
 fn backend_up() -> bool {
@@ -89,9 +118,11 @@ fn start_backend() -> Option<Child> {
         let mut cmd = Command::new(&sidecar);
         cmd.args(["--host", "127.0.0.1", "--port", "8000"]);
 
-        if let Ok(model) = std::env::var("THINKSTACK_LLM_MODEL_PATH") {
-            cmd.env("THINKSTACK_LLM_MODEL_PATH", model);
+        // run from the bundle's own folder so its .env (model path) resolves
+        if let Some(dir) = sidecar.parent() {
+            cmd.current_dir(dir);
         }
+        apply_inference_env(&mut cmd);
 
         #[cfg(windows)]
         {
@@ -116,9 +147,7 @@ fn start_backend() -> Option<Child> {
     ])
     .current_dir(&project);
 
-    if let Ok(model) = std::env::var("THINKSTACK_LLM_MODEL_PATH") {
-        cmd.env("THINKSTACK_LLM_MODEL_PATH", model);
-    }
+    apply_inference_env(&mut cmd);
 
     #[cfg(windows)]
     {

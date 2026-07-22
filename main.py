@@ -91,10 +91,31 @@ if frontend_dist.exists():
         return FileResponse(str(frontend_dist / "index.html"))
 
 if __name__ == "__main__":
+    import argparse
+    import multiprocessing
+    import sys
+
     import uvicorn
+
+    # pyinstaller re-executes the bundle for every child process; without this
+    # a frozen build that spawns one would boot a second copy of the whole app.
+    multiprocessing.freeze_support()
+
+    parser = argparse.ArgumentParser(description="thinkstack backend server")
+    parser.add_argument("--host", default=settings.host)
+    parser.add_argument("--port", type=int, default=settings.port)
+    args = parser.parse_args()
+
+    frozen = getattr(sys, "frozen", False)
+
+    # the reloader works by respawning the interpreter and watching source
+    # files on disk. a frozen build has neither, so enabling it there spawns a
+    # broken child and the server never comes up -- only ever reload from
+    # source. passing the app object directly (rather than "main:app") also
+    # avoids a re-import of __main__ inside the bundle.
     uvicorn.run(
-        "main:app",
-        host=settings.host,
-        port=settings.port,
-        reload=settings.debug,
+        app if frozen else "main:app",
+        host=args.host,
+        port=args.port,
+        reload=settings.debug and not frozen,
     )
