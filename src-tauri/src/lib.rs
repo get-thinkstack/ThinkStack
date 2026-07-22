@@ -237,8 +237,19 @@ pub fn run() {
         std::thread::sleep(Duration::from_millis(400));
     }
 
-    let app = tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
+    let mut builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+
+    // auto-updater (desktop only): lets the frontend check the signed manifest
+    // on github releases and install a new version in-app. `process` is used to
+    // relaunch after an update installs.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        builder = builder
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .plugin(tauri_plugin_process::init());
+    }
+
+    let app = builder
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 

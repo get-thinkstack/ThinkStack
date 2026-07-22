@@ -81,3 +81,14 @@
 **decision:** create a static html landing page (`docs/landing/index.html`) for github pages deployment with per-platform download buttons.
 **rationale:** users visit the page, see buttons for their OS, and click to download the right binary. linux uses AppImage (works on any distro without root/package-manager). macOS uses a universal dmg (apple silicon + intel). windows uses an exe installer.
 **status:** accepted.
+
+## 2026-07-22: single lightweight base model bundled
+**decision:** bundle only Qwen2.5-0.5B-Instruct (q4_k_m gguf, ~470mb) with every installer, dropping the 1.5b model that CI previously bundled alongside it.
+**rationale:** the base model must be light enough to run on low-end/low-ram machines out of the box, and a smaller installer downloads faster. users who want higher quality can drop a larger gguf into `data/models/` themselves and switch to it as the active model.
+**implementation:** `.github/workflows/build-release.yml` "download base model" step now pulls a single file. see [RELEASE_GUIDE.md](RELEASE_GUIDE.md) for the full list of places to update if this changes again.
+**status:** accepted.
+
+## 2026-07-22: `landing.html` (repo root) is the page of record
+**decision:** `landing.html` at the repo root is the landing page intended for deployment, not `docs/landing/index.html`. fixed its download buttons (previously static `href="#"` placeholders promising windows/linux arm64 builds that ci does not produce) to wire real github releases urls matching what `build-release.yml` actually publishes, mirroring the working link-wiring script already present in `docs/landing/index.html`.
+**rationale:** the two landing pages had drifted — different content, and only one had functioning download links. `docs/landing/index.html` is left in place for now but is not the deployment target; consolidate or remove it once `landing.html` is live and confirmed as the sole page.
+**status:** accepted. hosting/deployment of `landing.html` itself is deferred until the desktop app has been tested end-to-end (see [RELEASE_GUIDE.md](RELEASE_GUIDE.md)).

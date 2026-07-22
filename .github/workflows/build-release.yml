@@ -97,15 +97,14 @@ jobs:
         shell: bash
 
       # ── download base model ──
-      - name: Download Qwen2.5 base models
+      - name: Download Qwen2.5-0.5B base model
         run: |
           mkdir -p data/models
-          # 0.5B ultra-lightweight (always bundled)
+          # 0.5B ultra-lightweight — the only model bundled, to keep the
+          # installer small and idle RAM/VRAM footprint low on low-end machines.
+          # larger models can be downloaded in-app later if that flow is built.
           curl -L -o data/models/qwen2.5-0.5b-instruct-q4_k_m.gguf \
             "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf"
-          # 1.5B balanced (also bundled)
-          curl -L -o data/models/qwen2.5-1.5b-instruct-q4_k_m.gguf \
-            "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf"
           ls -lh data/models/
         shell: bash
 

@@ -21,8 +21,16 @@
 ### desktop application & cross-platform bundling
 - `src-tauri/src/lib.rs` — cross-platform Tauri shell: auto-detects python venv, project dir, model path; sidecar-first backend launch for production, python fallback for dev
 - `src-tauri/tauri.conf.json` — configured `externalBin` sidecar, bundle targets (deb/rpm/AppImage/dmg/msi/exe)
-- `.github/workflows/build-release.yml` — CI/CD pipeline that builds for Linux (x64), macOS (universal), and Windows (x64), publishes binaries to GitHub Releases on tag push
+- `.github/workflows/build-release.yml` — CI/CD pipeline that builds for Linux (x64), macOS (universal), and Windows (x64), publishes binaries to GitHub Releases on tag push; trimmed to bundle a single lightweight base model (see below)
 - `docs/landing/index.html` — download landing page for GitHub Pages with OS auto-detection and per-platform install buttons
+- `landing.html` (repo root) — the landing page actually intended for deployment; fixed its download buttons to wire real GitHub Releases URLs (they were static `href="#"` placeholders, and promised Windows/Linux ARM64 builds CI doesn't produce)
+
+### lightweight base model policy
+- CI now bundles only Qwen2.5-0.5B-Instruct (q4_k_m gguf, ~470MB) instead of both 0.5B and 1.5B, so the installer stays small and runs safely on low-end/low-RAM machines out of the box
+- see [docs/RELEASE_GUIDE.md](../RELEASE_GUIDE.md) for the full list of places to update if the default model changes again
+
+### release documentation
+- `docs/RELEASE_GUIDE.md` — the reference for cutting a release: pipeline stages, local build steps, the CI tag-push flow, the version-bump checklist, and a memory-pressure troubleshooting note for building Tauri releases on a dev laptop while other tools are running
 
 ### devops & automation scripts
 - `scripts/setup.sh` — one-command bootstrap (system deps, rust, python, node, latex); macOS/Fedora/Ubuntu/Arch support; `--skip-system`/`--skip-rust` flags; verification matrix
@@ -41,4 +49,4 @@
 - `scripts/test_paper_writer.py` — unit + integration tests for compiler and API
 
 ### documentation
-- ADR entries, features list, future scope, README, this file
+- ADR entries, features list, future scope, README, `RELEASE_GUIDE.md`, this file
