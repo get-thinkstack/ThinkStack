@@ -61,10 +61,13 @@ already done.
 ```bash
 mkdir -p data/models
 pip install huggingface-hub
-huggingface-cli download Qwen/Qwen3-1.7B-GGUF qwen3-1.7b-q4_k_m.gguf --local-dir data/models
+huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct-GGUF qwen2.5-0.5b-instruct-q4_k_m.gguf --local-dir data/models
 ```
 
-for better quality (slower): use `Qwen3-4B` instead of `1.7B`.
+`qwen2.5-0.5b-instruct-q4_k_m.gguf` (~400 MB) is the default bundled with releases — light
+enough to run on low-end/low-RAM machines. for better quality (slower, more ram/vram): use
+a larger gguf model such as `Qwen2.5-1.5B-Instruct-GGUF` or `Qwen3-4B-GGUF` instead — drop it
+in `data/models/` and select it as the active model.
 
 ### 3. run
 
@@ -121,12 +124,26 @@ the ui, and **kills the backend it spawned when you close the window**.
 
 this runs a 4-step pipeline:
 1. **builds the react frontend** → `frontend/dist/`
-2. **freezes the python backend** with pyinstaller → `dist/thinkstack-api`
-3. **places the sidecar binary** → `src-tauri/bin/thinkstack-api-<triple>`
+2. **freezes the python backend** with pyinstaller (`--onedir`) → `dist/thinkstack-api/`
+3. **verifies the onedir backend** (tauri bundles `dist/thinkstack-api/` as the `api/` resource — no sidecar copy)
 4. **compiles the tauri desktop app** → `src-tauri/target/release/bundle/`
 
 the final distributable is in `src-tauri/target/release/bundle/` (`.deb`, `.AppImage`
-on linux, `.dmg` on macos, `.msi` on windows).
+on linux, `.dmg` on macos, `.msi` on windows). only the 0.5b base model (see below)
+ships in the installer, to keep it small and low-footprint.
+
+> for the full release process — cutting a version (`scripts/release.sh`), the ci
+> matrix, and what to do if a build eats too much memory on your machine — see
+> [docs/RELEASE_GUIDE.md](docs/RELEASE_GUIDE.md). for how users download per-OS and
+> how in-app auto-updates work (tauri updater + signed github releases), see
+> [docs/DEPLOYMENT_AND_UPDATES.md](docs/DEPLOYMENT_AND_UPDATES.md).
+
+> **model routing:** chat / search / paper-writer run on the light 0.5b base model;
+> the structured-json analysis tasks (summarize, claims, themes, gap-finder) route to
+> a heavier `qwen2.5-1.5b-instruct` model (`THINKSTACK_LLM_ANALYSIS_MODEL`) because
+> 0.5b produces unparseable json on them. only one model is resident at a time — the
+> runtime swaps on demand to cap memory. drop the 1.5b gguf in `data/models/` (or it
+> falls back to the base model).
 
 ## prerequisites
 
@@ -151,7 +168,8 @@ all settings use the `THINKSTACK_` env prefix (see [config.py](config.py)). comm
 | variable                       | purpose                                    | default          |
 |--------------------------------|--------------------------------------------|------------------|
 | `THINKSTACK_LLM_MODEL_PATH`    | path to the gguf model (or a models dir)   | `data/models/`   |
-| `THINKSTACK_LLM_GPU_LAYERS`    | gpu layer offloading (-1 = all, 0 = cpu)   | `0` (cpu-only)   |
+| `THINKSTACK_LLM_ANALYSIS_MODEL`| heavier gguf for summarize/claims/gaps     | `qwen2.5-1.5b-instruct-q4_k_m.gguf` |
+| `THINKSTACK_LLM_GPU_LAYERS`    | gpu layer offloading (-1 = all, 0 = cpu)   | `-1` (auto; safe cpu fallback) |
 | `THINKSTACK_LLM_CTX_SIZE`      | context window size                        | `4096`           |
 | `THINKSTACK_PYTHON`            | override python interpreter path           | auto-detected    |
 | `THINKSTACK_PROJECT_DIR`       | override project root path                 | auto-detected    |

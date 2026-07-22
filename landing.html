@@ -1003,7 +1003,7 @@
           <a href="#" class="dl-btn dl-btn-secondary" id="dl-macos-intel">Download for Intel</a>
           <div class="dl-requirements">
             <h5>Minimum Requirements</h5>
-            <p>macOS 12 (Monterey) or later. Apple Silicon recommended. Intel x86 also supported.</p>
+            <p>macOS 12 (Monterey) or later. Universal binary — one download works on both Apple Silicon and Intel.</p>
           </div>
         </div>
 
@@ -1016,10 +1016,10 @@
             Windows
           </div>
           <a href="#" class="dl-btn dl-btn-primary" id="dl-win-x64">Download for x64</a>
-          <a href="#" class="dl-btn dl-btn-secondary" id="dl-win-arm64">Download for ARM64</a>
+          <a href="#" class="dl-btn dl-btn-secondary" id="dl-win-msi">Download .msi installer</a>
           <div class="dl-requirements">
             <h5>Minimum Requirements</h5>
-            <p>Windows 10 (64-bit) or later. 8 GB RAM recommended for model inference.</p>
+            <p>Windows 10 (64-bit) or later. 8 GB RAM recommended for model inference. If SmartScreen warns, click "More info" → "Run anyway".</p>
           </div>
         </div>
 
@@ -1036,11 +1036,11 @@
             </div>
             Linux
           </div>
-          <a href="#" class="dl-btn dl-btn-primary" id="dl-linux-x64">Download for x64</a>
-          <a href="#" class="dl-btn dl-btn-secondary" id="dl-linux-arm64">Download for ARM64</a>
+          <a href="#" class="dl-btn dl-btn-primary" id="dl-linux-x64">Download AppImage</a>
+          <a href="#" class="dl-btn dl-btn-secondary" id="dl-linux-deb">Download .deb (Debian/Ubuntu)</a>
           <div class="dl-requirements">
             <h5>Minimum Requirements</h5>
-            <p>glibc ≥ 2.28. Ubuntu 20+, Debian 10+, Fedora 36+, RHEL 8+. AppImage also available.</p>
+            <p>glibc ≥ 2.28. Ubuntu 20+, Debian 10+, Fedora 36+, RHEL 8+. AppImage works on any distro.</p>
           </div>
         </div>
 
@@ -1165,6 +1165,38 @@
       card.style.setProperty('--mouse-y', `${y}px`);
     });
   });
+
+  /* ── Download link wiring ──────────────────────────
+   * All links point to GitHub Releases. When a version tag (e.g. v0.1.0)
+   * is pushed, CI (.github/workflows/build-release.yml) builds Linux/macOS/
+   * Windows installers and publishes them to that tag's release.
+   *
+   * IMPORTANT: after the first successful release, verify the exact asset
+   * filenames at https://github.com/Rithesh077/ThinkStack/releases/latest
+   * and update VERSION below if they differ.
+   */
+  const REPO = 'Rithesh077/ThinkStack';
+  const VERSION = '0.1.0';
+  const BASE = `https://github.com/${REPO}/releases/latest/download`;
+
+  const DOWNLOAD_LINKS = {
+    // macOS — universal .dmg (works on both Apple Silicon + Intel)
+    'dl-macos-arm':   `${BASE}/ThinkStack_${VERSION}_universal.dmg`,
+    'dl-macos-intel': `${BASE}/ThinkStack_${VERSION}_universal.dmg`,
+
+    // Windows
+    'dl-win-x64': `${BASE}/ThinkStack_${VERSION}_x64-setup.exe`,
+    'dl-win-msi': `${BASE}/ThinkStack_${VERSION}_x64_en-US.msi`,
+
+    // Linux — AppImage works on any distro; .deb for Debian/Ubuntu
+    'dl-linux-x64': `${BASE}/ThinkStack_${VERSION}_amd64.AppImage`,
+    'dl-linux-deb': `${BASE}/ThinkStack_${VERSION}_amd64.deb`,
+  };
+
+  for (const [id, url] of Object.entries(DOWNLOAD_LINKS)) {
+    const el = document.getElementById(id);
+    if (el) el.href = url;
+  }
 </script>
 </body>
 </html>
