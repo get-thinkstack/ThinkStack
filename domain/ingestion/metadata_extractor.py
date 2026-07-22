@@ -181,7 +181,9 @@ async def extract_metadata_slm(text: str) -> DocumentMetadata:
     )
 
     try:
-        response = await ollama_client.generate_json(prompt, system=system)
+        response = await ollama_client.generate_json(
+            prompt, system=system, max_tokens=640
+        )
         data = json.loads(response)
         return DocumentMetadata(
             title=data.get("title", ""),

@@ -1,6 +1,11 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Caveat:wght@400..700&display=swap');
 
+/* THEME SYSTEM
+   :root holds the LIGHT theme + all theme-independent tokens.
+   [data-theme="dark"] (set on <html>) overrides only colors.
+   Legacy variable names used across components are defined once
+   as var(--design-token) so they follow whichever theme is active. */
 /* ============================================================
    THEME SYSTEM
    :root holds the LIGHT theme + all theme-independent tokens.
@@ -132,8 +137,8 @@
 }
 
 /* smooth cross-fade when the theme flips (Apple-like) */
-body, .sidebar, .card, .stat-card, .gap-card, .chat-side-panel,
-.chat-collapsed-tab, .doc-item, .input, .btn, .result-item, .badge {
+body, .sidebar, .card, .stat-card, .gap-card,
+.doc-item, .input, .btn, .result-item, .badge {
   transition: background-color 380ms var(--ease-spring),
               color 380ms var(--ease-spring),
               border-color 380ms var(--ease-spring),
@@ -991,113 +996,11 @@ input::-webkit-credentials-auto-fill-button {
   right: 0;
 }
 
-/* collapsible side chat panel */
-.chat-side-panel {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 400px;
-  background: var(--bg-card);
-  border-left: 1px solid var(--border-subtle);
-  backdrop-filter: blur(32px);
-  -webkit-backdrop-filter: blur(32px);
-  box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
-  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-  z-index: 1000;
-  display: flex;
-}
 
-.chat-side-panel.collapsed {
-  transform: translateX(100%);
-  background: transparent;
-  border-left: none;
-  box-shadow: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  pointer-events: none;
-}
-
-.chat-side-panel.collapsed .chat-collapsed-tab {
-  pointer-events: auto;
-}
-
-.chat-side-panel.expanded {
-  transform: translateX(0);
-}
-
-/* Tab sticking out left */
-.chat-collapsed-tab {
-  position: absolute;
-  top: 50%;
-  right: 100%;
-  transform: translateY(-50%);
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
-  background: var(--surface);
-  border: 1px solid var(--border-2);
-  border-right: none;
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  padding: 1rem 0.65rem;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  border-radius: 12px 0 0 12px;
-  color: var(--text);
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 0.85rem;
-  letter-spacing: 0.05em;
-  transition: all var(--transition-fast);
-  white-space: nowrap;
-  box-shadow: var(--shadow-sm);
-  z-index: 1001;
-}
-
-.chat-collapsed-tab:hover {
-  background: var(--accent-soft);
-  border-color: var(--accent-border);
-  color: var(--accent);
-}
-
-.chat-collapsed-badge {
-  background: var(--accent);
-  color: var(--on-accent);
-  border-radius: 50%;
-  padding: 2px 6px;
-  font-size: 0.7rem;
-  margin-left: 0.5rem;
-}
-
-.chat-panel-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.chat-panel-header {
-  padding: 1.5rem;
-  border-bottom: 1px solid var(--border-subtle);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.chat-panel-title {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.chat-title-icon {
-  color: var(--accent-secondary);
-}
-
+/* THEME RECONCILIATION
+   re-skin elements that hard-coded light-on-dark colors so they
+   read correctly in BOTH themes. these come last, so they win,
+   and they reference tokens so they follow the active theme. */
 .chat-header-btn {
   background: transparent;
   border: none;
@@ -1274,9 +1177,6 @@ input::-webkit-credentials-auto-fill-button {
 /* inputs / inset panels */
 .input { background: var(--input-bg); }
 .input:focus { background: var(--input-bg); box-shadow: 0 0 0 4px var(--accent-soft); }
-.chat-input { background: var(--input-bg); }
-.chat-input:focus { background: var(--input-bg); box-shadow: 0 0 0 3px var(--accent-soft); }
-.chat-panel-footer { background: var(--inset); }
 .gap-suggestions { background: var(--inset); border-color: var(--border); }
 
 /* upload zone */
@@ -1289,8 +1189,6 @@ input::-webkit-credentials-auto-fill-button {
 
 /* inverted accent buttons: correct text color per theme */
 .upload-browse-btn { color: var(--on-accent); }
-.chat-message-user .chat-bubble { color: var(--on-accent); }
-.chat-send-btn { color: var(--on-accent); }
 
 /* raised surfaces / hovers that were hard-coded white */
 .card::before { background: linear-gradient(90deg, transparent, var(--border-2), transparent); }
@@ -1303,10 +1201,6 @@ input::-webkit-credentials-auto-fill-button {
 .btn-secondary:hover:not(:disabled) { background: var(--surface-hover); border-color: var(--border-2); }
 .btn-icon:hover { background: var(--surface-hover); }
 .upload-zone-icon-wrapper { color: var(--text-2); }
-.chat-header-btn:hover { background: var(--surface-hover); }
-.chat-message-assistant .chat-bubble { background: var(--surface); }
-.chat-avatar { background: var(--surface); }
-.chat-side-panel { box-shadow: var(--shadow-lg); }
 
 ::-webkit-scrollbar-thumb { background: var(--border-2); }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
@@ -1412,6 +1306,7 @@ input::-webkit-credentials-auto-fill-button {
   font-family: var(--font-base);
 }
 
+/* PAPER WRITER */
 /* ---- PAPER WRITER ---- */
 .pw-bar {
   display: flex;
@@ -1646,6 +1541,10 @@ input::-webkit-credentials-auto-fill-button {
 .page-header { align-items: flex-end; gap: 1.5rem; }
 .page-header .btn { flex-shrink: 0; }
 
+/* NEON CONTINUITY — ports the landing page's language into the app:
+   Outfit display, acid-green signal, SVG brush-slash page titles,
+   bento surfaces, and definitions for the classes the components
+   reference. Appended last so it wins over earlier rules. */
 /* chat side panel: never overflow a narrow window (also helps the desktop app) */
 .chat-side-panel { width: min(400px, 92vw); }
 
@@ -1735,6 +1634,9 @@ input::-webkit-credentials-auto-fill-button {
 .upload-browse-btn:hover { box-shadow: 0 10px 25px var(--accent-soft); }
 .upload-zone:hover .upload-zone-icon-wrapper { box-shadow: 0 0 20px var(--accent-soft); }
 
+/* MISSING-CLASS DEFINITIONS
+   these were referenced by components but never styled, so they
+   rendered as raw HTML. defined here on the token system. */
 /* ============================================================
    MISSING-CLASS DEFINITIONS
    these were referenced by components but never styled, so they
@@ -1816,18 +1718,14 @@ input::-webkit-credentials-auto-fill-button {
 .suggestion-title { font-weight: 600; color: var(--text); margin-bottom: 0.4rem; letter-spacing: -0.01em; }
 .gap-suggestion-arrow { color: var(--accent); flex-shrink: 0; margin-top: 0.15rem; }
 
-/* chat loading footer/tab bits */
-.chat-input-loading { display: flex; align-items: center; justify-content: center; gap: 0.75rem; padding: 0.4rem; color: var(--text-2); }
-.chat-loading-animation { width: 24px; height: 24px; }
-.chat-loading-text { font-size: 0.85rem; }
-
 /* ---- quality floor: visible keyboard focus (mouse clicks stay clean) ---- */
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
 .btn:focus-visible, .nav-link:focus-visible, .btn-icon:focus-visible,
-.pw-chip:focus-visible, .theme-toggle:focus-visible, .chat-send-btn:focus-visible {
+.pw-chip:focus-visible, .theme-toggle:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px;
 }
 
+/* PAPER WRITER: PREVIEW TAB SWITCHER */
 /* ============================================================
    PAPER WRITER: PREVIEW TAB SWITCHER
    ============================================================ */
@@ -1868,6 +1766,7 @@ input::-webkit-credentials-auto-fill-button {
   min-height: 500px;
 }
 
+/* LATEX PREVIEW RENDERER STYLES */
 /* ============================================================
    LATEX PREVIEW RENDERER STYLES
    ============================================================ */
@@ -2047,4 +1946,26 @@ input::-webkit-credentials-auto-fill-button {
   padding: 0.75rem 1rem;
   margin: 0.75rem 0;
 }
+
+/* ---- POLISH PASS ----
+   one coherent refinement: interactive surfaces reveal the signature
+   acid-green on hover (instead of a hard-coded white border that was
+   invisible in light mode), so hover reads as the brand in both themes.
+   Appended last so it wins over the earlier hover rules. */
+.stat-card:hover,
+.card:hover,
+.gap-card:hover {
+  border-color: var(--accent-border);
+}
+.stat-card:hover {
+  box-shadow: var(--shadow-lg), 0 0 0 1px var(--accent-soft);
+}
+/* result rows: quiet hover so long lists feel responsive */
+.result-item {
+  transition: background var(--transition-fast);
+  border-radius: var(--radius-sm);
+  padding-inline: 0.5rem;
+  margin-inline: -0.5rem;
+}
+.result-item:hover { background: var(--accent-soft); }
 

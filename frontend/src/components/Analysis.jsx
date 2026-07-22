@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Brain, Lightbulb, Layers, FileText, MessageSquare, Lock, Eye, EyeOff, Plus, Target } from 'lucide-react';
-import { documentsApi, analysisApi, chatApi, useLlmBusy } from '../utils/api';
-import ChatDialog from './ChatDialog';
+import { Brain, Lightbulb, Layers, Lock, Eye, EyeOff, Plus } from 'lucide-react';
+import { documentsApi, analysisApi, useLlmBusy } from '../utils/api';
 import PageHeader from './PageHeader';
 
 /**
@@ -10,7 +9,6 @@ import PageHeader from './PageHeader';
  * allows users to select documents and run summarization,
  * claim extraction, or theme clustering via the slm.
  * displays structured analysis results.
- * includes an AI chat dialog for interactive Q&A about analysis.
  */
 export default function Analysis() {
   const [documents, setDocuments] = useState([]);
@@ -22,10 +20,6 @@ export default function Analysis() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showNewAnalysis, setShowNewAnalysis] = useState(false);
-
-  // chat state
-  const [chatMessages, setChatMessages] = useState([]);
-  const [chatLoading, setChatLoading] = useState(false);
 
   // single shared local model — disable runs while it's busy elsewhere
   const { busy } = useLlmBusy();
@@ -86,49 +80,6 @@ export default function Analysis() {
       setError(err.message);
     }
     setLoading(false);
-  };
-
-  const handleChatSend = async (text) => {
-    const userMsg = { role: 'user', content: text };
-    const history = [...chatMessages];
-    setChatMessages((prev) => [...prev, userMsg]);
-    setChatLoading(true);
-
-    try {
-      let context = '';
-      if (result) {
-        if (activeTab === 'summarize' && result.summary_text) {
-          context = `Analysis summary: ${result.summary_text}`;
-          if (result.key_points?.length) {
-            context += `\nKey points: ${result.key_points.join('; ')}`;
-          }
-        } else if (activeTab === 'claims' && result.claims) {
-          context = `Extracted claims: ${result.claims.map(c => c.claim_text).join('; ')}`;
-        } else if (activeTab === 'themes' && result.themes) {
-          context = `Themes: ${result.themes.map(t => `${t.label}: ${t.description}`).join('; ')}`;
-        }
-      }
-
-      const response = await chatApi.send(text, {
-        docIds: selectedDocs,
-        history,
-        context,
-      });
-
-      setChatMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: response.answer },
-      ]);
-    } catch (err) {
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: `Sorry, I encountered an error: ${err.message}. Please make sure the backend is running and papers are uploaded.`,
-        },
-      ]);
-    }
-    setChatLoading(false);
   };
 
   const tabs = [
@@ -323,14 +274,6 @@ export default function Analysis() {
           </div>
         </div>
       )}
-
-      <ChatDialog
-        title="Analysis Assistant"
-        messages={chatMessages}
-        onSend={handleChatSend}
-        loading={chatLoading}
-        placeholder="Ask about your analysis results..."
-      />
     </div>
   );
 }

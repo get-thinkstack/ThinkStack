@@ -25,13 +25,11 @@ router = APIRouter()
 
 DOCUMENT_ANALYSIS_PROMPT = """analyze the following research paper text and return a json object with:
 1. summary: a concise 3-5 sentence summary
-2. claims: a list of 3-10 key claims or findings
+2. claims: a list of 3-5 key claims or findings
 
-for each claim object include:
-- claim_text
+for each claim object include only:
+- claim_text (one sentence, in your own words -- do not quote the paper)
 - claim_type (finding, methodology, limitation, future_work)
-- confidence (high, medium, low)
-- supporting_text
 
 paper text:
 {text}
@@ -61,6 +59,7 @@ async def _analyze_document(doc_id: str, text: str) -> tuple[dict, list[dict]]:
         response = await ollama_client.generate_json(
             prompt,
             system=system,
+            max_tokens=600,
             max_tokens=800,
             task_type="gap_analysis",
         )

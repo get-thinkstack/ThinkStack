@@ -30,8 +30,8 @@ identified gaps:
 {gaps}
 
 respond in json format with key "suggestions" containing a list of objects,
-each with keys: title, description, rationale, feasibility, potential_impact,
-related_gap_ids (list). provide 2-5 suggestions."""
+each with keys: title, description (concise), rationale (concise), feasibility,
+potential_impact, related_gap_ids (list). provide 2 to 4 suggestions."""
 
 
 async def generate_suggestions(gaps: list[ResearchGap]) -> list[Suggestion]:
