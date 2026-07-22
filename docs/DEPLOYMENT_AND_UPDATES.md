@@ -179,14 +179,12 @@ the secrets and cut the next release.
 Surfaced during the demo→v1 merge; **resolve before the next real bundle**
 (bundling itself is deferred, so these are not yet fixed/verified):
 
-1. **onefile vs onedir packaging mismatch.** `src-tauri/tauri.conf.json` now
-   bundles the backend via `resources: { "../dist/thinkstack-api/": "api/" }`
-   (a PyInstaller **onedir** output), but `scripts/build.sh` and
-   `build-release.yml` still freeze with `--onefile` (producing a single
-   `dist/thinkstack-api`). Pick one: either change PyInstaller to onedir
-   (matching the config), or revert the config to `externalBin`. `lib.rs`
-   already resolves the backend from the `api/` resource dir, so onedir is the
-   intended direction.
+1. ~~onefile vs onedir packaging mismatch.~~ **Fixed.** `scripts/build.sh` and
+   `build-release.yml` now freeze with `--onedir` to match
+   `tauri.conf.json`'s `resources: { "../dist/thinkstack-api/": "api/" }` and
+   `lib.rs`'s `api/` resolution. The sidecar-placement steps were removed
+   (Tauri bundles the onedir directly). Still needs one real build to confirm
+   the onedir layout + resource paths resolve at runtime.
 2. **`createUpdaterArtifacts` needs a real signed build to verify.** The updater
    wiring (plugin, config, CI, manifest script) is in place but has only been
    unit-checked (`compose-updater-manifest.sh` output validated locally). The
@@ -194,3 +192,15 @@ Surfaced during the demo→v1 merge; **resolve before the next real bundle**
 3. **`latest.json` platform keys assume the default bundle names.** If a Tauri
    upgrade changes bundle filenames, update the `find_asset` patterns in
    `scripts/compose-updater-manifest.sh` and the button URLs in `landing.html`.
+4. **Bundled model may not be found on first run (demo packaging gap).**
+   `config.py` points `models_dir` at the writable `STATE_DIR/models`, but CI
+   bundles the gguf into the read-only `BUNDLE_DIR/data/models` (via PyInstaller
+   `--add-data`). There is no first-run "seed" that copies the bundled model
+   into `STATE_DIR`, so a freshly installed app would see an empty models dir.
+   Options before shipping: (a) add a first-run copy from `BUNDLE_DIR` →
+   `STATE_DIR` in the backend startup, (b) point `models_dir` at `BUNDLE_DIR`
+   and only write user-added models to `STATE_DIR`, or (c) have the desktop
+   shell pass `THINKSTACK_LLM_MODEL_PATH` to the bundled model dir. The
+   **embedding model** already handles this (`embedding_service.py` prefers
+   `bundled_embedding_dir` if present, else downloads from HF), but CI does not
+   yet bundle it — so first run currently needs internet for embeddings.

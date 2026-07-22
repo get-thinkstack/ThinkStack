@@ -109,13 +109,16 @@ jobs:
         shell: bash
 
       # ── freeze python backend ──
+      # --onedir (NOT --onefile): tauri.conf.json bundles dist/thinkstack-api/
+      # as the "api/" resource dir, which lib.rs launches. onefile would
+      # re-extract its multi-GB payload to a temp dir on every app launch.
       - name: Freeze backend (PyInstaller)
         run: |
           ADD_DATA="--add-data frontend/dist:frontend/dist"
           if ls data/models/*.gguf 1>/dev/null 2>&1; then
             ADD_DATA="$ADD_DATA --add-data data/models:data/models"
           fi
-          pyinstaller --name thinkstack-api --onefile --clean \
+          pyinstaller --name thinkstack-api --onedir --clean --noconfirm \
             --hidden-import uvicorn \
             --hidden-import uvicorn.logging \
             --hidden-import uvicorn.loops \
@@ -130,34 +133,11 @@ jobs:
             --hidden-import psutil \
             $ADD_DATA \
             main.py
+          test -x dist/thinkstack-api/thinkstack-api || test -x dist/thinkstack-api/thinkstack-api.exe
         shell: bash
 
-      # ── place sidecar (linux) ──
-      - name: Place sidecar (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          mkdir -p src-tauri/bin
-          cp dist/thinkstack-api "src-tauri/bin/thinkstack-api-x86_64-unknown-linux-gnu"
-          chmod +x "src-tauri/bin/thinkstack-api-x86_64-unknown-linux-gnu"
-
-      # ── place sidecar (macOS universal) ──
-      - name: Place sidecar (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          mkdir -p src-tauri/bin
-          # PyInstaller on macOS runner produces a native binary;
-          # place it for both architectures so Tauri's universal build finds them
-          cp dist/thinkstack-api "src-tauri/bin/thinkstack-api-aarch64-apple-darwin"
-          cp dist/thinkstack-api "src-tauri/bin/thinkstack-api-x86_64-apple-darwin"
-          chmod +x src-tauri/bin/thinkstack-api-*
-
-      # ── place sidecar (windows) ──
-      - name: Place sidecar (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          New-Item -ItemType Directory -Force -Path src-tauri\bin | Out-Null
-          Copy-Item dist\thinkstack-api.exe "src-tauri\bin\thinkstack-api-x86_64-pc-windows-msvc.exe"
-        shell: powershell
+      # no sidecar placement needed: tauri.conf.json bundles the onedir
+      # dist/thinkstack-api/ directly as the "api/" resource.
 
       # ── build tauri (linux / windows) ──
       # the signing env vars make the bundler emit signed updater artifacts

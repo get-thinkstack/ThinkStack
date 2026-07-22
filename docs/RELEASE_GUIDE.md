@@ -37,11 +37,12 @@ If you want to change the default bundled model, update it in **three** places
 `scripts/build.sh` runs all four; each is skippable for iterating:
 
 1. **frontend build** — `npm --prefix frontend run build` → `frontend/dist/`
-2. **freeze backend** — `pyinstaller` freezes `main.py` (+ `frontend/dist`, + `data/models/*.gguf`
-   if present) into `dist/thinkstack-api` (one file, one binary)
-3. **place sidecar** — copies `dist/thinkstack-api` to
-   `src-tauri/bin/thinkstack-api-<target-triple>` (Tauri's naming convention for
-   `externalBin` sidecars — it picks the right one for the host at runtime)
+2. **freeze backend** — `pyinstaller --onedir` freezes `main.py` (+ `frontend/dist`,
+   + `data/models/*.gguf` if present) into the `dist/thinkstack-api/` directory
+3. **verify onedir backend** — no copy needed: `tauri.conf.json` bundles
+   `dist/thinkstack-api/` directly as the `api/` resource, which `lib.rs` launches
+   (onedir, not a onefile sidecar — a onefile build would re-extract its multi-GB
+   payload to a temp dir on every launch)
 4. **compile desktop app** — `npm run tauri build` produces the final installers
    under `src-tauri/target/release/bundle/` (`.deb`/`.rpm`/`.AppImage` on Linux,
    `.dmg` on macOS, `.msi`/`.exe` on Windows)
@@ -180,7 +181,8 @@ above.
   `nvidia-smi` is on `PATH`; `src-tauri/src/lib.rs`'s `detect_gpu_layers()`
   shells out to it and silently falls back to CPU-only (`0`) if it's missing,
   which is safe but slower.
-- **installer builds but app won't start** — check the sidecar binary exists
-  at `src-tauri/bin/thinkstack-api-<target-triple>` and is executable; `lib.rs`
+- **installer builds but app won't start** — check the onedir backend was
+  bundled: `dist/thinkstack-api/thinkstack-api` must exist at build time (Tauri
+  copies the dir to the app's `api/` resource, which `lib.rs` launches). `lib.rs`
   falls back to `python -m uvicorn` from `.venv` only in dev, not in a bundled
   release.

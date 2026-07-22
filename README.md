@@ -124,8 +124,8 @@ the ui, and **kills the backend it spawned when you close the window**.
 
 this runs a 4-step pipeline:
 1. **builds the react frontend** → `frontend/dist/`
-2. **freezes the python backend** with pyinstaller → `dist/thinkstack-api`
-3. **places the sidecar binary** → `src-tauri/bin/thinkstack-api-<triple>`
+2. **freezes the python backend** with pyinstaller (`--onedir`) → `dist/thinkstack-api/`
+3. **verifies the onedir backend** (tauri bundles `dist/thinkstack-api/` as the `api/` resource — no sidecar copy)
 4. **compiles the tauri desktop app** → `src-tauri/target/release/bundle/`
 
 the final distributable is in `src-tauri/target/release/bundle/` (`.deb`, `.AppImage`
