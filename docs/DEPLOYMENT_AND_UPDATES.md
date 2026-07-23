@@ -247,33 +247,41 @@ the secrets and cut the next release.
 
 ---
 
-## 6. known issues
+## 6. build correctness & known issues
 
-Surfaced during the demo→v1 merge; **resolve before the next real bundle**
-(bundling itself is deferred, so these are not yet fixed/verified):
+Most of the demo→v1 packaging gaps are now fixed and locally validated. What
+remains needs the **first CI build** to confirm end-to-end.
+
+**Fixed + validated:**
 
 1. ~~onefile vs onedir packaging mismatch.~~ **Fixed.** `scripts/build.sh` and
-   `build-release.yml` now freeze with `--onedir` to match
-   `tauri.conf.json`'s `resources: { "../dist/thinkstack-api/": "api/" }` and
-   `lib.rs`'s `api/` resolution. The sidecar-placement steps were removed
-   (Tauri bundles the onedir directly). Still needs one real build to confirm
-   the onedir layout + resource paths resolve at runtime.
-2. **`createUpdaterArtifacts` needs a real signed build to verify.** The updater
-   wiring (plugin, config, CI, manifest script) is in place but has only been
-   unit-checked (`compose-updater-manifest.sh` output validated locally). The
-   first tagged build with the signing secrets set is what proves it end-to-end.
-3. **`latest.json` platform keys assume the default bundle names.** If a Tauri
-   upgrade changes bundle filenames, update the `find_asset` patterns in
-   `scripts/compose-updater-manifest.sh` and the button URLs in `landing.html`.
-4. **Bundled model may not be found on first run (demo packaging gap).**
-   `config.py` points `models_dir` at the writable `STATE_DIR/models`, but CI
-   bundles the gguf into the read-only `BUNDLE_DIR/data/models` (via PyInstaller
-   `--add-data`). There is no first-run "seed" that copies the bundled model
-   into `STATE_DIR`, so a freshly installed app would see an empty models dir.
-   Options before shipping: (a) add a first-run copy from `BUNDLE_DIR` →
-   `STATE_DIR` in the backend startup, (b) point `models_dir` at `BUNDLE_DIR`
-   and only write user-added models to `STATE_DIR`, or (c) have the desktop
-   shell pass `THINKSTACK_LLM_MODEL_PATH` to the bundled model dir. The
-   **embedding model** already handles this (`embedding_service.py` prefers
-   `bundled_embedding_dir` if present, else downloads from HF), but CI does not
-   yet bundle it — so first run currently needs internet for embeddings.
+   `build-release.yml` freeze with `--onedir` to match `tauri.conf.json`'s
+   `resources: { "../dist/thinkstack-api/": "api/" }` and `lib.rs`'s `api/`
+   resolution; the dead sidecar-placement steps were removed.
+2. ~~Missing native libs in the freeze.~~ **Fixed + validated locally.**
+   `--collect-all llama_cpp --collect-all sentence_transformers` are now passed
+   (neither has a PyInstaller hook). A local onedir freeze + run confirmed the
+   frozen backend bundles llama_cpp's `lib/*.so`, and passed **ingest + search +
+   chat** with zero import errors. torch/transformers/sklearn come via their hooks.
+3. ~~Bundled model not found on first run.~~ **Fixed.**
+   `file_manager.seed_bundled_models()` copies the ggufs from the read-only
+   `BUNDLE_DIR/data/models` into the writable `STATE_DIR/models` on first launch
+   (no-op in a source checkout). CI bundles **both** the 0.5b and 1.5b models so
+   chat *and* gap analysis work offline.
+
+**Still open (need the first CI build / a decision):**
+
+4. **The updater needs one real signed build to verify.** The wiring (plugin,
+   config, CI signing, `latest.json` via `compose-updater-manifest.sh`) is in
+   place and unit-checked, but only a tagged build with the signing secrets set
+   proves the download→verify→install→relaunch loop.
+5. **Embedding model isn't bundled** — `embedding_service.py` prefers a bundled
+   `all-MiniLM-L6-v2` but CI doesn't ship it, so **first-run embeddings need
+   internet** (one-time HF download, then cached). To make first run fully
+   offline, add the embedding model to the CI download + `--add-data`.
+6. **Installer size ~3.7 GB** (torch + both ggufs). Fine for a demo; if you want
+   a smaller download later, drop the 1.5b (gap analysis degrades) or fetch it
+   on demand.
+7. **`latest.json` platform keys assume the default bundle names** — if a Tauri
+   upgrade renames bundles, update `find_asset` in
+   `scripts/compose-updater-manifest.sh` and the URLs in `landing.html`.

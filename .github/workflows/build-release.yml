@@ -96,15 +96,20 @@ jobs:
         run: npm --prefix frontend run build
         shell: bash
 
-      # ── download base model ──
-      - name: Download Qwen2.5-0.5B base model
+      # ── download base + analysis models ──
+      # both are bundled (seeded into the user's models dir on first run):
+      #   0.5B  → chat / search / paper-writer (light, fast)
+      #   1.5B  → summarize / claims / gap-finder (0.5B emits unparseable json
+      #           on these; the app routes them to 1.5B — see ollama_client.py)
+      # this makes gap analysis work offline out of the box at the cost of a
+      # larger installer. drop the 1.5B line to ship a smaller 0.5B-only build.
+      - name: Download Qwen2.5 models
         run: |
           mkdir -p data/models
-          # 0.5B ultra-lightweight — the only model bundled, to keep the
-          # installer small and idle RAM/VRAM footprint low on low-end machines.
-          # larger models can be downloaded in-app later if that flow is built.
           curl -L -o data/models/qwen2.5-0.5b-instruct-q4_k_m.gguf \
             "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+          curl -L -o data/models/qwen2.5-1.5b-instruct-q4_k_m.gguf \
+            "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf"
           ls -lh data/models/
         shell: bash
 
@@ -112,6 +117,12 @@ jobs:
       # --onedir (NOT --onefile): tauri.conf.json bundles dist/thinkstack-api/
       # as the "api/" resource dir, which lib.rs launches. onefile would
       # re-extract its multi-GB payload to a temp dir on every app launch.
+      #
+      # --collect-all llama_cpp / sentence_transformers are REQUIRED and were
+      # validated locally: neither ships a PyInstaller hook, so without these the
+      # frozen build silently omits llama_cpp's lib/*.so (chat + gap analysis
+      # crash at model load) and sentence_transformers' package data (embeddings/
+      # search break). torch/transformers/sklearn are collected by their own hooks.
       - name: Freeze backend (PyInstaller)
         run: |
           ADD_DATA="--add-data frontend/dist:frontend/dist"
@@ -131,6 +142,8 @@ jobs:
             --hidden-import uvicorn.lifespan \
             --hidden-import uvicorn.lifespan.on \
             --hidden-import psutil \
+            --collect-all llama_cpp \
+            --collect-all sentence_transformers \
             $ADD_DATA \
             main.py
           test -x dist/thinkstack-api/thinkstack-api || test -x dist/thinkstack-api/thinkstack-api.exe

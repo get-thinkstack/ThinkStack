@@ -25,10 +25,11 @@
 - `docs/landing/index.html` — download landing page for GitHub Pages with OS auto-detection and per-platform install buttons
 - `landing.html` (repo root) — the landing page actually intended for deployment; fixed its download buttons to wire real GitHub Releases URLs (they were static `href="#"` placeholders, and promised Windows/Linux ARM64 builds CI doesn't produce)
 
-### lightweight base model policy + analysis-model routing
-- CI bundles only Qwen2.5-0.5B-Instruct (q4_k_m gguf, ~470MB) as the base, so the installer stays small and runs safely on low-end/low-RAM machines
-- structured-json analysis tasks (summarize/claims/themes/gaps) route to a heavier `qwen2.5-1.5b-instruct` model because 0.5B produces unparseable JSON on them; `infrastructure/ollama_client.py` keeps a **single model resident and swaps on demand** (unload current → load requested) to cap peak memory. GPU when available, safe CPU fallback (no crash on cpu-only machines)
+### model bundling + analysis-model routing
+- CI bundles **both** Qwen2.5-0.5B (chat/search/paper-writer) and Qwen2.5-1.5B (summarize/claims/gaps) — the 0.5B emits unparseable JSON on the analysis tasks, so those route to the 1.5B. `file_manager.seed_bundled_models()` seeds them from the read-only bundle into the writable models dir on first run
+- `infrastructure/ollama_client.py` keeps a **single model resident and swaps on demand** (unload current → load requested) to cap peak memory. GPU when available, safe CPU fallback (no crash on cpu-only machines)
 - validated end-to-end on a 16GB CPU-only machine: chat/search/ingest/encrypt/paper-writer on 0.5B, summarize/claims/gaps on 1.5B, memory-safe swap confirmed
+- **frozen-build packaging validated locally:** `--onedir` + `--collect-all llama_cpp` + `--collect-all sentence_transformers`; a frozen backend passed ingest/search/chat with zero import errors (llama_cpp `.so` + sentence_transformers data correctly bundled)
 
 ### backend merge reconciliation (demo → v1)
 - rebased onto `demo`, which shipped a **broken (non-importable) `ollama_client.py`** and a duplicate-kwarg `routes_gaps.py`; reconciled `ollama_client.py` into one clean working file (kept demo's good infra: frozen-build paths, `.env`, bundled embedding model, `max_tokens` caps, onedir `resources` packaging) rather than taking demo's verbatim
