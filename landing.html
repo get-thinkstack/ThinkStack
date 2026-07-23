@@ -444,7 +444,6 @@
     .audience-grid {
       display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: center;
     }
-    .audience-text { }
     .audience-text .section-heading { margin-bottom: 24px; }
     .audience-list { list-style: none; margin-top: 32px; }
     .audience-list li {
@@ -999,11 +998,10 @@
             </div>
             macOS
           </div>
-          <a href="#" class="dl-btn dl-btn-primary" id="dl-macos-arm">Download for Apple Silicon</a>
-          <a href="#" class="dl-btn dl-btn-secondary" id="dl-macos-intel">Download for Intel</a>
+          <a href="#" class="dl-btn dl-btn-primary" id="dl-macos">Download for macOS</a>
           <div class="dl-requirements">
             <h5>Minimum Requirements</h5>
-            <p>macOS 12 (Monterey) or later. Universal binary — one download works on both Apple Silicon and Intel.</p>
+            <p>macOS 12 (Monterey) or later. The universal binary runs on both Apple Silicon and Intel Macs.</p>
           </div>
         </div>
 
@@ -1015,11 +1013,11 @@
             </div>
             Windows
           </div>
-          <a href="#" class="dl-btn dl-btn-primary" id="dl-win-x64">Download for x64</a>
-          <a href="#" class="dl-btn dl-btn-secondary" id="dl-win-msi">Download .msi installer</a>
+          <a href="#" class="dl-btn dl-btn-primary" id="dl-win-x64">Download for Windows</a>
+          <a href="#" class="dl-btn dl-btn-secondary" id="dl-win-msi">Download .msi (for IT-managed installs)</a>
           <div class="dl-requirements">
             <h5>Minimum Requirements</h5>
-            <p>Windows 10 (64-bit) or later. 8 GB RAM recommended for model inference. If SmartScreen warns, click "More info" → "Run anyway".</p>
+            <p>Windows 10 (64-bit) or later. 8 GB RAM recommended for model inference. If SmartScreen warns, click "More info" then "Run anyway".</p>
           </div>
         </div>
 
@@ -1166,29 +1164,26 @@
     });
   });
 
-  /* ── Download link wiring ──────────────────────────
-   * All links point to GitHub Releases. When a version tag (e.g. v0.1.0)
-   * is pushed, CI (.github/workflows/build-release.yml) builds Linux/macOS/
-   * Windows installers and publishes them to that tag's release.
-   *
-   * IMPORTANT: after the first successful release, verify the exact asset
-   * filenames at https://github.com/Rithesh077/ThinkStack/releases/latest
-   * and update VERSION below if they differ.
+  /* Download link wiring.
+   * All links point to GitHub Releases. When a version tag (e.g. v0.1.0) is
+   * pushed, CI (.github/workflows/build-release.yml) builds the Linux, macOS,
+   * and Windows installers and publishes them to that tag's release.
+   * After the first release, verify the asset filenames at
+   * https://github.com/Rithesh077/ThinkStack/releases/latest and update VERSION.
    */
   const REPO = 'Rithesh077/ThinkStack';
   const VERSION = '0.1.0';
   const BASE = `https://github.com/${REPO}/releases/latest/download`;
 
   const DOWNLOAD_LINKS = {
-    // macOS — universal .dmg (works on both Apple Silicon + Intel)
-    'dl-macos-arm':   `${BASE}/ThinkStack_${VERSION}_universal.dmg`,
-    'dl-macos-intel': `${BASE}/ThinkStack_${VERSION}_universal.dmg`,
+    // macOS: one universal .dmg for both Apple Silicon and Intel
+    'dl-macos': `${BASE}/ThinkStack_${VERSION}_universal.dmg`,
 
-    // Windows
+    // Windows: the .exe installer for everyone, .msi for managed deployments
     'dl-win-x64': `${BASE}/ThinkStack_${VERSION}_x64-setup.exe`,
     'dl-win-msi': `${BASE}/ThinkStack_${VERSION}_x64_en-US.msi`,
 
-    // Linux — AppImage works on any distro; .deb for Debian/Ubuntu
+    // Linux: AppImage runs on any distro, .deb for Debian/Ubuntu
     'dl-linux-x64': `${BASE}/ThinkStack_${VERSION}_amd64.AppImage`,
     'dl-linux-deb': `${BASE}/ThinkStack_${VERSION}_amd64.deb`,
   };
