@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     papers_dir: Path = STATE_DIR / "papers"
     chroma_dir: Path = STATE_DIR / "vectorstore"
     models_dir: Path = STATE_DIR / "models"
+    # gguf models we ship inside the frozen bundle (via pyinstaller --add-data
+    # data/models). on first run these are copied into the writable models_dir
+    # so the installed app has a working model offline. empty/absent in a source
+    # checkout (BUNDLE_DIR == project root, so this equals models_dir).
+    bundled_models_dir: Path = BUNDLE_DIR / "data" / "models"
 
     # llm runtime
     llm_provider: str = "llama_cpp"
