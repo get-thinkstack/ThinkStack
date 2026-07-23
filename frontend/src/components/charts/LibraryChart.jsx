@@ -17,7 +17,7 @@ export default function LibraryChart({ documents = [] }) {
   if (data.length === 0) return null;
 
   return (
-    <ChartCard title="Knowledge base — chunks per paper" height={Math.max(190, data.length * 56)} style={{ marginBottom: '2rem' }}>
+    <ChartCard title="Knowledge base - chunks per paper" height={Math.max(190, data.length * 56)} style={{ marginBottom: '2rem' }}>
       <ResponsiveContainer>
         <BarChart data={data} layout="vertical" margin={{ left: 6, right: 40, top: 6, bottom: 6 }} barCategoryGap="28%">
           <XAxis type="number" hide />

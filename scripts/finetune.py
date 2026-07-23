@@ -4,9 +4,9 @@ thinkstack: local fine-tuning script for task-specific models.
 
 uses qlora (quantized low-rank adaptation) to fine-tune the base
 qwen2.5 model on locally collected training pairs. all data stays
-on the user's machine — nothing is uploaded anywhere.
+on the user's machine - nothing is uploaded anywhere.
 
-prerequisites (not in requirements.txt — install only if fine-tuning):
+prerequisites (not in requirements.txt - install only if fine-tuning):
     pip install transformers>=4.46 trl>=0.12 peft>=0.13 \
                 datasets>=3.0 bitsandbytes>=0.44 accelerate>=1.0
 
@@ -237,7 +237,7 @@ def run_finetune(
         logging_steps=10,
         save_strategy="epoch",
         bf16=torch.cuda.is_available(),
-        report_to="none",  # no wandb/tensorboard — offline only
+        report_to="none",  # no wandb/tensorboard - offline only
         remove_unused_columns=False,
     )
 

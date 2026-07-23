@@ -156,7 +156,7 @@ jobs:
       # the signing env vars make the bundler emit signed updater artifacts
       # (.sig files) next to each installer, which the auto-updater verifies
       # against the pubkey in tauri.conf.json. store the private key + password
-      # as repo secrets (see docs/DEPLOYMENT_AND_UPDATES.md). absent secrets =>
+      # as repo secrets (see docs/RELEASE_GUIDE.md). absent secrets =>
       # unsigned build (installers still produced, just no working auto-update).
       - name: Build Tauri app
         if: runner.os != 'macOS'

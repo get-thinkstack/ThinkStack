@@ -6,7 +6,7 @@
  * exists. if so, the user is asked to install it; on accept the new bundle is
  * downloaded, verified against the public key, installed, and the app relaunches.
  *
- * this is a no-op in the browser / web dev build (`./scripts/dev.sh`) — the
+ * this is a no-op in the browser / web dev build (`./scripts/dev.sh`) - the
  * tauri plugins only exist inside the desktop shell, so we bail out early when
  * the tauri runtime is absent. the plugin modules are imported dynamically so
  * the web bundle never pulls them in.
@@ -48,7 +48,7 @@ export async function checkForUpdates(confirmInstall) {
     const { relaunch } = await import('@tauri-apps/plugin-process');
     await relaunch();
   } catch (err) {
-    // never let an update failure break app startup — just log it.
+    // never let an update failure break app startup - just log it.
     console.warn('[updater] update check failed:', err);
   }
 }

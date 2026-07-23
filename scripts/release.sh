@@ -13,7 +13,7 @@
 #   scripts/release.sh 0.2.0            # bump + commit + tag locally
 #   scripts/release.sh 0.2.0 --push     # ... and push the tag (triggers CI)
 #
-# see docs/DEPLOYMENT_AND_UPDATES.md for the full release + auto-update flow.
+# see docs/RELEASE_GUIDE.md for the full release + auto-update flow.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

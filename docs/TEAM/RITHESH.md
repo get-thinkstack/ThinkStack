@@ -84,6 +84,6 @@ the `max_tokens` caps, and the onedir packaging) rather than taking it as-is.
   bootstrap, run, build, and pre-commit checks.
 - `scripts/test_paper_writer.py`: unit and integration tests for the compiler
   and the paper API.
-- `docs/RELEASE_GUIDE.md` and `docs/DEPLOYMENT_AND_UPDATES.md` cover how to cut a
-  release and how downloads and updates work. I also maintain the landing page
-  (`landing.html`) and the ADR entries for the decisions above.
+- `docs/RELEASE_GUIDE.md` is the single guide for cutting a release and for how
+  downloads and updates work. I also maintain the landing page (`landing.html`)
+  and the ADR entries for the decisions above.

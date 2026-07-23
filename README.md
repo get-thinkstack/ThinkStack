@@ -3,9 +3,10 @@
 offline slm-based research assistant for students and independent researchers.
 it ingests papers, searches them, summarizes them, finds research gaps, answers
 questions grounded on your library, and helps you write latex, all on your own
-machine. it runs as a tauri desktop app or as a local web app. no data leaves
-the device: language-model inference runs locally through `llama.cpp`, and
-embeddings run locally too.
+machine. it runs as a tauri desktop app, or as a local server you open in your
+own browser (bound to localhost, not hosted anywhere). either way nothing is
+served to the internet and no data leaves the device: language-model inference
+runs locally through `llama.cpp`, and embeddings run locally too.
 
 ## features
 
@@ -150,9 +151,8 @@ the installers land in `src-tauri/target/release/bundle/` (`.deb`, `.rpm`, and
 `.AppImage` on linux, `.dmg` on macos, `.msi` and `.exe` on windows).
 
 for the full release and distribution process, including the ci matrix, the
-auto-updater, and how end users download and receive updates, see
-[docs/RELEASE_GUIDE.md](docs/RELEASE_GUIDE.md) and
-[docs/DEPLOYMENT_AND_UPDATES.md](docs/DEPLOYMENT_AND_UPDATES.md).
+auto-updater, how end users download and install per os, and how the landing
+page is hosted, see [docs/RELEASE_GUIDE.md](docs/RELEASE_GUIDE.md).
 
 ## prerequisites
 

@@ -104,7 +104,7 @@ def profile_system() -> HardwareProfile:
     )
 
     logger.info(
-        "hardware profile: %s tier — %.1f gb ram (%.1f free), %d cores, %s (%.1f gb vram)",
+        "hardware profile: %s tier - %.1f gb ram (%.1f free), %d cores, %s (%.1f gb vram)",
         tier, total_ram, avail_ram, cores,
         gpu_name or "no gpu", vram,
     )

@@ -1,0 +1,47 @@
+name: Deploy landing page
+
+# Publishes landing.html to GitHub Pages as the site's index.html.
+# One-time setup: repo Settings -> Pages -> "Build and deployment" -> Source:
+# "GitHub Actions". After that, every push to the default branch that touches
+# landing.html redeploys the page. You can also run it by hand from the Actions
+# tab (workflow_dispatch).
+
+on:
+  push:
+    # deploy when the landing page changes on whichever branch you publish from.
+    # trim this list to just your production branch once that is settled.
+    branches: [main, master, demo]
+    paths: ['landing.html', '.github/workflows/deploy-pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# one deploy at a time; don't cancel an in-progress deploy
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # the deploy-pages action publishes to the github-pages environment on its
+    # own; declaring `environment: github-pages` here is optional and some editor
+    # schemas wrongly flag the name, so it is omitted. add it back if you enable
+    # environment protection rules.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble the site
+        run: |
+          mkdir -p _site
+          cp landing.html _site/index.html
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

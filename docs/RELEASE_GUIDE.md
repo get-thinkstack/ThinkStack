@@ -1,188 +1,294 @@
-# release & bundling guide
+# release, distribution & updates guide
 
-how to cut a new ThinkStack desktop release: what ships, how the pipeline works,
-the exact steps to run it locally or via CI, and what to update each time.
-this is the reference for "how do we ship a build" — read it before tagging a release.
+the single reference for shipping thinkstack: what a release contains, how users
+download and install it, how to cut a release, how installed apps update
+themselves, and how the landing page is hosted. written for the team, so anyone
+can ship a build without re-deriving all of this.
 
-## what gets bundled
+- [what a release contains](#what-a-release-contains)
+- [how users download and install](#how-users-download-and-install)
+- [cutting a release](#cutting-a-release)
+- [how updates reach installed apps](#how-updates-reach-installed-apps)
+- [signing keys](#signing-keys)
+- [hosting the landing page](#hosting-the-landing-page)
+- [testing on other operating systems](#testing-on-other-operating-systems)
+- [build internals and known issues](#build-internals-and-known-issues)
 
-| piece | source | notes |
-|---|---|---|
-| frontend | `frontend/` → `frontend/dist/` (vite build) | served by fastapi, embedded in the desktop shell |
-| backend | `main.py` + `api/` + `domain/` + `infrastructure/` | frozen to a single binary with PyInstaller |
-| base model | `data/models/qwen2.5-0.5b-instruct-q4_k_m.gguf` | the **only** model baked into the installer (see below) |
-| desktop shell | `src-tauri/` | Tauri 2 (Rust); starts/supervises the backend as a sidecar |
+## what a release contains
 
-### why only the 0.5B model ships
+each release publishes one installer per operating system to github releases,
+plus the signed update manifest (`latest.json`). the installers are:
 
-CI used to download and bundle both Qwen2.5-0.5B and Qwen2.5-1.5B into every
-installer. As of 2026-07-22 only the **0.5B** model (`qwen2.5-0.5b-instruct-q4_k_m.gguf`,
-~470 MB) is bundled:
+| os | file | notes |
+|----|------|-------|
+| macos | `ThinkStack_<v>_universal.dmg` | one universal build for apple silicon and intel |
+| windows | `ThinkStack_<v>_x64-setup.exe` | nsis installer; `..._x64_en-US.msi` is also published for managed installs |
+| linux | `ThinkStack_<v>_amd64.AppImage` | portable, runs on any distro; `.deb` and `.rpm` are also published |
 
-- keeps the installer small and the download fast
-- keeps idle RAM/VRAM footprint low so the app doesn't strain low-end machines
-- users who want better quality can drop a larger GGUF (1.5B, 4B, ...) into
-  `data/models/` themselves and select it as the active model — see the
-  "download a model" section in [README.md](../README.md)
+every installer bundles the whole app: the tauri shell, the pyinstaller-frozen
+python backend, the built react frontend, and two gguf models (0.5b for chat,
+search, and the paper writer; 1.5b for the analysis tasks). nothing is
+downloaded at runtime except the sentence-transformer embedding model on first
+launch, which is cached afterwards.
 
-If you want to change the default bundled model, update it in **three** places
-(all three must agree or the installer/download page will be wrong):
+### linux packaging, explained
 
-1. `.github/workflows/build-release.yml` → the "Download Qwen2.5 base model" step
-2. `scripts/build.sh` → nothing to change here, it bundles whatever is in `data/models/`
-3. `README.md` → "download a model" section
+linux has no single package that installs on every distro, so tauri produces
+three artifacts and the user picks:
 
-## the pipeline (4 steps)
+| format | what the user does | installs into the system menu? | works on |
+|--------|--------------------|-------------------------------|----------|
+| `.AppImage` | mark it executable, double-click | no; it runs in place (portable) | any distro |
+| `.deb` | double-click or `sudo apt install ./file.deb` | yes | debian, ubuntu |
+| `.rpm` | double-click or `sudo dnf install ./file.rpm` | yes | fedora, rhel |
 
-`scripts/build.sh` runs all four; each is skippable for iterating:
+the appimage is a single self-contained executable, not an archive to unzip and
+not a web app. it is the closest thing to "download it and run it" that works
+everywhere, which is why the landing page offers it as the default linux
+download. users who want a menu entry install the `.deb` or `.rpm` for their
+distro instead (both are linked from the releases page).
 
-1. **frontend build** — `npm --prefix frontend run build` → `frontend/dist/`
-2. **freeze backend** — `pyinstaller --onedir` freezes `main.py` (+ `frontend/dist`,
-   + `data/models/*.gguf` if present) into the `dist/thinkstack-api/` directory
-3. **verify onedir backend** — no copy needed: `tauri.conf.json` bundles
-   `dist/thinkstack-api/` directly as the `api/` resource, which `lib.rs` launches
-   (onedir, not a onefile sidecar — a onefile build would re-extract its multi-GB
-   payload to a temp dir on every launch)
-4. **compile desktop app** — `npm run tauri build` produces the final installers
-   under `src-tauri/target/release/bundle/` (`.deb`/`.rpm`/`.AppImage` on Linux,
-   `.dmg` on macOS, `.msi`/`.exe` on Windows)
+## how users download and install
 
-```bash
-./scripts/build.sh                     # full pipeline
-./scripts/build.sh --skip-pyinstaller  # reuse dist/thinkstack-api, just rebuild tauri
-./scripts/build.sh --skip-tauri        # stop after freezing the backend
-```
+the landing page ([landing.html](../landing.html)) shows one recommended
+download per os. each button links directly to the matching release asset
+(`github.com/<owner>/ThinkStack/releases/latest/download/<file>`), so the browser
+downloads the file immediately; it does not open the releases page. the "other
+formats" line below the grid links to the releases page for the `.msi`, `.deb`,
+`.rpm`, and checksums.
 
-## building locally
+- **macos:** open the `.dmg`, drag thinkstack to applications. on first launch,
+  right-click the app and choose open (unsigned builds trip gatekeeper once).
+- **windows:** run the `.exe`. if smartscreen warns, click "more info" then
+  "run anyway" (unsigned builds).
+- **linux:** either make the `.AppImage` executable and double-click it, or
+  install the `.deb` / `.rpm` for a menu entry.
 
-A local build only produces installers for **your current OS/arch** (a Linux
-machine cannot cross-compile a `.msi` or `.dmg`). Use this to sanity-check a
-change before pushing a tag; use CI (below) for the full cross-platform matrix.
+macos and windows warnings come from the builds being unsigned by an
+os-level developer certificate (apple/microsoft), which is separate from the
+tauri update signing below. code-signing certificates cost money and are
+optional for a student project.
 
-```bash
-mkdir -p data/models
-huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct-GGUF \
-  qwen2.5-0.5b-instruct-q4_k_m.gguf --local-dir data/models
+## cutting a release
 
-source "$HOME/.cargo/env"   # if rust was installed this session
-./scripts/build.sh
-```
-
-Install and smoke-test the result before tagging:
-
-```bash
-# Debian/Ubuntu
-sudo dpkg -i src-tauri/target/release/bundle/deb/ThinkStack_*.deb
-# or run the AppImage directly, no install needed
-chmod +x src-tauri/target/release/bundle/appimage/ThinkStack_*.AppImage
-./src-tauri/target/release/bundle/appimage/ThinkStack_*.AppImage
-```
-
-### ⚠️ memory during the build — read this before running on a dev laptop
-
-A Tauri release build (`cargo build --release`) links large binaries and can
-spike RAM well beyond what `cargo check`/`rust-analyzer` uses. Combined with an
-LLM loaded at runtime, this **has caused OOM/thrashing risk** on a 16 GB dev
-machine when other heavy tools were also running. Before building:
-
-- **check `free -h` first.** if "available" is under ~6 GB, free memory before
-  building — don't just start it and hope.
-- **close redundant tooling.** running two IDEs on this repo at once (e.g. VS
-  Code *and* another editor) means two separate `rust-analyzer` instances
-  indexing the same Rust project — each can hold 2GB+. keep one.
-- **don't build and run a model-loaded instance of the app at the same time**
-  if you're tight on RAM — finish the `cargo build`, then launch the built app.
-- if you're still tight, cap cargo's parallelism: `CARGO_BUILD_JOBS=4 ./scripts/build.sh`
-  (default is one job per core, which maximizes peak memory on multi-core
-  laptops during linking).
-
-## cutting a release (CI matrix — Linux + macOS + Windows)
-
-`.github/workflows/build-release.yml` already does the cross-platform matrix
-build (3 runners) and drafts a GitHub Release. To trigger it:
+releases are cut from `main`. land the work on `main`, then run the release
+script, which bumps the version everywhere it is hardcoded, commits, tags, and
+optionally pushes:
 
 ```bash
-# scripted: bumps the version everywhere, commits, tags, and (with --push)
-# pushes the tag to trigger CI. see scripts/release.sh.
-scripts/release.sh 0.2.0 --push
+git checkout main && git merge --ff-only <feature-branch>
+git push origin main
+scripts/release.sh 0.2.0 --push    # bump + tag v0.2.0 + push (asks before pushing)
 ```
 
-or manually:
+pushing the `v0.2.0` tag triggers `.github/workflows/build-release.yml`, which
+builds all three installers, signs them, and publishes them plus `latest.json`
+to a github release. use the next unused version number, and only tag a build you
+have downloaded and confirmed runs, because a tag is public and the updater
+treats the newest tag as current.
+
+`release.sh` updates the version in `src-tauri/tauri.conf.json`, `landing.html`,
+and `src-tauri/Cargo.toml`. it refuses a dirty tree or an existing tag.
+
+### a test build without publishing
+
+to get installers without creating a public release, open the actions tab, run
+`build-release.yml` by hand (workflow_dispatch), and leave "create a github
+release" unchecked. the installers appear as workflow artifacts you can download.
+this is the memory-safe way to get a build without running the heavy compile on
+your own machine.
+
+### hotfixes
+
+a hotfix is just a patch release: commit the fix on `main`, then
+`scripts/release.sh 0.1.1 --push`. installed apps pick it up on their next launch
+through the updater, so there is no manual re-download for users.
+
+## how updates reach installed apps
+
+thinkstack uses tauri's built-in updater with github releases as the host.
+
+```
+  you tag v0.2.0
+    |
+    v
+  ci builds installers, signs them with the private key, emits per-platform
+  *.sig files, and publishes the installers plus latest.json (version + per-os
+  download url + signature)
+    |
+    v
+  the installed app, on launch, fetches
+  github.com/<owner>/ThinkStack/releases/latest/download/latest.json
+    |
+    v
+  if that version is newer than the app's own version:
+     1. prompt "ThinkStack 0.2.0 is available, install now?"
+     2. download the matching platform bundle
+     3. verify it against the public key baked into the app
+     4. install and relaunch
+```
+
+the pieces:
+
+| piece | location |
+|-------|----------|
+| updater plugin (rust) | `src-tauri/Cargo.toml`, registered in `src-tauri/src/lib.rs` |
+| public key + manifest endpoint | `src-tauri/tauri.conf.json`, `plugins.updater` |
+| permissions | `src-tauri/capabilities/default.json` |
+| launch-time check | `frontend/src/utils/updater.js`, called from `App.jsx` |
+| signed build + manifest | `build-release.yml` + `scripts/compose-updater-manifest.sh` |
+
+the check is a no-op in the web build (`dev.sh`) and never throws, so a flaky
+network cannot block startup. the version in `tauri.conf.json` must increase
+every release or clients will not see the update.
+
+## signing keys
+
+the updater only installs a bundle whose signature matches the public key
+compiled into the app. this is what stops a malicious server from pushing a fake
+update. the keypair is generated once:
 
 ```bash
-# 1. bump the version everywhere it's hardcoded (see checklist below)
-# 2. commit those bumps
-git tag v0.2.0
-git push origin v0.2.0     # pushing the tag triggers the workflow
+npx tauri signer generate -w ~/.tauri/thinkstack-updater.key
 ```
 
-> **updates for already-installed apps** are handled by the tauri auto-updater
-> (signed `latest.json` on the release). the full download / update / hotfix /
-> signing-key flow is in [DEPLOYMENT_AND_UPDATES.md](DEPLOYMENT_AND_UPDATES.md).
+- the **public key** is committed in `src-tauri/tauri.conf.json`
+  (`plugins.updater.pubkey`). safe to share.
+- the **private key** stays at `~/.tauri/thinkstack-updater.key` and is never
+  committed (gitignored via `*.key`).
 
-Or trigger a dry run (build artifacts, no release published) from the Actions
-tab: **workflow_dispatch** → leave "Create a GitHub Release" unchecked.
+### adding the key to github (actions secrets, not variables)
 
-**Pushing a tag is a shared, remote action** — it kicks off CI on GitHub and,
-on success, publishes a public release. Don't do it as a side effect of an
-unrelated change; confirm with whoever owns the repo state first if you're
-not sure the tag is ready.
+repo settings, secrets and variables, actions, the "secrets" tab, "new
+repository secret". add two:
 
-### version bump checklist
+| name | value |
+|------|-------|
+| `TAURI_SIGNING_PRIVATE_KEY` | the entire contents of `~/.tauri/thinkstack-updater.key` |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | the key's password (blank for this key) |
 
-these are not derived from one source of truth today — bump all of them together:
+or from the cli, which never prints the key:
 
-- [ ] `src-tauri/tauri.conf.json` → `"version"`
-- [ ] `landing.html` → `const VERSION = '...'` (download link wiring script, near the bottom)
-- [ ] `docs/landing/index.html` → `const VERSION = '...'` (same pattern, if this page is still in use)
-- [ ] tag pushed matches, e.g. `tauri.conf.json` version `0.2.0` → tag `v0.2.0`
-
-### after the release publishes
-
-Verify the actual asset filenames match what the landing page expects:
-
-```
-https://github.com/Rithesh077/ThinkStack/releases/latest
+```bash
+gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/thinkstack-updater.key
+gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --body ""
 ```
 
-Tauri's bundler names files as `ThinkStack_<version>_<arch>.<ext>` — e.g.
-`ThinkStack_0.1.0_amd64.deb`, `ThinkStack_0.1.0_universal.dmg`,
-`ThinkStack_0.1.0_x64-setup.exe`, `ThinkStack_0.1.0_x64_en-US.msi`. If a
-filename ever differs (Tauri version bump can change bundler conventions),
-update the `DOWNLOAD_LINKS`/`LINKS` map in the landing page's `<script>` block.
+use the "secrets" tab, not "variables" (variables are readable in logs), and
+repository secrets, not environment secrets. without these, ci still builds and
+publishes installers, but unsigned, so `latest.json` is skipped and auto-update
+stays off until the secrets are added and the next release is cut.
 
-## the landing page(s)
+### backing up the private key
 
-There are currently **two** landing pages with download-link wiring — this is
-duplication, not intentional redundancy:
+losing this key means you can never update already-installed apps, because they
+only trust signatures from the matching key. it is 348 bytes; keep it in at least
+two of these:
 
-- `landing.html` (repo root) — the fuller marketing page; **this is the one
-  intended for deployment** as of 2026-07-22 (see [ADR.md](ADR.md)). Not yet
-  hosted anywhere; hosting comes after the app has been tested end-to-end.
-- `docs/landing/index.html` — a simpler download-only page, originally built
-  for GitHub Pages `/docs` deployment. Left as-is for now; consolidate or
-  delete once `landing.html` is confirmed as the sole page going forward.
+1. a password manager, as a secure note (paste the output of
+   `cat ~/.tauri/thinkstack-updater.key`).
+2. an encrypted file on a drive or usb:
+   ```bash
+   gpg --symmetric --cipher-algo AES256 ~/.tauri/thinkstack-updater.key
+   # restore: gpg --decrypt thinkstack-updater.key.gpg > ~/.tauri/thinkstack-updater.key
+   ```
 
-Both wire `href`s at runtime via a small script keyed off `REPO`/`VERSION`
-constants — update `VERSION` in whichever page(s) are live, per the checklist
-above.
+never commit it, paste it in chat or email, or store it unencrypted in the
+cloud. rotating a lost key means shipping a normal update that carries the new
+public key first, then signing future updates with the new key.
+
+## hosting the landing page
+
+the landing page is a single static html file. `.github/workflows/deploy-pages.yml`
+publishes it to github pages as the site's `index.html` on every push that
+touches it. one-time setup: repo settings, pages, source "github actions". after
+that the page redeploys automatically.
+
+### keeping a personal name out of the url
+
+a personal pages site is served from `<user>.github.io/thinkstack`, and the
+release and updater urls are `github.com/<user>/thinkstack/...`. on a team
+project, prefer a **github organization**: create a free org, transfer the repo
+into it, and both the page url (`<org>.github.io/thinkstack`) and the release
+urls (`github.com/<org>/thinkstack`) drop the personal name. the release flow is
+unchanged, and teammates join the org as members so the project is shared rather
+than tied to one account.
+
+after transferring, update the hardcoded `Rithesh077/ThinkStack` references (the
+`REPO` const in `landing.html`, the updater `endpoint` in `tauri.conf.json`, and
+the urls in the workflows and this guide) to `<org>/ThinkStack`. github redirects
+the old path, but the hardcoded references should point at the new one.
+
+a lighter alternative that avoids transferring the repo is cloudflare pages: it
+serves the page at a neutral `thinkstack.pages.dev` and redeploys on every push,
+but the release download links still read `github.com/<user>/...`, so it only
+fixes the visible page url.
+
+the download buttons work only once a release exists (the `releases/latest`
+urls 404 until then), so deploy the page and cut a first release together.
+
+## testing on other operating systems
+
+a linux machine can build for linux only, and the ci matrix builds all three but
+only proves they compile, not that they run. to actually test:
+
+- **windows:** a free windows 11 dev vm from microsoft, or virtualbox with a
+  windows eval iso. install the `.exe` there.
+- **macos:** apple licenses macos on apple hardware only, so borrow a mac for a
+  smoke test, or document macos as built-by-ci and runtime-tested elsewhere.
+  macos vms on non-apple hardware are a licensing gray area.
+
+for the local (linux) test: download the `.AppImage` from the deployed page or
+the release, `chmod +x` it, and run it. confirm the app opens, finds a model
+(chat responds), and ingests a pdf (search returns results).
+
+## build internals and known issues
+
+`scripts/build.sh` runs the pipeline locally (each step is skippable):
+
+1. build the react frontend into `frontend/dist/`.
+2. freeze the backend with `pyinstaller --onedir` into `dist/thinkstack-api/`.
+   `--onedir` (not `--onefile`) matches how `tauri.conf.json` bundles the backend
+   as the `api/` resource; a onefile build would re-extract a multi-gb payload to
+   a temp dir on every launch. `--collect-all llama_cpp` and `--collect-all
+   sentence_transformers` are required: neither has a pyinstaller hook, so
+   without them the frozen build drops llama.cpp's shared libraries and the
+   embedding model's data.
+3. verify the frozen backend (no sidecar copy; tauri bundles the directory).
+4. compile the tauri app into `src-tauri/target/release/bundle/`.
+
+`file_manager.seed_bundled_models()` copies the bundled models into the writable
+models dir on first run, since a frozen build ships them read-only.
+
+### memory during a local build
+
+a tauri release build links large binaries and can spike ram well past what
+`cargo check` or `rust-analyzer` use. combined with a model loaded at runtime,
+this has caused oom pressure on a 16 gb machine. before building: check `free -h`
+(free memory if "available" is under about 6 gb), close a second ide so only one
+`rust-analyzer` runs, do not build and run a model-loaded instance at the same
+time, and if still tight cap parallelism with `CARGO_BUILD_JOBS=4 ./scripts/build.sh`.
+the memory-safe alternative is to let ci build (see the test-build note above).
+
+### open items before a public release
+
+- **the updater needs one real signed build to verify** the
+  download-verify-install-relaunch loop end to end.
+- **the embedding model is not bundled**, so first-run embeddings need internet
+  (a one-time hugging face download, then cached). to make first run fully
+  offline, add `all-MiniLM-L6-v2` to the ci model download and the pyinstaller
+  `--add-data`.
+- **installer size is about 3.7 gb** (torch plus both models). fine for a demo;
+  drop the 1.5b model to shrink it, at the cost of a degraded gap finder.
 
 ## troubleshooting
 
-- **`cargo: command not found`** — `source "$HOME/.cargo/env"`, or install rust
-  via `./scripts/setup.sh`.
-- **model download drops partway through (HTTP/2 stream reset)** — Hugging
-  Face's CDN can reset large transfers. Retry with `curl -L --http1.1 -C - ...`
-  (forces HTTP/1.1, resumes from where it stopped) rather than restarting from
-  zero. Always verify the final size against the remote `Content-Length`
-  before trusting the file — a truncated `.gguf` will fail to load (or worse,
-  crash the backend) at runtime rather than failing loudly at download time.
-- **no GPU offload happening on a machine with an NVIDIA card** — check
-  `nvidia-smi` is on `PATH`; `src-tauri/src/lib.rs`'s `detect_gpu_layers()`
-  shells out to it and silently falls back to CPU-only (`0`) if it's missing,
-  which is safe but slower.
-- **installer builds but app won't start** — check the onedir backend was
-  bundled: `dist/thinkstack-api/thinkstack-api` must exist at build time (Tauri
-  copies the dir to the app's `api/` resource, which `lib.rs` launches). `lib.rs`
-  falls back to `python -m uvicorn` from `.venv` only in dev, not in a bundled
-  release.
+- **the app builds but will not start:** confirm the onedir backend was bundled;
+  `dist/thinkstack-api/thinkstack-api` must exist at build time. `lib.rs` falls
+  back to `python -m uvicorn` from `.venv` only in dev, not in a packaged build.
+- **no gpu offload on a machine with an nvidia card:** `nvidia-smi` must be on
+  `PATH`; `lib.rs` shells out to it and falls back to cpu (safe, slower) if it is
+  missing.
+- **download button 404s:** no release has been published yet, or the asset
+  filename changed (a tauri upgrade can rename bundles). update the `VERSION` or
+  the `DOWNLOAD_LINKS` map in `landing.html` to match the actual release assets.

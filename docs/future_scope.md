@@ -16,12 +16,12 @@
 
 ### ai-assisted research paper writer (latex)
 - **editor:** built-in text editor where users write prompts or ideas inside a `.ths` file, and a local AI converts them in-place to compilable LaTeX.
-- **real-time preview:** client-side LaTeX → HTML renderer using KaTeX. renders sections, math, tables, lists live as you type. two-tab pane: instant "Live Preview" + compiled "PDF" view.
+- **real-time preview:** client-side LaTeX HTML renderer using KaTeX. renders sections, math, tables, lists live as you type. two-tab pane: instant "Live Preview" + compiled "PDF" view.
 - **compilation:** compiles to PDF using the local system's `pdflatex` with auto-healing (missing package injection, bare snippet wrapping, broken environment isolation).
 - **future enhancement:** bundle Tectonic as an offline sidecar for self-contained, zero-dependency compiling.
 
 ### fine-tuning data collection pipeline
-- every prompt → LaTeX generation is passively logged to `data/training/latex_generation.jsonl`.
+- every prompt LaTeX generation is passively logged to `data/training/latex_generation.jsonl`.
 - gap analysis results logged to `data/training/gap_analysis.jsonl`.
 - data is in chat-format JSONL (system/user/assistant messages), ready for QLoRA fine-tuning.
 
@@ -34,7 +34,7 @@
 
 ## planned features
 
-### ✅ implemented: ai-powered research paper writer (latex)
+### implemented: ai-powered research paper writer (latex)
 **status:** shipped. a text editor where the user writes plain english / pseudo-code, and the local slm converts it into compilable latex (`/api/papers/generate`).
 - offline compilation to pdf via `pdflatex` with auto-healing compiler.
 - real-time client-side latex preview using KaTeX (no compilation needed for preview).
