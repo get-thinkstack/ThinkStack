@@ -37,31 +37,58 @@ only fills in the URLs from `REPO` + `VERSION` constants.
 reorder that platform's card first. The other buttons must always stay visible
 (user-agent detection is unreliable, and people download for *other* machines).
 
-**To make the page live:** it's a single static HTML file (no build step, no
-backend), so any static host works. The download buttons point at
-`github.com/.../releases/latest/download/...`, which works regardless of where
-the page itself is hosted. Comparison:
+the landing page is a single static html file, so any static host works. the
+download buttons point at `github.com/.../releases/latest/download/...`, which
+works no matter where the page is hosted.
 
-| Host | Cost | Setup effort | Auto-deploy on push | Custom domain | Notes |
-|---|---|---|---|---|---|
-| **GitHub Pages** | free | low | ✅ (Action or branch) | ✅ (CNAME) | same platform as the releases; simplest if you already tag from GitHub. serves from a branch root or `/docs` — `landing.html` would move to `/docs/index.html` or a tiny Pages Action copies it. |
-| **Cloudflare Pages** | free | low–med | ✅ (git-connected) | ✅ | fastest CDN, unlimited bandwidth; separate account; drag-and-drop or connect the repo. |
-| **Netlify** | free tier | low–med | ✅ + deploy previews | ✅ | great DX, PR previews, redirects/forms if ever needed; separate account. |
-| **Vercel** | free tier (hobby) | low–med | ✅ + previews | ✅ | same class as Netlify; shines if you later add a framework; hobby tier is non-commercial. |
-| **University / self-host** | usually free | high | ❌ (manual upload) | depends | full control, but you deploy by hand each release; fine for a one-off demo. |
+### the constraint: keep a personal name out of the url
 
-**Recommendation for this project:** **GitHub Pages** — it's free, HTTPS is
-automatic, it lives on the same platform as your releases and tags, and there's
-nothing new to sign up for. Point it at `/docs` and drop `landing.html` in as
-`docs/index.html` (or add a one-line Pages Action that publishes the root
-`landing.html`). Use **Cloudflare Pages** instead only if you expect heavy
-download traffic and want the bigger CDN.
+a personal github pages site is served from `rithesh077.github.io/thinkstack`,
+and the release and updater urls are `github.com/rithesh077/thinkstack/...`. on a
+team project that name in the url is worth avoiding. the two hosting decisions
+(the landing page, and the releases the updater points at) should be considered
+together, because both carry the name.
 
-All the free tiers are fine for a student showcase; the real differences are
-"same-platform simplicity" (Pages) vs "best CDN" (Cloudflare) vs "richest DX +
-previews" (Netlify/Vercel).
+| option | landing-page url | release/updater url | releases stay simple? | effort |
+|--------|------------------|---------------------|-----------------------|--------|
+| personal github pages | `rithesh077.github.io/...` | `github.com/rithesh077/...` | yes | low |
+| **github organization** (recommended) | `<org>.github.io/thinkstack` | `github.com/<org>/thinkstack` | yes | one-time repo transfer |
+| cloudflare pages | `thinkstack.pages.dev` | `github.com/rithesh077/...` | yes | connect repo, no transfer |
+| custom domain (any host) | `thinkstack.app` etc. | can be proxied | yes | ~$10/yr + dns |
 
-Deployment is deferred until the app is tested end-to-end (see git history / ADR).
+### recommendation: a github organization
+
+create a free github organization (for example `thinkstack-app` or a team name)
+and transfer the repo into it. this is the best fit for the stated needs:
+
+- **neutral url everywhere.** both the pages url (`<org>.github.io/thinkstack`)
+  and the release/updater urls (`github.com/<org>/thinkstack`) drop the personal
+  name.
+- **releases stay exactly as simple.** the whole flow is unchanged: tag a
+  version, ci builds, github releases publishes the installers and `latest.json`.
+  nothing moves off github.
+- **shared ownership.** teammates join the org as members, so the project is not
+  tied to one person's account. this is the direct answer to "they will point it
+  out": it is now the team's repo, not one member's.
+
+after transferring, update the hardcoded `Rithesh077/ThinkStack` references (the
+`REPO` const in `landing.html`, the updater `endpoint` in `tauri.conf.json`, and
+the urls in the ci workflow and these docs) to `<org>/ThinkStack`. github keeps a
+redirect from the old path, but the hardcoded references should point at the new
+canonical one.
+
+enabling pages: in the org repo, settings, pages, serve from `/docs` and add
+`landing.html` as `docs/index.html`, or from the branch root with a one-line
+pages action that publishes `landing.html`.
+
+**alternative without transferring the repo:** connect the existing repo to
+**cloudflare pages**, which serves the landing page at a neutral
+`thinkstack.pages.dev` and redeploys on every push. this fixes the visible page
+url with almost no effort, but the release download links still read
+`github.com/rithesh077/...`, so it only half-solves the naming. use the
+organization if the release urls matter too.
+
+deployment is deferred until the app is tested end-to-end (see the adr).
 
 ---
 
