@@ -84,6 +84,9 @@ else
     # dir (tauri.conf.json bundle.resources -> "api/"), which lib.rs launches.
     # a onefile build would re-extract its multi-GB payload to a temp dir on
     # every launch; onedir unpacks once at install.
+    # --collect-all llama_cpp / sentence_transformers are REQUIRED (neither has a
+    # PyInstaller hook): without them the frozen build omits llama_cpp's lib/*.so
+    # and sentence_transformers' data, breaking chat/gap-analysis and search.
     pyinstaller --name thinkstack-api --onedir --clean --noconfirm \
         --hidden-import uvicorn \
         --hidden-import uvicorn.logging \
@@ -97,6 +100,8 @@ else
         --hidden-import uvicorn.lifespan \
         --hidden-import uvicorn.lifespan.on \
         --hidden-import psutil \
+        --collect-all llama_cpp \
+        --collect-all sentence_transformers \
         $ADD_DATA_FLAGS \
         main.py
 

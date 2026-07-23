@@ -199,10 +199,10 @@ export const papersApi = {
   remove: (projectId) =>
     request(`/papers/projects/${projectId}`, { method: 'DELETE' }),
 
-  /* inline disposition — renders inside the preview <iframe> */
+  /* inline disposition - renders inside the preview <iframe> */
   previewUrl: (projectId) => `${BASE_URL}/papers/download/${projectId}`,
 
-  /* attachment disposition — triggers a save-to-disk */
+  /* attachment disposition - triggers a save-to-disk */
   downloadUrl: (projectId) => `${BASE_URL}/papers/download/${projectId}?download=1`,
 };
 

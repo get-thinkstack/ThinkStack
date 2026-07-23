@@ -249,7 +249,7 @@ def _detect_missing_packages(log_text: str) -> list[str]:
     for sty in dict.fromkeys(missing):  # deduplicate
         pkg = sty.replace(".sty", "")
         hints.append(
-            f"missing TeX package: {sty} — install with: "
+            f"missing TeX package: {sty} - install with: "
             f"sudo dnf install texlive-{pkg}  (fedora) or "
             f"sudo apt install texlive-latex-extra  (debian/ubuntu)"
         )

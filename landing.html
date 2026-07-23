@@ -444,7 +444,6 @@
     .audience-grid {
       display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: center;
     }
-    .audience-text { }
     .audience-text .section-heading { margin-bottom: 24px; }
     .audience-list { list-style: none; margin-top: 32px; }
     .audience-list li {
@@ -621,8 +620,23 @@
       font-size: 0.8rem; color: rgba(255,255,255,0.35);
       line-height: 1.5;
     }
+    .dl-format {
+      margin-top: 12px; text-align: center;
+      font-size: 0.8rem; color: var(--text-dim);
+      letter-spacing: 0.01em;
+    }
+    .dl-other {
+      text-align: center; margin: 40px auto 0; max-width: 560px;
+      font-size: 0.85rem; color: rgba(255,255,255,0.4); line-height: 1.6;
+    }
+    .dl-other code {
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.8rem; color: rgba(255,255,255,0.6);
+    }
+    .dl-other a { color: var(--accent); text-decoration: none; }
+    .dl-other a:hover { text-decoration: underline; }
     .dl-github-row {
-      text-align: center; margin-top: 8px;
+      text-align: center; margin-top: 20px;
     }
 
     @media (max-width: 768px) {
@@ -999,11 +1013,11 @@
             </div>
             macOS
           </div>
-          <a href="#" class="dl-btn dl-btn-primary" id="dl-macos-arm">Download for Apple Silicon</a>
-          <a href="#" class="dl-btn dl-btn-secondary" id="dl-macos-intel">Download for Intel</a>
+          <a href="#" class="dl-btn dl-btn-primary" id="dl-macos">Download for macOS</a>
+          <p class="dl-format">.dmg &middot; universal (Apple Silicon + Intel)</p>
           <div class="dl-requirements">
             <h5>Minimum Requirements</h5>
-            <p>macOS 12 (Monterey) or later. Universal binary — one download works on both Apple Silicon and Intel.</p>
+            <p>macOS 12 (Monterey) or later. The universal binary runs on both Apple Silicon and Intel Macs.</p>
           </div>
         </div>
 
@@ -1015,11 +1029,11 @@
             </div>
             Windows
           </div>
-          <a href="#" class="dl-btn dl-btn-primary" id="dl-win-x64">Download for x64</a>
-          <a href="#" class="dl-btn dl-btn-secondary" id="dl-win-msi">Download .msi installer</a>
+          <a href="#" class="dl-btn dl-btn-primary" id="dl-win-x64">Download for Windows</a>
+          <p class="dl-format">.exe installer &middot; 64-bit</p>
           <div class="dl-requirements">
             <h5>Minimum Requirements</h5>
-            <p>Windows 10 (64-bit) or later. 8 GB RAM recommended for model inference. If SmartScreen warns, click "More info" → "Run anyway".</p>
+            <p>Windows 10 (64-bit) or later. 8 GB RAM recommended for model inference. If SmartScreen warns, click "More info" then "Run anyway".</p>
           </div>
         </div>
 
@@ -1036,16 +1050,20 @@
             </div>
             Linux
           </div>
-          <a href="#" class="dl-btn dl-btn-primary" id="dl-linux-x64">Download AppImage</a>
-          <a href="#" class="dl-btn dl-btn-secondary" id="dl-linux-deb">Download .deb (Debian/Ubuntu)</a>
+          <a href="#" class="dl-btn dl-btn-primary" id="dl-linux-x64">Download for Linux</a>
+          <p class="dl-format">.AppImage &middot; runs on any distro</p>
           <div class="dl-requirements">
             <h5>Minimum Requirements</h5>
-            <p>glibc ≥ 2.28. Ubuntu 20+, Debian 10+, Fedora 36+, RHEL 8+. AppImage works on any distro.</p>
+            <p>glibc 2.28 or newer. Ubuntu 20+, Debian 10+, Fedora 36+, RHEL 8+. The AppImage runs on any distro without installing.</p>
           </div>
         </div>
 
       </div>
 
+      <p class="dl-other reveal reveal-delay-4">
+        Need a different package? The <code>.msi</code>, <code>.deb</code>, and <code>.rpm</code> builds,
+        plus checksums, are on the <a href="https://github.com/Rithesh077/ThinkStack/releases/latest" target="_blank" rel="noopener">releases page</a>.
+      </p>
       <div class="dl-github-row reveal reveal-delay-4">
         <a href="https://github.com/Rithesh077/ThinkStack" class="btn-secondary" target="_blank" rel="noopener">View on GitHub</a>
       </div>
@@ -1166,31 +1184,23 @@
     });
   });
 
-  /* ── Download link wiring ──────────────────────────
-   * All links point to GitHub Releases. When a version tag (e.g. v0.1.0)
-   * is pushed, CI (.github/workflows/build-release.yml) builds Linux/macOS/
-   * Windows installers and publishes them to that tag's release.
-   *
-   * IMPORTANT: after the first successful release, verify the exact asset
-   * filenames at https://github.com/Rithesh077/ThinkStack/releases/latest
-   * and update VERSION below if they differ.
+  /* Download link wiring.
+   * All links point to GitHub Releases. When a version tag (e.g. v0.1.0) is
+   * pushed, CI (.github/workflows/build-release.yml) builds the Linux, macOS,
+   * and Windows installers and publishes them to that tag's release.
+   * After the first release, verify the asset filenames at
+   * https://github.com/Rithesh077/ThinkStack/releases/latest and update VERSION.
    */
   const REPO = 'Rithesh077/ThinkStack';
   const VERSION = '0.1.0';
   const BASE = `https://github.com/${REPO}/releases/latest/download`;
 
+  // one recommended download per OS. the other package formats (.msi, .deb,
+  // .rpm) live on the releases page, linked below the grid.
   const DOWNLOAD_LINKS = {
-    // macOS — universal .dmg (works on both Apple Silicon + Intel)
-    'dl-macos-arm':   `${BASE}/ThinkStack_${VERSION}_universal.dmg`,
-    'dl-macos-intel': `${BASE}/ThinkStack_${VERSION}_universal.dmg`,
-
-    // Windows
-    'dl-win-x64': `${BASE}/ThinkStack_${VERSION}_x64-setup.exe`,
-    'dl-win-msi': `${BASE}/ThinkStack_${VERSION}_x64_en-US.msi`,
-
-    // Linux — AppImage works on any distro; .deb for Debian/Ubuntu
+    'dl-macos':     `${BASE}/ThinkStack_${VERSION}_universal.dmg`,
+    'dl-win-x64':   `${BASE}/ThinkStack_${VERSION}_x64-setup.exe`,
     'dl-linux-x64': `${BASE}/ThinkStack_${VERSION}_amd64.AppImage`,
-    'dl-linux-deb': `${BASE}/ThinkStack_${VERSION}_amd64.deb`,
   };
 
   for (const [id, url] of Object.entries(DOWNLOAD_LINKS)) {

@@ -21,7 +21,7 @@ export default function Analysis() {
   const [showPassword, setShowPassword] = useState(false);
   const [showNewAnalysis, setShowNewAnalysis] = useState(false);
 
-  // single shared local model — disable runs while it's busy elsewhere
+  // single shared local model - disable runs while it's busy elsewhere
   const { busy } = useLlmBusy();
 
   useEffect(() => {

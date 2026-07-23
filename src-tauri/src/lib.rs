@@ -119,7 +119,7 @@ fn sidecar_path() -> Option<std::path::PathBuf> {
 ///
 /// Deliberately sets no defaults of its own. GPU offload is machine-specific:
 /// `THINKSTACK_LLM_GPU_LAYERS=-1` requires a CUDA build of llama-cpp-python, and
-/// the loader raises rather than silently falling back to CPU — so forcing -1
+/// the loader raises rather than silently falling back to CPU - so forcing -1
 /// here would turn "no CUDA on this machine" into a hard crash at model load.
 ///
 /// The machine's own value belongs in the gitignored `.env` shipped next to the
@@ -216,7 +216,7 @@ fn kill_backend(child: &mut Child) {
     #[cfg(windows)]
     {
         let pid = child.id();
-        // /T kills the whole tree, /F forces it — belt and suspenders.
+        // /T kills the whole tree, /F forces it - belt and suspenders.
         let _ = Command::new("taskkill")
             .args(["/PID", &pid.to_string(), "/T", "/F"])
             .output();

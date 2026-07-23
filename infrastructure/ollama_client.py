@@ -166,7 +166,7 @@ class OllamaClient:
     # (summarize/claims/themes/gaps) route to the heavier analysis model
     # (settings.llm_analysis_model) because the lightweight base model
     # produces unparseable / truncated json on them. only one model is
-    # resident at a time — _get_llama swaps on demand to cap memory use.
+    # resident at a time - _get_llama swaps on demand to cap memory use.
     TASK_MODEL_MAP = {
         "latex_writer": ["latex-writer.gguf", "latex_writer.gguf"],
         "analysis": [settings.llm_analysis_model],
@@ -234,7 +234,7 @@ class OllamaClient:
         resident at a time. if a different model is already loaded (e.g. the
         base model is resident but an analysis task needs the heavier model),
         the current one is unloaded first so peak memory stays at a single
-        model — important on low-ram machines. same-model requests reuse the
+        model - important on low-ram machines. same-model requests reuse the
         resident instance with no reload.
 
         uses the hardware profiler to auto-detect safe gpu_layers and ctx_size.

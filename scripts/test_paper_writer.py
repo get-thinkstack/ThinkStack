@@ -275,7 +275,7 @@ hello from the api test.
 
 def main():
     print("=" * 50)
-    print("thinkstack paper writer — test suite")
+    print("thinkstack paper writer - test suite")
     print("=" * 50)
 
     # unit tests (no server needed)

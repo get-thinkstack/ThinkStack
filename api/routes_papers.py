@@ -107,7 +107,7 @@ async def api_generate_latex(req: GenerateLatexRequest):
         "you are a latex expert. the user will give you a prompt describing "
         "what they want written in their academic paper. respond ONLY with "
         "valid, compilable latex code. do not include \\documentclass, "
-        "\\begin{document}, or \\end{document} — just the body content. "
+        "\\begin{document}, or \\end{document} - just the body content. "
         "do not include any explanation or markdown formatting. "
         "only output raw latex code. "
         "the document preamble already loads these packages, so you MAY use "
@@ -130,7 +130,7 @@ async def api_generate_latex(req: GenerateLatexRequest):
             context_text, _ = _build_context(req.prompt, req.doc_ids)
             if context_text:
                 grounding_parts.append(
-                    "relevant excerpts from the user's selected papers — "
+                    "relevant excerpts from the user's selected papers - "
                     "ground the writing in these and do not fabricate facts:\n"
                     f"{context_text}"
                 )
@@ -218,7 +218,7 @@ async def api_compile_pdf(req: CompileRequest):
 async def api_download_pdf(project_id: str, download: bool = False):
     """serve the compiled pdf for a project.
 
-    served ``inline`` by default so the preview pane's <iframe> can render it —
+    served ``inline`` by default so the preview pane's <iframe> can render it -
     an ``attachment`` disposition makes the browser download the file instead,
     leaving the iframe blank. pass ``?download=1`` for the save-to-disk button.
     """
