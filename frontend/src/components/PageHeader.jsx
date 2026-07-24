@@ -7,7 +7,7 @@
  * stays an even hand-drawn line whatever the title length. reduced-motion is
  * respected globally (the draw collapses to an instant reveal).
  *
- * pass action buttons as children — they align to the title baseline on the
+ * pass action buttons as children - they align to the title baseline on the
  * right, replacing the ad-hoc per-page header markup (and its alignment bugs).
  */
 export default function PageHeader({ title, subtitle, className = '', children }) {

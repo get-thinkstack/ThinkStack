@@ -1,4 +1,4 @@
-"""
+t"""
 llm client module.
 
 provides a unified async client for local language model inference,
@@ -8,7 +8,6 @@ supporting both ollama and llama.cpp runtimes.
 import asyncio
 import logging
 import re
-import time
 from pathlib import Path
 from typing import Optional
 
@@ -100,6 +99,9 @@ class OllamaClient:
         self.gpu_layers = gpu_layers
         self.timeout = timeout
         self._llama = None
+        # path (str) of the model currently resident in self._llama, so
+        # _get_llama can tell when a task needs a different model and swap.
+        self._llama_path: Optional[str] = None
         # serializes access to the single local model instance. llama.cpp is
         # not safe for concurrent create_chat_completion calls on one model,
         # so all generations queue through this lock to avoid contention and
@@ -157,22 +159,18 @@ class OllamaClient:
                 return candidates[0]
         raise FileNotFoundError(f"llama.cpp model not found at {path}")
 
-    def _get_llama(self):
-        """lazily initialize the llama.cpp model instance.
-
-        when gpu offload is requested (``gpu_layers != 0``) the model is loaded
-        strictly on the gpu. if the installed llama-cpp-python has no gpu
-        support, or the gpu load fails, we raise instead of silently falling
-        back to cpu -- running analysis on cpu is the slow path this project
-        deliberately avoids, so a misconfiguration must be loud, not silent.
-        """
     # ── task-specific model registry ──────────────────────────────────
-    # maps task types to dedicated gguf filenames. if a task-specific
-    # model exists in data/models/, it's used; otherwise falls back to
-    # the base model. only one model loaded at a time (memory safety).
+    # maps task types to dedicated gguf filenames, tried in order. if a
+    # task-specific model exists in data/models/, it's used; otherwise the
+    # task falls back to the base model. structured-json analysis tasks
+    # (summarize/claims/themes/gaps) route to the heavier analysis model
+    # (settings.llm_analysis_model) because the lightweight base model
+    # produces unparseable / truncated json on them. only one model is
+    # resident at a time - _get_llama swaps on demand to cap memory use.
     TASK_MODEL_MAP = {
         "latex_writer": ["latex-writer.gguf", "latex_writer.gguf"],
-        "gap_analysis": ["gap-analysis.gguf", "gap_analysis.gguf"],
+        "analysis": [settings.llm_analysis_model],
+        "gap_analysis": [settings.llm_analysis_model, "gap-analysis.gguf", "gap_analysis.gguf"],
         "general": [],  # always uses the base model
     }
 
@@ -232,16 +230,19 @@ class OllamaClient:
     def _get_llama(self, task_type: str = "general"):
         """lazily initialize llama.cpp model instance with hardware-aware loading.
 
+        resolves the model for the requested task and keeps exactly one model
+        resident at a time. if a different model is already loaded (e.g. the
+        base model is resident but an analysis task needs the heavier model),
+        the current one is unloaded first so peak memory stays at a single
+        model - important on low-ram machines. same-model requests reuse the
+        resident instance with no reload.
+
         uses the hardware profiler to auto-detect safe gpu_layers and ctx_size.
         catches oom/memory errors and retries with minimal settings.
 
         args:
             task_type: optional task type for model routing.
         """
-        # if a model is already loaded, reuse it (no hot-swap)
-        if self._llama is not None:
-            return self._llama
-
         try:
             from llama_cpp import Llama
         except ImportError as e:
@@ -250,18 +251,28 @@ class OllamaClient:
             ) from e
 
         model_path = self._resolve_task_model_path(task_type)
-        n_ctx, n_gpu_layers = self._compute_load_params(model_path)
+        requested = str(model_path)
 
-        if self.gpu_layers != 0:
-            self._llama = self._load_on_gpu(Llama, model_path)
+        # right model already resident → reuse, no reload
+        if self._llama is not None and self._llama_path == requested:
             return self._llama
 
-        logger.info("loading llama.cpp model from %s (cpu-only)", model_path)
-        self._llama = Llama(
-            model_path=str(model_path),
-            n_ctx=self.ctx_size,
-            n_gpu_layers=0,
-            verbose=False,
+        # a different model is resident → unload it first to cap memory at one
+        # model. safe because all generation is serialized by _gen_lock, so no
+        # call is in flight on the model being dropped.
+        if self._llama is not None and self._llama_path != requested:
+            import gc
+            logger.info(
+                "swapping resident model %s -> %s (single-resident, memory-safe)",
+                Path(self._llama_path).name if self._llama_path else "none",
+                model_path.name,
+            )
+            self._llama = None
+            self._llama_path = None
+            gc.collect()
+
+        n_ctx, n_gpu_layers = self._compute_load_params(model_path)
+
         # attempt load with computed params; catch oom and retry with minimal
         if n_gpu_layers != 0:
             try:
@@ -275,6 +286,7 @@ class OllamaClient:
                     n_gpu_layers=n_gpu_layers,
                     verbose=False,
                 )
+                self._llama_path = requested
                 return self._llama
             except (MemoryError, RuntimeError, Exception) as e:
                 err_str = str(e).lower()
@@ -314,73 +326,8 @@ class OllamaClient:
                 n_gpu_layers=0,
                 verbose=False,
             )
+        self._llama_path = requested
         return self._llama
-        )
-        try:
-            self._llama = Llama(
-                model_path=str(model_path),
-                n_ctx=n_ctx,
-                n_gpu_layers=0,
-                verbose=False,
-            )
-        except (MemoryError, RuntimeError) as e:
-            # absolute last resort: minimal context
-            logger.error(
-                "cpu load failed with ctx=%d: %s. last resort ctx=2048", n_ctx, e,
-            )
-            self._llama = Llama(
-                model_path=str(model_path),
-                n_ctx=2048,
-                n_gpu_layers=0,
-                verbose=False,
-            )
-        return self._llama
-
-    def _load_on_gpu(self, llama_cls, model_path: Path):
-        """load the model fully on the gpu, or raise -- never fall back to cpu.
-
-        a cpu-only build of llama-cpp-python silently ignores ``n_gpu_layers``
-        and runs on the cpu without error, so the build's gpu capability is
-        verified before the load is trusted.
-        """
-        try:
-            from llama_cpp import llama_supports_gpu_offload
-            if not llama_supports_gpu_offload():
-                raise RuntimeError(
-                    f"THINKSTACK_LLM_GPU_LAYERS={self.gpu_layers} requests gpu "
-                    "offload, but the installed llama-cpp-python is a CPU-only "
-                    "build. Install the CUDA build, e.g.:\n"
-                    "  pip install llama-cpp-python --force-reinstall --no-deps "
-                    "--extra-index-url "
-                    "https://abetlen.github.io/llama-cpp-python/whl/cu124\n"
-                    "Refusing to fall back to CPU."
-                )
-        except ImportError:
-            logger.warning(
-                "llama_supports_gpu_offload() unavailable; cannot pre-verify "
-                "the gpu build before loading"
-            )
-
-        # flash attention speeds up attention and shrinks the kv cache, which
-        # buys headroom on a 6 GB card. retry without it on older builds that
-        # do not accept the kwarg.
-        load_kwargs = dict(
-            model_path=str(model_path),
-            n_ctx=self.ctx_size,
-            n_gpu_layers=self.gpu_layers,
-            verbose=False,
-        )
-        logger.info(
-            "loading llama.cpp model from %s with %s gpu layers (flash_attn on)",
-            model_path, self.gpu_layers,
-        )
-        try:
-            return llama_cls(flash_attn=True, **load_kwargs)
-        except TypeError:
-            logger.warning(
-                "flash_attn unsupported by this build; loading without it"
-            )
-            return llama_cls(**load_kwargs)
 
     async def _generate_ollama(
         self,
@@ -449,28 +396,11 @@ class OllamaClient:
         # inside the lock guarantees exactly one load and one in-flight call.
 
         async with self._get_gen_lock():
-            llama = self._get_llama()
-            started = time.perf_counter()
             llama = self._get_llama(task_type=task_type)
             result = await asyncio.to_thread(
                 llama.create_chat_completion,
                 **kwargs,
             )
-            elapsed = time.perf_counter() - started
-
-        # per-call timing: shows tok/s (confirms gpu vs cpu) and where the
-        # end-to-end analysis latency actually goes, since every call is
-        # serialized through the single-model lock above.
-        usage = result.get("usage", {}) or {}
-        completion_tokens = usage.get("completion_tokens", 0)
-        prompt_tokens = usage.get("prompt_tokens", 0)
-        tok_per_s = completion_tokens / elapsed if elapsed > 0 else 0.0
-        logger.info(
-            "llama.cpp gen: %d completion tok in %.1fs = %.1f tok/s "
-            "(prompt %d tok, json=%s, max_tokens=%d)",
-            completion_tokens, elapsed, tok_per_s, prompt_tokens,
-            json_mode, max_tokens,
-        )
 
         choices = result.get("choices", [])
         if not choices:
@@ -526,7 +456,6 @@ class OllamaClient:
         prompt: str,
         system: Optional[str] = None,
         temperature: float = 0.1,
-        max_tokens: int = 1024,
         max_tokens: int = 2048,
         task_type: str = "general",
     ) -> str:

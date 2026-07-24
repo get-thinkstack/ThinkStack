@@ -43,10 +43,23 @@ class Settings(BaseSettings):
     papers_dir: Path = STATE_DIR / "papers"
     chroma_dir: Path = STATE_DIR / "vectorstore"
     models_dir: Path = STATE_DIR / "models"
+    # gguf models we ship inside the frozen bundle (via pyinstaller --add-data
+    # data/models). on first run these are copied into the writable models_dir
+    # so the installed app has a working model offline. empty/absent in a source
+    # checkout (BUNDLE_DIR == project root, so this equals models_dir).
+    bundled_models_dir: Path = BUNDLE_DIR / "data" / "models"
 
     # llm runtime
     llm_provider: str = "llama_cpp"
     llm_model_path: Path = STATE_DIR / "models"
+    # heavier model used only for structured-json analysis tasks (summarize,
+    # claims, themes, gap analysis). the lightweight 0.5b base model rambles
+    # past the token limit and produces unparseable json on these tasks; a
+    # slightly larger model is far more reliable. this is a filename resolved
+    # inside the models dir. if the file is absent, these tasks gracefully fall
+    # back to the base model. only one model is resident at a time (the runtime
+    # swaps between base and analysis models on demand to cap memory use).
+    llm_analysis_model: str = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
     llm_ctx_size: int = 4096
     # -1 = auto-detect (hardware profiler picks the safe offload count).
     # set to 0 to force cpu-only, or a positive integer for manual control.

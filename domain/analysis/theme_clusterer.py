@@ -56,7 +56,7 @@ async def cluster_by_themes(texts: dict[str, str]) -> list[Theme]:
 
     try:
         response = await ollama_client.generate_json(
-            prompt, system=system, max_tokens=640
+            prompt, system=system, max_tokens=640, task_type="analysis"
         )
         data = json.loads(response)
         themes_data = data.get("themes", [])

@@ -59,7 +59,7 @@ async def summarize_single(doc_id: str, text: str) -> Summary:
 
     try:
         response = await ollama_client.generate_json(
-            prompt, system=system, max_tokens=640
+            prompt, system=system, max_tokens=640, task_type="analysis"
         )
         data = json.loads(response)
         return Summary(
@@ -105,7 +105,7 @@ async def summarize_multiple(doc_ids: list[str], texts: dict[str, str]) -> Summa
 
     try:
         response = await ollama_client.generate_json(
-            prompt, system=system, max_tokens=768
+            prompt, system=system, max_tokens=768, task_type="analysis"
         )
         data = json.loads(response)
         return Summary(

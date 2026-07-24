@@ -55,7 +55,7 @@ async def extract_claims(doc_id: str, text: str) -> list[Claim]:
 
     try:
         response = await ollama_client.generate_json(
-            prompt, system=system, max_tokens=768
+            prompt, system=system, max_tokens=768, task_type="analysis"
         )
         data = json.loads(response)
         claims_data = data.get("claims", [])

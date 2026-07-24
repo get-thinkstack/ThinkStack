@@ -1,44 +1,89 @@
-# rithesh — feature ownership
+# Rithesh: contributions
 
-## what i'm responsible for
+A record of the parts of ThinkStack I worked on, written mainly so the rest of
+the team (and future me) can find the reasoning behind the decisions.
 
-### paper writer (latex workflow)
-- the editor → AI → compiler → PDF pipeline
-- `domain/paper_writer/compiler.py` — auto-healing pdflatex compilation, error parsing, package injection
-- `api/routes_papers.py` — project CRUD + generate + compile endpoints
-- `frontend/src/components/PaperWriter.jsx` — editor UI, AI prompt bar, real-time preview tabs
-- `frontend/src/components/LatexPreview.jsx` — client-side LaTeX → HTML renderer (KaTeX for math)
+## Paper writer
 
-### real-time latex preview
-- client-side rendering using KaTeX: sections, math, lists, tables rendered live as you type
-- two-tab preview pane: "Live Preview" (instant, no compilation) + "Compiled PDF" (pdflatex output)
+The paper writer is the LaTeX side of the app: an editor, an AI draft helper, a
+compiler, and a live preview. The pieces I own:
 
-### fine-tuning data pipeline
-- `domain/fine_tuning/data_collector.py` — passively collects prompt → LaTeX pairs from every generate call
-- training data stored as JSONL in `data/training/` for future QLoRA fine-tuning
-- covers both `latex_generation` and `gap_analysis` task types
+- `domain/paper_writer/compiler.py`: the pdflatex wrapper. It parses compiler
+  errors, injects missing packages, and degrades gracefully, so a broken figure
+  or table still produces a PDF instead of failing the whole document.
+- `api/routes_papers.py`: the project endpoints (create, read, save, generate,
+  compile, download, delete).
+- `frontend/src/components/PaperWriter.jsx`: the editor, the AI prompt bar, and
+  the preview tabs.
+- `frontend/src/components/LatexPreview.jsx`: a client-side LaTeX-to-HTML
+  renderer that uses KaTeX for math, so the "Live Preview" tab updates as you
+  type without waiting on a compile. The "Compiled PDF" tab shows the real
+  pdflatex output.
 
-### desktop application & cross-platform bundling
-- `src-tauri/src/lib.rs` — cross-platform Tauri shell: auto-detects python venv, project dir, model path; sidecar-first backend launch for production, python fallback for dev
-- `src-tauri/tauri.conf.json` — configured `externalBin` sidecar, bundle targets (deb/rpm/AppImage/dmg/msi/exe)
-- `.github/workflows/build-release.yml` — CI/CD pipeline that builds for Linux (x64), macOS (universal), and Windows (x64), publishes binaries to GitHub Releases on tag push
-- `docs/landing/index.html` — download landing page for GitHub Pages with OS auto-detection and per-platform install buttons
+## Fine-tuning data pipeline
 
-### devops & automation scripts
-- `scripts/setup.sh` — one-command bootstrap (system deps, rust, python, node, latex); macOS/Fedora/Ubuntu/Arch support; `--skip-system`/`--skip-rust` flags; verification matrix
-- `scripts/dev.sh` — starts backend + frontend with `--tauri` flag for desktop; port-in-use detection
-- `scripts/build.sh` — 4-step production pipeline (frontend → pyinstaller → sidecar → tauri); `--skip-pyinstaller`/`--skip-tauri` flags
-- `scripts/validate.sh` — pre-commit checks (python syntax, imports, stale refs, frontend lint, cargo check)
+`domain/fine_tuning/data_collector.py` records every prompt-to-LaTeX pair a
+generate call produces, as JSONL under `data/training/`. Nothing consumes it
+yet; the intent is to have a dataset ready if we later fine-tune a small model
+for the LaTeX and gap-analysis tasks.
 
-### backend infrastructure
-- refactored and audited the backend (`refactor/thinkstack-backend`)
-- integrated chatbot module and fixed core backend issues
-- added GBNF grammar to llama.cpp client for strict JSON/LaTeX output
-- added GPU → CPU fallback logic in the LLM client
-- fixed `config.py` defaults for CPU-only operation (portable model paths, `llm_gpu_layers=0`)
+## Desktop app and packaging
 
-### testing
-- `scripts/test_paper_writer.py` — unit + integration tests for compiler and API
+The desktop shell is Tauri (`src-tauri/`). `src/lib.rs` starts the Python
+backend, waits for it to come up behind a loading screen, and shuts it down when
+the window closes. In a packaged build the backend is a PyInstaller onedir
+bundle shipped as a Tauri resource; in development it falls back to running
+uvicorn from the project venv.
 
-### documentation
-- ADR entries, features list, future scope, README, this file
+Two packaging corrections are worth recording:
+
+- The build freezes the backend with `--onedir`, not `--onefile`. A onefile
+  build re-extracts its multi-gigabyte payload to a temp directory on every
+  launch; onedir unpacks once at install and matches how `tauri.conf.json`
+  bundles the backend as the `api/` resource.
+- PyInstaller needs `--collect-all llama_cpp` and `--collect-all
+  sentence_transformers`. Neither ships a PyInstaller hook, so without those
+  flags the frozen build silently drops llama.cpp's shared libraries and the
+  embedding model's data. I confirmed the fix by building a frozen backend
+  locally and running ingest, search, and chat against it.
+
+## Model bundling and routing
+
+The app bundles two models: a 0.5B for chat, search, and the paper writer, and a
+1.5B for the analysis tasks (summarize, claims, gap-finder). The 0.5B is fast
+and light but produces malformed JSON on the structured-output tasks, which is
+why those route to the larger model. To keep memory bounded, `ollama_client.py`
+keeps only one model resident at a time and swaps on demand rather than holding
+both. GPU is used when available, with a CPU fallback so the app still runs on
+machines without a usable CUDA setup. `file_manager.seed_bundled_models()`
+copies the bundled models into the writable data directory on first run, since a
+frozen build ships them read-only.
+
+## CI/CD and auto-updates
+
+`.github/workflows/build-release.yml` builds installers for Linux, macOS, and
+Windows on a version tag and publishes them to GitHub Releases. Updates use
+Tauri's updater: the installed app checks a signed `latest.json` on each launch
+and installs a newer version if one exists. The signing key stays out of the
+repo (the private key lives at `~/.tauri` and as a CI secret; only the public
+key is committed). The supporting scripts are
+`scripts/compose-updater-manifest.sh`, which builds the manifest, and
+`scripts/release.sh`, which bumps the version and tags the release.
+
+## Backend reconciliation
+
+When merging the backend branches, `infrastructure/ollama_client.py` arrived in
+a state that would not import, and `routes_gaps.py` had a duplicated keyword
+argument. I reconciled the client into a single working version and kept the
+useful infrastructure from the other branch (frozen-build paths, `.env` support,
+the `max_tokens` caps, and the onedir packaging) rather than taking it as-is.
+
+## Scripts, tests, and docs
+
+- `scripts/setup.sh`, `scripts/dev.sh`, `scripts/build.sh`, `scripts/validate.sh`:
+  bootstrap, run, build, and pre-commit checks.
+- `scripts/test_paper_writer.py`: unit and integration tests for the compiler
+  and the paper API.
+- `docs/RELEASE_GUIDE.md` is the single guide for cutting a release and for how
+  downloads and updates work. I also maintain the landing page (`landing.html`)
+  and the ADR entries for the decisions above.

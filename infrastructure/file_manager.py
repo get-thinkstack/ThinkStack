@@ -20,6 +20,32 @@ def ensure_directories() -> None:
     for directory in [settings.data_dir, settings.papers_dir, settings.chroma_dir, settings.models_dir]:
         directory.mkdir(parents=True, exist_ok=True)
         logger.info("ensured directory: %s", directory)
+    seed_bundled_models()
+
+
+def seed_bundled_models() -> None:
+    """copy gguf models shipped in the frozen bundle into the writable models dir.
+
+    a frozen build ships its models under a read-only bundle dir
+    (``settings.bundled_models_dir``), but the app loads models from the
+    writable ``settings.models_dir`` (STATE_DIR/models). without this, a freshly
+    installed app would start with no model. only seeds files that are missing,
+    so user-added or already-copied models are never overwritten. a no-op in a
+    source checkout, where the two dirs are the same path.
+    """
+    src = settings.bundled_models_dir
+    dst = settings.models_dir
+    try:
+        if not src.is_dir() or src.resolve() == dst.resolve():
+            return
+        for gguf in sorted(src.glob("*.gguf")):
+            target = dst / gguf.name
+            if target.exists():
+                continue
+            logger.info("seeding bundled model into models dir: %s", gguf.name)
+            shutil.copy2(gguf, target)
+    except OSError as e:  # seeding is best-effort; the app can still run
+        logger.warning("could not seed bundled models: %s", e)
 
 
 def save_uploaded_pdf(filename: str, content: bytes) -> tuple[str, Path]:

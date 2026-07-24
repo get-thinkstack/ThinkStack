@@ -119,7 +119,7 @@ fn sidecar_path() -> Option<std::path::PathBuf> {
 ///
 /// Deliberately sets no defaults of its own. GPU offload is machine-specific:
 /// `THINKSTACK_LLM_GPU_LAYERS=-1` requires a CUDA build of llama-cpp-python, and
-/// the loader raises rather than silently falling back to CPU — so forcing -1
+/// the loader raises rather than silently falling back to CPU - so forcing -1
 /// here would turn "no CUDA on this machine" into a hard crash at model load.
 ///
 /// The machine's own value belongs in the gitignored `.env` shipped next to the
@@ -158,6 +158,8 @@ fn start_backend() -> Option<Child> {
         // run from the bundle's own folder so its .env (model path) resolves
         if let Some(dir) = sidecar.parent() {
             cmd.current_dir(dir);
+        }
+
         // pass hardware-detected settings to the backend
         cmd.env("THINKSTACK_LLM_GPU_LAYERS", &gpu_layers);
         cmd.env("THINKSTACK_LLM_MODEL_PATH", &model_dir);
@@ -214,7 +216,7 @@ fn kill_backend(child: &mut Child) {
     #[cfg(windows)]
     {
         let pid = child.id();
-        // /T kills the whole tree, /F forces it — belt and suspenders.
+        // /T kills the whole tree, /F forces it - belt and suspenders.
         let _ = Command::new("taskkill")
             .args(["/PID", &pid.to_string(), "/T", "/F"])
             .output();
@@ -237,8 +239,19 @@ pub fn run() {
         std::thread::sleep(Duration::from_millis(400));
     }
 
-    let app = tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
+    let mut builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+
+    // auto-updater (desktop only): lets the frontend check the signed manifest
+    // on github releases and install a new version in-app. `process` is used to
+    // relaunch after an update installs.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        builder = builder
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .plugin(tauri_plugin_process::init());
+    }
+
+    let app = builder
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 

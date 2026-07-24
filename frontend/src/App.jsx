@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, NavLink, useLocation } from 'react-router
 import { AnimatePresence, motion } from 'framer-motion';
 import { BookOpen, Search, Brain, Target, PenLine, Sun, Moon } from 'lucide-react';
 import { systemApi } from './utils/api';
+import { checkForUpdates } from './utils/updater';
 import Library from './components/Library';
 import SearchPage from './components/Search';
 import Analysis from './components/Analysis';
@@ -68,6 +69,12 @@ export default function App() {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
+
+  // check github releases for a newer desktop build once on launch.
+  // no-op in the browser/web build; never throws.
+  useEffect(() => {
+    checkForUpdates();
+  }, []);
 
   // track the OS appearance until the user makes an explicit choice
   useEffect(() => {

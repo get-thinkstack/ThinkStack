@@ -93,3 +93,9 @@ thinkstack-api.spec
 
 # ── Tauri sidecar binaries (built, not committed) ────────
 src-tauri/bin/
+
+# ── Tauri updater signing keys (NEVER commit the private key) ──
+# the private key belongs at ~/.tauri/ and in a CI secret, never in the repo.
+# the PUBLIC key is safe and lives in src-tauri/tauri.conf.json.
+*.key
+!*.key.pub

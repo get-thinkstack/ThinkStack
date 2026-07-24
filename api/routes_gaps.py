@@ -59,7 +59,6 @@ async def _analyze_document(doc_id: str, text: str) -> tuple[dict, list[dict]]:
         response = await ollama_client.generate_json(
             prompt,
             system=system,
-            max_tokens=600,
             max_tokens=800,
             task_type="gap_analysis",
         )
