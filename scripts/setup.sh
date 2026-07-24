@@ -134,6 +134,14 @@ fi
 source .venv/bin/activate
 export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 pip install --quiet --upgrade pip
+# CPU-only torch first: the default torch wheel on linux/windows pulls the full
+# CUDA stack (~4GB) that this CPU-only app never uses. installing from the CPU
+# index keeps the venv (and the frozen build) small. macOS torch is already CPU.
+if [ "$(uname -s)" = "Darwin" ]; then
+    pip install --quiet torch
+else
+    pip install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+fi
 pip install --quiet -r requirements.txt
 pip install --quiet pyinstaller
 echo -e "  ${GREEN}python dependencies installed${NC}"

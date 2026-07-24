@@ -147,3 +147,8 @@ fails silently when offline.
 **decision:** freeze the backend with `--collect-all llama_cpp --collect-all sentence_transformers` (in addition to the uvicorn/psutil hidden imports).
 **rationale:** validated by a local onedir freeze + run - neither package ships a PyInstaller hook, so without these flags the frozen build silently omits llama_cpp's `lib/*.so` (chat + gap analysis crash at model load) and sentence_transformers' package data (embeddings/search break). torch/transformers/sklearn are collected by their own bundled hooks. a local frozen backend built with these flags passed ingest + search + chat with zero import errors.
 **status:** accepted.
+
+## 2026-07-24: cpu-only torch + per-OS bundle formats to fix bloated, failing builds
+**decision:** install torch from the cpu wheel index in ci and setup, and restrict the bundle formats per os (linux: deb + appimage, windows: msi, macos: app + dmg).
+**rationale:** the first real release build failed on every platform and produced a ~3.7gb installer. two causes: (1) the default torch wheel on linux/windows pulls the full cuda stack (`nvidia/*` 2.7gb, `torch` 1.2gb, `triton` 0.7gb) that a cpu-only app never uses, and (2) the ~3.7gb payload broke the rpm bundler (hung past the 6h ci limit) and the windows nsis bundler (hit its ~2gb mmap limit). cpu-only torch (~200mb) removes ~4gb; choosing deb/appimage/msi/dmg avoids the two bundlers that cannot handle a large payload. this makes builds succeed, cuts the installer to roughly 1.5-2gb, and lets the app run on lower-spec machines.
+**status:** accepted. further reductions possible: bundle only the 0.5b model, or replace torch-based embeddings with an onnx runtime.
