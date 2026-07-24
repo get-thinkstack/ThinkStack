@@ -278,8 +278,12 @@ the memory-safe alternative is to let ci build (see the test-build note above).
   (a one-time hugging face download, then cached). to make first run fully
   offline, add `all-MiniLM-L6-v2` to the ci model download and the pyinstaller
   `--add-data`.
-- **installer size is about 3.7 gb** (torch plus both models). fine for a demo;
-  drop the 1.5b model to shrink it, at the cost of a degraded gap finder.
+- **installer size.** the build installs cpu-only torch (the default torch wheel
+  on linux/windows drags in ~4gb of unused cuda libraries: `nvidia/*`, `triton`,
+  and the cuda build of torch). with that removed the app payload is roughly 1gb;
+  the bundled 0.5b + 1.5b models add ~1.6gb, so the installer is about 1.5 to 2gb.
+  to shrink further, bundle only the 0.5b model (the gap finder then needs the
+  1.5b added manually), or replace torch-based embeddings with an onnx runtime.
 
 ## troubleshooting
 

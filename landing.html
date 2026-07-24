@@ -1013,7 +1013,7 @@
             </div>
             macOS
           </div>
-          <a href="#" class="dl-btn dl-btn-primary" id="dl-macos">Download for macOS</a>
+          <a href="https://github.com/Rithesh077/ThinkStack/releases/latest/download/ThinkStack-macos-universal.dmg" class="dl-btn dl-btn-primary" id="dl-macos">Download for macOS</a>
           <p class="dl-format">.dmg &middot; universal (Apple Silicon + Intel)</p>
           <div class="dl-requirements">
             <h5>Minimum Requirements</h5>
@@ -1029,8 +1029,8 @@
             </div>
             Windows
           </div>
-          <a href="#" class="dl-btn dl-btn-primary" id="dl-win-x64">Download for Windows</a>
-          <p class="dl-format">.exe installer &middot; 64-bit</p>
+          <a href="https://github.com/Rithesh077/ThinkStack/releases/latest/download/ThinkStack-windows-x86_64.msi" class="dl-btn dl-btn-primary" id="dl-win-x64">Download for Windows</a>
+          <p class="dl-format">.msi installer &middot; 64-bit</p>
           <div class="dl-requirements">
             <h5>Minimum Requirements</h5>
             <p>Windows 10 (64-bit) or later. 8 GB RAM recommended for model inference. If SmartScreen warns, click "More info" then "Run anyway".</p>
@@ -1050,7 +1050,7 @@
             </div>
             Linux
           </div>
-          <a href="#" class="dl-btn dl-btn-primary" id="dl-linux-x64">Download for Linux</a>
+          <a href="https://github.com/Rithesh077/ThinkStack/releases/latest/download/ThinkStack-linux-x86_64.AppImage" class="dl-btn dl-btn-primary" id="dl-linux-x64">Download for Linux</a>
           <p class="dl-format">.AppImage &middot; runs on any distro</p>
           <div class="dl-requirements">
             <h5>Minimum Requirements</h5>
@@ -1061,8 +1061,8 @@
       </div>
 
       <p class="dl-other reveal reveal-delay-4">
-        Need a different package? The <code>.msi</code>, <code>.deb</code>, and <code>.rpm</code> builds,
-        plus checksums, are on the <a href="https://github.com/Rithesh077/ThinkStack/releases/latest" target="_blank" rel="noopener">releases page</a>.
+        On Debian or Ubuntu, prefer the <a href="https://github.com/Rithesh077/ThinkStack/releases/latest/download/ThinkStack-linux-x86_64.deb"><code>.deb</code> package</a> for a menu entry.
+        Every download is the latest release, always current.
       </p>
       <div class="dl-github-row reveal reveal-delay-4">
         <a href="https://github.com/Rithesh077/ThinkStack" class="btn-secondary" target="_blank" rel="noopener">View on GitHub</a>
@@ -1184,29 +1184,10 @@
     });
   });
 
-  /* Download link wiring.
-   * All links point to GitHub Releases. When a version tag (e.g. v0.1.0) is
-   * pushed, CI (.github/workflows/build-release.yml) builds the Linux, macOS,
-   * and Windows installers and publishes them to that tag's release.
-   * After the first release, verify the asset filenames at
-   * https://github.com/Rithesh077/ThinkStack/releases/latest and update VERSION.
-   */
-  const REPO = 'Rithesh077/ThinkStack';
-  const VERSION = '0.1.0';
-  const BASE = `https://github.com/${REPO}/releases/latest/download`;
-
-  // one recommended download per OS. the other package formats (.msi, .deb,
-  // .rpm) live on the releases page, linked below the grid.
-  const DOWNLOAD_LINKS = {
-    'dl-macos':     `${BASE}/ThinkStack_${VERSION}_universal.dmg`,
-    'dl-win-x64':   `${BASE}/ThinkStack_${VERSION}_x64-setup.exe`,
-    'dl-linux-x64': `${BASE}/ThinkStack_${VERSION}_amd64.AppImage`,
-  };
-
-  for (const [id, url] of Object.entries(DOWNLOAD_LINKS)) {
-    const el = document.getElementById(id);
-    if (el) el.href = url;
-  }
+  /* Download links point at stable-named assets on the latest GitHub release
+   * (ThinkStack-<os>.<ext> via /releases/latest/download/). the CI release job
+   * creates these fixed names, so the links always resolve to the newest release
+   * and never need a version bump. No per-version JS wiring is needed. */
 </script>
 </body>
 </html>
