@@ -24,15 +24,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # bundle formats are chosen to handle the large (~3.7GB) payload:
-        #   linux : deb + appimage  (rpm bundling hangs for hours on this size)
+        # bundle formats chosen for what actually works with this payload:
+        #   linux : deb here; appimage is built separately via appimagetool
+        #           (tauri's linuxdeploy cannot resolve the PyInstaller backend's
+        #           wheel-vendored .so files). rpm bundling hangs for hours.
         #   windows: msi            (nsis/makensis hits a ~2GB mmap limit)
         #   macos : app + dmg       (app.tar.gz is the updater artifact)
         include:
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             label: linux-x86_64
-            bundles: deb,appimage
+            bundles: deb
           - os: macos-latest
             target: universal-apple-darwin
             label: macos-universal
@@ -182,6 +184,26 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # linuxdeploy is itself an AppImage and needs libfuse2 to FUSE-mount;
+          # extract-and-run avoids that so the AppImage builds without libfuse2.
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+          NO_STRIP: 'true'
+
+      # ── build the AppImage (Linux only, via appimagetool) ──
+      # run the appimage bundler to create the AppDir (linuxdeploy fails on the
+      # PyInstaller backend, which is expected), then package the AppDir with
+      # appimagetool and sign it. see scripts/package-appimage.sh.
+      - name: Build AppImage (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          npm run tauri build -- --bundles appimage || echo "linuxdeploy failed as expected; packaging AppDir with appimagetool"
+          bash scripts/package-appimage.sh
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+          NO_STRIP: 'true'
 
       # ── build tauri (macOS universal) ──
       - name: Build Tauri app (macOS universal)
