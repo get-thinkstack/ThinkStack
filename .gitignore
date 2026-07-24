@@ -99,3 +99,6 @@ src-tauri/bin/
 # the PUBLIC key is safe and lives in src-tauri/tauri.conf.json.
 *.key
 !*.key.pub
+
+# on-disk temp for AppImage builds (RAM-backed /tmp is too small)
+.build-tmp/
