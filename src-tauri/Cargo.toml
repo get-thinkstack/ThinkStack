@@ -23,6 +23,10 @@ tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# cross-platform RAM/CPU probing for the startup hardware diagnosis (diagnosis.rs).
+# only the memory + cpu APIs are used; no process enumeration, so it stays cheap.
+sysinfo = "0.32"
+
 # ── auto-updater ──
 # checks a signed manifest (latest.json) on github releases and installs the
 # new bundle in-app. `process` provides the relaunch after an update installs.

@@ -14,30 +14,9 @@ use std::process::{Child, Command};
 use std::sync::Mutex;
 use std::time::Duration;
 
-const BACKEND_ADDR: &str = "127.0.0.1:8000";
+mod diagnosis;
 
-/// Detect available VRAM and compute safe gpu_layers.
-/// Returns -1 (full offload) if sufficient VRAM, 0 for CPU-only.
-fn detect_gpu_layers() -> String {
-    // check for NVIDIA GPU via nvidia-smi
-    if let Ok(output) = Command::new("nvidia-smi")
-        .args(["--query-gpu=memory.total", "--format=csv,noheader,nounits"])
-        .output()
-    {
-        if output.status.success() {
-            if let Ok(mem_str) = String::from_utf8(output.stdout) {
-                if let Ok(vram_mb) = mem_str.trim().parse::<u64>() {
-                    let vram_gb = vram_mb as f64 / 1024.0;
-                    // full offload if >= 2GB VRAM, else CPU-only
-                    if vram_gb >= 2.0 {
-                        return "-1".to_string();
-                    }
-                }
-            }
-        }
-    }
-    "0".to_string()
-}
+const BACKEND_ADDR: &str = "127.0.0.1:8000";
 
 /// Resolve the models directory: bundled data/models or project data/models.
 fn models_dir() -> String {
@@ -106,10 +85,8 @@ fn sidecar_path() -> Option<std::path::PathBuf> {
         // macOS bundles put resources in Contents/Resources
         dir.join("../Resources/api/thinkstack-api"),
         // locally built bundle, before packaging
-        std::path::PathBuf::from(project_dir())
-            .join("dist/thinkstack-api/thinkstack-api.exe"),
-        std::path::PathBuf::from(project_dir())
-            .join("dist/thinkstack-api/thinkstack-api"),
+        std::path::PathBuf::from(project_dir()).join("dist/thinkstack-api/thinkstack-api.exe"),
+        std::path::PathBuf::from(project_dir()).join("dist/thinkstack-api/thinkstack-api"),
     ];
 
     candidates.iter().find(|c| c.is_file()).cloned()
@@ -147,7 +124,12 @@ fn backend_up() -> bool {
 /// Prefers the bundled sidecar binary (production). Falls back to
 /// `python -m uvicorn` for development when no sidecar is found.
 fn start_backend() -> Option<Child> {
-    let gpu_layers = detect_gpu_layers();
+    // one native hardware diagnosis, done here so the backend never has to import
+    // torch just to size the model. handed over as JSON in THINKSTACK_HW_PROFILE;
+    // gpu_layers is also passed on its own for the existing loader path.
+    let profile = diagnosis::diagnose();
+    let hw_json = profile.to_json();
+    let gpu_layers = profile.gpu_layers.to_string();
     let model_dir = models_dir();
 
     // ── try sidecar first (production builds) ──
@@ -161,6 +143,7 @@ fn start_backend() -> Option<Child> {
         }
 
         // pass hardware-detected settings to the backend
+        cmd.env("THINKSTACK_HW_PROFILE", &hw_json);
         cmd.env("THINKSTACK_LLM_GPU_LAYERS", &gpu_layers);
         cmd.env("THINKSTACK_LLM_MODEL_PATH", &model_dir);
 
@@ -187,13 +170,19 @@ fn start_backend() -> Option<Child> {
 
     let mut cmd = Command::new(&python);
     cmd.args([
-        "-m", "uvicorn", "main:app",
-        "--host", "127.0.0.1", "--port", "8000",
+        "-m",
+        "uvicorn",
+        "main:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8000",
     ])
     .current_dir(&project);
 
     apply_inference_env(&mut cmd);
     // pass hardware-detected settings to the backend
+    cmd.env("THINKSTACK_HW_PROFILE", &hw_json);
     cmd.env("THINKSTACK_LLM_GPU_LAYERS", &gpu_layers);
     cmd.env("THINKSTACK_LLM_MODEL_PATH", &model_dir);
 
