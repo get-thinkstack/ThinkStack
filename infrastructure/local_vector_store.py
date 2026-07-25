@@ -11,7 +11,6 @@ academic use with collections of up to a few thousand documents.
 
 import json
 import logging
-import os
 from pathlib import Path
 from typing import Optional
 

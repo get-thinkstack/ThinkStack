@@ -10,7 +10,6 @@ remapped here to the gap ids we assign, so the api response keeps the same
 import json
 import logging
 import uuid
-from typing import Optional
 
 from domain.gap_finder.models import ResearchGap, Suggestion
 from infrastructure.ollama_client import ollama_client

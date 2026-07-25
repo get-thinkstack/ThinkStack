@@ -8,27 +8,39 @@
 # platform `url`, verifies it against the `signature`, installs, and relaunches.
 #
 # usage:
-#   scripts/compose-updater-manifest.sh <version> <artifacts_dir> <owner/repo> > latest.json
+#   scripts/compose-updater-manifest.sh <version> <artifacts_dir> <owner/repo> [download_tag] > latest.json
+#
+# download_tag is the release tag the installers actually live under, used to
+# build the `url` each platform downloads from. it defaults to v<version> (the
+# stable channel's versioned release); pass a rolling channel tag (e.g. "beta"
+# or "nightly") when the installers are published to a rolling release instead.
 #
 # example:
 #   scripts/compose-updater-manifest.sh 0.2.0 all-artifacts Rithesh077/ThinkStack > latest.json
+#   scripts/compose-updater-manifest.sh 0.2.0-beta.1 all-artifacts Rithesh077/ThinkStack beta > latest.json
 #
 # emits nothing (exit 1) when no *.sig files are found, so an unsigned build
 # does not publish a broken manifest. the release job treats that as "skip".
 set -euo pipefail
 
-VERSION="${1:?usage: compose-updater-manifest.sh <version> <artifacts_dir> <owner/repo>}"
+VERSION="${1:?usage: compose-updater-manifest.sh <version> <artifacts_dir> <owner/repo> [download_tag]}"
 ARTIFACTS_DIR="${2:?missing artifacts_dir}"
 REPO="${3:?missing owner/repo}"
+DOWNLOAD_TAG="${4:-v${VERSION}}"
 
-BASE="https://github.com/${REPO}/releases/download/v${VERSION}"
+BASE="https://github.com/${REPO}/releases/download/${DOWNLOAD_TAG}"
 PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # find the updater target file for a platform by extension, return its basename.
 find_asset() {
     local pattern="$1"
-    # shellcheck disable=SC2012
-    ls "$ARTIFACTS_DIR"/$pattern 2>/dev/null | head -1 | xargs -r basename
+    # `|| true`: a missing platform asset must yield an empty string, not fail the
+    # pipeline under `set -e`/`pipefail` (ls exits non-zero when nothing matches).
+    # SC2012: `ls` is fine here, we only want a name. SC2086: $pattern is a glob
+    # that MUST stay unquoted so the shell expands it -- quoting would look for a
+    # file literally named e.g. "*.AppImage".
+    # shellcheck disable=SC2012,SC2086
+    ls "$ARTIFACTS_DIR"/$pattern 2>/dev/null | head -1 | xargs -r basename || true
 }
 
 # emit a "platform" entry if both the asset and its .sig exist.

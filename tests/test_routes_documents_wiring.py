@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-import pytest
 
 from api import routes_documents
 from api.routes_documents import upload_document, delete_document

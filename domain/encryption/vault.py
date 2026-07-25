@@ -7,7 +7,7 @@ kdf.py, cipher.py, and envelope.py are internal building blocks.
 """
 
 from domain.encryption import cipher, kdf
-from domain.encryption.envelope import Envelope, EnvelopeFormatError
+from domain.encryption.envelope import Envelope
 
 
 class WrongPasswordError(Exception):

@@ -58,7 +58,7 @@ fails silently when offline.
 - **file format:** use `.ths` (ThinkStack) extension representing raw user input/prompts. When generating, the local AI translates these prompts in-place to compilable LaTeX code.
 - **compiler:** use system `pdflatex` to compile LaTeX code into a PDF, running two compiler passes to properly generate cross-references/indexes.
 - **diagnostics:** parse `pdflatex` logs on compilation failure to extract clean, readable errors and present them directly under the editor.
-- **testing:** create a standalone, automated unit and integration test suite (`scripts/test_paper_writer.py`) that tests all domain compiler operations and boots the FastAPI server to test API endpoints.
+- **testing:** create a standalone, automated unit and integration test suite (`tools/test_paper_writer.py`) that tests all domain compiler operations and boots the FastAPI server to test API endpoints.
 **status:** accepted.
 
 ## 2026-07-01: real-time latex preview (client-side)

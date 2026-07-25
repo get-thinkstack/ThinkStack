@@ -1,4 +1,4 @@
-t"""
+"""
 llm client module.
 
 provides a unified async client for local language model inference,
@@ -174,26 +174,75 @@ class OllamaClient:
         "general": [],  # always uses the base model
     }
 
-    def _resolve_task_model_path(self, task_type: str = "general") -> Path:
-        """resolve the model path for a specific task type.
+    def _hw_model_budget_gb(self) -> float:
+        """the largest model (gb) that safely fits this machine right now.
 
-        checks if a task-specific gguf exists in the models directory.
-        if found, returns it; otherwise falls back to the base model.
+        delegates to the hardware profiler, which reserves headroom for the os,
+        the app, and — importantly — whatever else the user is running, using
+        *available* ram rather than total. the profile itself is the native one
+        the desktop shell measured at launch (THINKSTACK_HW_PROFILE) when present.
+        returns 0.0 when the budget is unknown, which callers treat as "don't
+        block" (better to attempt a load, with the loader's oom fallback, than to
+        refuse outright).
+        """
+        try:
+            from infrastructure.hardware import max_safe_model_size_gb
+            return max_safe_model_size_gb()
+        except Exception as e:  # noqa: BLE001 - budgeting is best-effort
+            logger.warning("could not compute hw model budget: %s", e)
+            return 0.0
+
+    def _fits_budget(self, model_path: Path, budget_gb: float) -> bool:
+        """whether a gguf fits the hardware budget (unknown budget => yes)."""
+        if budget_gb <= 0:
+            return True
+        from infrastructure.hardware import model_file_size_gb
+        return model_file_size_gb(model_path) <= budget_gb
+
+    def _resolve_task_model_path(self, task_type: str = "general") -> Path:
+        """resolve the model path for a task, tuned to the hardware.
+
+        specification-based SLM selection: a task-specific gguf (e.g. the heavier
+        1.5b analysis model) is used only when it actually fits the machine's
+        current memory budget. on a constrained machine — or one with other apps
+        running — a too-large task model is skipped and the lighter base model is
+        used instead, so analysis degrades gracefully rather than oom-crashing.
+        the base model resolution honors any model the user selected previously
+        (see _apply_persisted_model), which is how "change the model later" takes
+        effect.
 
         args:
-            task_type: one of 'latex_writer', 'gap_analysis', 'general'.
+            task_type: one of 'latex_writer', 'analysis', 'gap_analysis', 'general'.
 
         returns:
             path to the gguf file to use.
         """
         candidates = self.TASK_MODEL_MAP.get(task_type, [])
         models_dir = self._models_dir()
+        budget = self._hw_model_budget_gb()
+
+        first_existing: Optional[Path] = None
         for name in candidates:
             path = models_dir / name
-            if path.is_file():
-                logger.info("using task-specific model for %s: %s", task_type, name)
+            if not path.is_file():
+                continue
+            if first_existing is None:
+                first_existing = path
+            if self._fits_budget(path, budget):
+                logger.info(
+                    "task %s -> %s (fits hw budget %.1f gb)", task_type, name, budget
+                )
                 return path
-        return self._resolve_llama_model_path()
+
+        # no task-specific model both exists and fits -> base model (user-selected
+        # if they picked one). warn when the skip was specifically about budget.
+        base = self._resolve_llama_model_path()
+        if first_existing is not None and not self._fits_budget(first_existing, budget):
+            logger.warning(
+                "task %s model %s exceeds hw budget %.1f gb; downgrading to %s",
+                task_type, first_existing.name, budget, base.name,
+            )
+        return base
 
     def _compute_load_params(self, model_path: Path) -> tuple[int, int]:
         """compute safe ctx_size and gpu_layers using the hardware profiler.

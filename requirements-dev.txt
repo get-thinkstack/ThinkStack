@@ -1,0 +1,7 @@
+# full local developer environment — the whole app plus the test/lint tooling.
+# install with:  pip install -r requirements-dev.txt
+#
+# CI's fast unit-test gate uses requirements-test.txt instead (no heavy ML libs);
+# this file is for working on the app locally where you want everything.
+-r requirements.txt
+-r requirements-test.txt

@@ -328,7 +328,11 @@ def _neutralize_all_figures(source: str) -> tuple[str, str | None]:
         pattern = re.compile(
             r"\\begin\{" + env + r"\}.*?\\end\{" + env + r"\}", re.DOTALL
         )
-        new, count = pattern.subn(_PLACEHOLDER, new)
+        # replacement must be a function, not a string: _PLACEHOLDER is latex full
+        # of backslash sequences (\parbox, \fbox, ...) and re.sub would try to
+        # interpret them as group escapes ("bad escape \p"), crashing the very
+        # last-resort salvage that is meant to guarantee a PDF.
+        new, count = pattern.subn(lambda _m: _PLACEHOLDER, new)
         total += count
     if total == 0:
         return source, None
