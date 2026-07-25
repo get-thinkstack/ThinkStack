@@ -1,0 +1,73 @@
+"""single-call per-document analysis.
+
+produces a paper's summary and key claims in ONE llm call (rather than
+separate summary + claim-extraction passes). this is the per-paper unit the
+gap-finder caches, so each paper is analyzed at most once regardless of how
+many times it appears in a gap scan.
+"""
+
+import json
+import logging
+from typing import Optional
+
+from infrastructure.ollama_client import ollama_client
+
+logger = logging.getLogger(__name__)
+
+# text budget per paper. the local model's context is small, and the summary
+# only needs the paper's framing (abstract/intro/conclusion land early), so a
+# generous head slice is enough while keeping prompt-eval fast.
+_TEXT_LIMIT = 2500
+
+DOCUMENT_ANALYSIS_PROMPT = """analyze the following research paper text and return a json object with:
+1. summary: a concise 3-5 sentence summary
+2. claims: a list of 3-5 key claims or findings
+
+for each claim object include only:
+- claim_text (one sentence, in your own words -- do not quote the paper)
+- claim_type (finding, methodology, limitation, future_work)
+
+paper text:
+{text}
+
+respond only in valid json with keys summary and claims."""
+
+_SYSTEM = (
+    "you are an academic analysis tool. produce concise, grounded output "
+    "and respond only with valid json."
+)
+
+
+async def analyze_document(doc_id: str, text: str) -> Optional[dict]:
+    """summarize a paper and extract its claims in a single model call.
+
+    args:
+        doc_id: the document identifier (used only for logging here).
+        text: the paper text (or concatenated chunks) to analyze.
+
+    returns:
+        ``{"summary": str, "claims": [{"text": str, "type": str}, ...]}`` on
+        success, or ``None`` if the model call fails or its output cannot be
+        parsed -- so the caller can skip (and not cache) a failed paper.
+    """
+    prompt = DOCUMENT_ANALYSIS_PROMPT.format(text=text[:_TEXT_LIMIT])
+
+    try:
+        response = await ollama_client.generate_json(
+            prompt,
+            system=_SYSTEM,
+            max_tokens=600,
+        )
+        data = json.loads(response)
+    except Exception as e:  # noqa: BLE001 - any failure -> treat as "no analysis"
+        logger.error("document analysis failed for %s: %s", doc_id, e)
+        return None
+
+    claims = []
+    for claim in data.get("claims", []) or []:
+        claims.append({
+            "text": claim.get("claim_text", ""),
+            "type": claim.get("claim_type", "finding"),
+        })
+
+    return {"summary": data.get("summary", ""), "claims": claims}

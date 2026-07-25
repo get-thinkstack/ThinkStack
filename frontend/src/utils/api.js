@@ -129,6 +129,13 @@ export const analysisApi = {
       method: 'POST',
       body: { doc_ids: docIds, password },
     }),
+
+  /** past analysis runs (summaries/claims/themes), newest first */
+  history: () => request('/analysis/history'),
+
+  /** delete a single saved analysis run by id */
+  deleteRun: (runId) =>
+    request(`/analysis/history/${runId}`, { method: 'DELETE' }),
 };
 
 export const gapsApi = {
@@ -137,6 +144,13 @@ export const gapsApi = {
       method: 'POST',
       body: { doc_ids: docIds, password },
     }),
+
+  /** past gap-analysis runs, newest first */
+  history: () => request('/gaps/history'),
+
+  /** delete a single saved run by id */
+  deleteRun: (runId) =>
+    request(`/gaps/history/${runId}`, { method: 'DELETE' }),
 };
 
 export const systemApi = {

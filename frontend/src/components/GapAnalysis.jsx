@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Target, AlertTriangle, Lock, Eye, EyeOff, Search, ArrowRight } from 'lucide-react';
+import { Target, AlertTriangle, Lock, Eye, EyeOff, Search, ArrowRight, X, Clock } from 'lucide-react';
 import { documentsApi, gapsApi, useLlmBusy } from '../utils/api';
 import GapSeverityChart from './charts/GapSeverityChart';
 import PageHeader from './PageHeader';
@@ -20,21 +20,79 @@ export default function GapAnalysis() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
+  const [history, setHistory] = useState([]);
+  const [activeRunId, setActiveRunId] = useState(null);
 
   // single shared local model — disable runs while it's busy elsewhere
   const { busy } = useLlmBusy();
 
   useEffect(() => {
-    const loadDocs = async () => {
+    const load = async () => {
       try {
-        const data = await documentsApi.list();
-        setDocuments(data.documents || []);
+        const [docs, past] = await Promise.all([
+          documentsApi.list(),
+          gapsApi.history(),
+        ]);
+        setDocuments(docs.documents || []);
+        const runs = past.runs || [];
+        setHistory(runs);
+        // surface the most recent scan on arrival so past work persists
+        // visually instead of the page opening blank.
+        if (runs.length > 0) {
+          setResult(runs[0]);
+          setActiveRunId(runs[0].run_id);
+        }
       } catch (err) {
-        console.error('failed to load documents:', err);
+        console.error('failed to load gap finder data:', err);
       }
     };
-    loadDocs();
+    load();
   }, []);
+
+  const refreshHistory = async () => {
+    try {
+      const past = await gapsApi.history();
+      setHistory(past.runs || []);
+    } catch (err) {
+      console.error('failed to refresh history:', err);
+    }
+  };
+
+  const selectRun = (run) => {
+    setResult(run);
+    setActiveRunId(run.run_id);
+    setError('');
+    setShowSetup(false);
+  };
+
+  const deleteRun = async (runId) => {
+    try {
+      await gapsApi.deleteRun(runId);
+      const remaining = history.filter((r) => r.run_id !== runId);
+      setHistory(remaining);
+      // if the open run was deleted, fall back to the newest remaining one
+      if (activeRunId === runId) {
+        if (remaining.length > 0) {
+          setResult(remaining[0]);
+          setActiveRunId(remaining[0].run_id);
+        } else {
+          setResult(null);
+          setActiveRunId(null);
+        }
+      }
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const formatRunDate = (iso) => {
+    if (!iso) return 'scan';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return 'scan';
+    return d.toLocaleString([], {
+      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+    });
+  };
 
   const toggleDoc = (docId) => {
     setSelectedDocs((prev) =>
@@ -62,7 +120,11 @@ export default function GapAnalysis() {
     try {
       const data = await gapsApi.analyze(selectedDocs, password);
       setResult(data);
+      setActiveRunId(data.run_id || null);
       setShowSetup(false);
+      // the run is saved server-side; pull the refreshed log so it appears
+      // in Past scans without wiping the run we just opened.
+      refreshHistory();
     } catch (err) {
       setError(err.message);
     }
@@ -88,15 +150,20 @@ export default function GapAnalysis() {
     return labels[type] || type;
   };
 
-  // Find matching suggestions for a gap (simple heuristic: match by index or content)
-  const getSuggestionsForGap = (gapIndex) => {
-    if (!result?.suggestions) return [];
-    // Distribute suggestions across gaps evenly
-    const totalGaps = result.gaps?.length || 1;
-    const sugPerGap = Math.ceil(result.suggestions.length / totalGaps);
-    const start = gapIndex * sugPerGap;
-    return result.suggestions.slice(start, start + sugPerGap);
-  };
+  // suggestions the model explicitly linked to this gap, matched by the
+  // gap_id the backend assigns (not by position). the backend populates each
+  // suggestion's related_gaps with the ids of the gaps it addresses.
+  const getSuggestionsForGap = (gap) =>
+    (result?.suggestions || []).filter((s) =>
+      (s.related_gaps || []).includes(gap.gap_id)
+    );
+
+  // suggestions not tied to any shown gap shouldn't silently vanish — collect
+  // them so they can be surfaced separately.
+  const gapIds = new Set((result?.gaps || []).map((g) => g.gap_id));
+  const orphanSuggestions = (result?.suggestions || []).filter(
+    (s) => !(s.related_gaps || []).some((id) => gapIds.has(id))
+  );
 
   return (
     <div>
@@ -199,6 +266,43 @@ export default function GapAnalysis() {
         </div>
       )}
 
+      {history.length > 0 && (
+        <div className="card gap-history-card fade-up stagger-2" style={{ marginBottom: '1.5rem' }}>
+          <div className="card-header" style={{ marginBottom: '1rem' }}>
+            <span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+              <Clock size={16} style={{ color: 'var(--accent)' }} />
+              Past scans
+            </span>
+            <span className="doc-meta">{history.length} saved</span>
+          </div>
+          <div className="gap-history-list">
+            {history.map((run) => (
+              <div
+                key={run.run_id}
+                className={`gap-history-item ${activeRunId === run.run_id ? 'active' : ''}`}
+              >
+                <button className="gap-history-main" onClick={() => selectRun(run)}>
+                  <span className="gap-history-date">{formatRunDate(run.created_at)}</span>
+                  <span className="gap-history-meta">
+                    {run.papers_analyzed} {run.papers_analyzed === 1 ? 'paper' : 'papers'}
+                    {' · '}
+                    {run.total_gaps} {run.total_gaps === 1 ? 'gap' : 'gaps'}
+                  </span>
+                </button>
+                <button
+                  className="btn-icon btn-icon-danger gap-history-del"
+                  onClick={() => deleteRun(run.run_id)}
+                  title="Delete this scan"
+                  aria-label="Delete this scan"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {loading && (
         <div className="card fade-up stagger-3">
           <div className="loading-overlay">
@@ -221,7 +325,7 @@ export default function GapAnalysis() {
           {result.gaps && result.gaps.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               {result.gaps.map((gap, i) => {
-                const gapSuggestions = getSuggestionsForGap(i);
+                const gapSuggestions = getSuggestionsForGap(gap);
                 return (
                   <div key={i} className={`gap-card severity-${gap.severity} fade-up stagger-${(i % 4) + 1}`}>
                     <div className="gap-card-header">
@@ -267,6 +371,21 @@ export default function GapAnalysis() {
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {orphanSuggestions.length > 0 && (
+            <div className="gap-suggestions" style={{ marginTop: '1rem' }}>
+              <div className="gap-suggestions-title">
+                <AlertTriangle size={14} />
+                <span>Other Suggested Directions</span>
+              </div>
+              {orphanSuggestions.map((sug, j) => (
+                <div key={j} className="gap-suggestion-item">
+                  <ArrowRight size={14} className="gap-suggestion-arrow" />
+                  <span>{sug.title ? `${sug.title}: ${sug.description}` : sug.description}</span>
+                </div>
+              ))}
             </div>
           )}
 

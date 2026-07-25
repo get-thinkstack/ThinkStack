@@ -15,9 +15,24 @@ from domain.knowledge_base.repository import get_chunks_by_doc_id
 from domain.analysis.summarizer import summarize_single, summarize_multiple
 from domain.analysis.claim_extractor import extract_claims
 from domain.analysis.theme_clusterer import cluster_by_themes
+from infrastructure.analysis_history import analysis_history
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _record(analysis_type: str, doc_ids: list[str], result: dict) -> dict:
+    """save an analysis run to history and stamp the response with its id.
+
+    the stored record keeps the analysis ``type`` so the ui can re-render the
+    matching view when a past run is reopened.
+    """
+    saved = analysis_history.add({
+        "type": analysis_type,
+        "doc_ids": doc_ids,
+        "result": result,
+    })
+    return {**result, "run_id": saved["run_id"], "created_at": saved["created_at"]}
 
 
 class AnalysisRequest(BaseModel):
@@ -80,13 +95,13 @@ async def summarize(request: AnalysisRequest):
     if len(request.doc_ids) == 1:
         text = _get_doc_text(request.doc_ids[0], request.password)
         summary = await summarize_single(request.doc_ids[0], text)
-        return asdict(summary)
     else:
         texts = {}
         for doc_id in request.doc_ids:
             texts[doc_id] = _get_doc_text(doc_id, request.password)
         summary = await summarize_multiple(request.doc_ids, texts)
-        return asdict(summary)
+
+    return _record("summarize", request.doc_ids, asdict(summary))
 
 
 @router.post("/claims")
@@ -108,11 +123,11 @@ async def claims(request: AnalysisRequest):
         doc_claims = await extract_claims(doc_id, text)
         all_claims.extend([asdict(c) for c in doc_claims])
 
-    return {
+    return _record("claims", request.doc_ids, {
         "claims": all_claims,
         "total": len(all_claims),
         "doc_ids": request.doc_ids,
-    }
+    })
 
 
 @router.post("/themes")
@@ -139,8 +154,22 @@ async def themes(request: AnalysisRequest):
         texts[doc_id] = _get_doc_text(doc_id, request.password)
 
     result_themes = await cluster_by_themes(texts)
-    return {
+    return _record("themes", request.doc_ids, {
         "themes": [asdict(t) for t in result_themes],
         "total": len(result_themes),
         "doc_ids": request.doc_ids,
-    }
+    })
+
+
+@router.get("/history")
+async def list_analysis_history():
+    """list past analysis runs (summaries/claims/themes), newest first."""
+    return {"runs": analysis_history.list()}
+
+
+@router.delete("/history/{run_id}")
+async def delete_analysis_run(run_id: str):
+    """delete a single past analysis run by id."""
+    if not analysis_history.delete(run_id):
+        raise HTTPException(status_code=404, detail="run not found")
+    return {"deleted": True, "run_id": run_id}
