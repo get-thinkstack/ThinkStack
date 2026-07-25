@@ -33,10 +33,10 @@ pip install llama-cpp-python --force-reinstall --no-deps \
 # 2. fix the two DLL problems the prebuilt CUDA wheel has on toolkit-less /
 #    AVX-512-less machines (installs CUDA runtime DLLs + swaps a compatible
 #    CPU backend). Idempotent - re-run after any reinstall of llama-cpp-python.
-python scripts/fix_gpu_dlls.py
+python tools/fix_gpu_dlls.py
 
 # 3. verify: prints tokens/sec and confirms GPU offload
-python scripts/verify_gpu.py
+python tools/verify_gpu.py
 ```
 
 ### Why step 2 is needed
@@ -57,7 +57,7 @@ context init with `0xC000001D` (illegal instruction). `fix_gpu_dlls.py`:
 
 - **`gpu_offload_supported: False`** CPU-only wheel; redo step 1.
 - **`0xC000001D` on load** step 2 not applied (or overwritten by a reinstall);
-  re-run `python scripts/fix_gpu_dlls.py`.
+  re-run `python tools/fix_gpu_dlls.py`.
 - **`RuntimeError: ... refusing to fall back to CPU`** intended: the GPU build
   isn't loading. Fix the build; don't set `LLM_GPU_LAYERS=0` unless you actually
   want CPU.

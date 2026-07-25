@@ -5,14 +5,55 @@ download and install it, how to cut a release, how installed apps update
 themselves, and how the landing page is hosted. written for the team, so anyone
 can ship a build without re-deriving all of this.
 
+- [pipeline architecture](#pipeline-architecture)
 - [what a release contains](#what-a-release-contains)
+- [release channels (stable / beta / nightly)](#release-channels-stable--beta--nightly)
 - [how users download and install](#how-users-download-and-install)
 - [cutting a release](#cutting-a-release)
 - [how updates reach installed apps](#how-updates-reach-installed-apps)
+- [supply-chain artifacts (checksums, sbom, provenance)](#supply-chain-artifacts-checksums-sbom-provenance)
 - [signing keys](#signing-keys)
+- [extending the pipeline](#extending-the-pipeline)
 - [hosting the landing page](#hosting-the-landing-page)
 - [testing on other operating systems](#testing-on-other-operating-systems)
 - [build internals and known issues](#build-internals-and-known-issues)
+
+## pipeline architecture
+
+the release pipeline is built to scale: one place holds the settings, the build
+logic lives in reusable workflows, and each release channel is a thin caller. so
+adding a platform, a channel, or a second product does not mean rewriting ci.
+
+```
+release.config.json          ← single source of truth
+  repo · platform matrix · channels · model list · supply-chain toggles
+        │
+        ├─ scripts/release.sh                 reads it to tag the right channel
+        │
+        └─ .github/workflows/
+             _build-desktop.yml   (reusable)  matrix + freeze + tauri build + sign
+             _publish-release.yml (reusable)  manifest + checksums + sbom + release
+                  ▲            ▲
+                  │            │  callers (thin — trigger + version, that's it):
+             release-stable.yml   tag v1.2.3           → stable channel
+             release-beta.yml     tag v1.2.3-beta.N    → beta channel
+             nightly.yml          schedule / dispatch  → nightly channel
+```
+
+why it is shaped this way:
+
+- **one config file.** [release.config.json](../release.config.json) holds the
+  repo, the OS/arch matrix, the channels, the models to bundle, and which
+  supply-chain artifacts to emit. the workflows and `scripts/*.sh` read it, so
+  they never disagree and a new platform is one array entry.
+- **reusable workflows.** `_build-desktop.yml` and `_publish-release.yml` use
+  `workflow_call`. the build knowledge (cpu-only torch, the pyinstaller flags,
+  the appimage workaround) is written once. bumping a build step fixes every
+  channel at once.
+- **thin channel callers.** `release-stable.yml`, `release-beta.yml`, and
+  `nightly.yml` are ~40 lines each: a trigger, a version, and a call to the two
+  reusable workflows. a new channel (say `canary`) is a copy of one of these
+  plus one entry in `release.config.json`.
 
 ## what a release contains
 
@@ -48,6 +89,40 @@ everywhere, which is why the landing page offers it as the default linux
 download. users who want a menu entry install the `.deb` or `.rpm` for their
 distro instead (both are linked from the releases page).
 
+## release channels (stable / beta / nightly)
+
+the pipeline ships three channels, each its own "pipeline" with its own updater
+manifest, so testers can run ahead of stable users without either disturbing the
+other. channels are defined in [release.config.json](../release.config.json) and
+each maps to one caller workflow.
+
+| channel | how it's triggered | github release | updater endpoint | who runs it |
+|---------|--------------------|----------------|------------------|-------------|
+| stable | tag `vX.Y.Z` (`release.sh X.Y.Z`) | versioned, marked *latest* | `releases/latest/download/latest.json` | everyone |
+| beta | tag `vX.Y.Z-beta.N` (`release.sh X.Y.Z --beta N`) | rolling prerelease `beta` | `releases/download/beta/latest.json` | opt-in testers |
+| nightly | schedule (05:00 UTC) or manual dispatch | rolling prerelease `nightly` | `releases/download/nightly/latest.json` | opt-in testers |
+
+the mechanics:
+
+- **stable** is the repo's *latest* release; the landing page and stable apps
+  point at it. this is the only channel that bumps the hard-coded version and
+  moves the landing page's download links.
+- **beta / nightly** publish to a *rolling* release (a fixed tag that gets
+  replaced each build), so their updater endpoint is a stable URL even though
+  the version inside changes. they are marked prerelease, which keeps them out of
+  `releases/latest` so stable users never see them.
+- a build in a non-stable channel has its updater endpoint rewritten at build
+  time (`_build-desktop.yml` → "Set updater channel endpoint"), so an installed
+  beta app checks the beta manifest and self-updates within its own channel.
+
+> **version caveat.** windows msi (WiX) requires a numeric `major.minor.patch`
+> version, so the *bundle* version is always the numeric core (a `-beta.N` /
+> `-nightly.DATE` suffix is stripped). the full channel version is carried in the
+> updater manifest instead. within a channel the manifest version still increases
+> build-to-build; just don't expect a beta app to compare its own numeric version
+> against the suffixed manifest string — verify the update loop on one real signed
+> build per channel before relying on it (same open item stable already has).
+
 ## how users download and install
 
 the landing page ([landing.html](../landing.html)) shows one recommended
@@ -81,22 +156,40 @@ git push origin main
 scripts/release.sh 0.2.0 --push    # bump + tag v0.2.0 + push (asks before pushing)
 ```
 
-pushing the `v0.2.0` tag triggers `.github/workflows/build-release.yml`, which
-builds all three installers, signs them, and publishes them plus `latest.json`
-to a github release. use the next unused version number, and only tag a build you
-have downloaded and confirmed runs, because a tag is public and the updater
-treats the newest tag as current.
+pushing the `v0.2.0` tag triggers `.github/workflows/release-stable.yml`, which
+calls the reusable build + publish workflows: it builds all three installers,
+signs them, and publishes them plus `latest.json` to a versioned github release.
+use the next unused version number, and only tag a build you have downloaded and
+confirmed runs, because a tag is public and the updater treats the newest release
+as current.
 
 `release.sh` updates the version in `src-tauri/tauri.conf.json`, `landing.html`,
 and `src-tauri/Cargo.toml`. it refuses a dirty tree or an existing tag.
 
+### cutting a beta
+
+a beta goes to the opt-in beta channel and does not touch stable or the landing
+page. tag it with a `--beta` counter:
+
+```bash
+scripts/release.sh 0.2.0 --beta 1 --push   # tags v0.2.0-beta.1 → beta channel
+scripts/release.sh 0.2.0 --beta 2 --push   # next beta
+```
+
+this triggers `release-beta.yml`, which publishes to the rolling `beta`
+prerelease. a beta tag is cut at the current `HEAD` with no version-file bump.
+
+nightlies need no tag at all: `nightly.yml` runs at 05:00 UTC and skips itself if
+there were no commits that day. run it on demand from the actions tab
+(workflow_dispatch, tick `force` to build regardless).
+
 ### a test build without publishing
 
-to get installers without creating a public release, open the actions tab, run
-`build-release.yml` by hand (workflow_dispatch), and leave "create a github
-release" unchecked. the installers appear as workflow artifacts you can download.
-this is the memory-safe way to get a build without running the heavy compile on
-your own machine.
+to get installers without creating a public release, open the actions tab and run
+`release-stable.yml` by hand (workflow_dispatch) with a throwaway version. the
+build job still runs and the installers appear as workflow artifacts you can
+download. this is the memory-safe way to get a build without running the heavy
+compile on your own machine.
 
 ### hotfixes
 
@@ -136,11 +229,44 @@ the pieces:
 | public key + manifest endpoint | `src-tauri/tauri.conf.json`, `plugins.updater` |
 | permissions | `src-tauri/capabilities/default.json` |
 | launch-time check | `frontend/src/utils/updater.js`, called from `App.jsx` |
-| signed build + manifest | `build-release.yml` + `scripts/compose-updater-manifest.sh` |
+| signed build + manifest | `_build-desktop.yml` + `_publish-release.yml` + `scripts/compose-updater-manifest.sh` |
 
 the check is a no-op in the web build (`dev.sh`) and never throws, so a flaky
 network cannot block startup. the version in `tauri.conf.json` must increase
 every release or clients will not see the update.
+
+## supply-chain artifacts (checksums, sbom, provenance)
+
+alongside the installers, `_publish-release.yml` attaches the artifacts an
+enterprise or security-conscious user expects. each is toggled in the
+`supply_chain` block of [release.config.json](../release.config.json), so a team
+that does not want them flips one boolean.
+
+| artifact | file | what it is | how a user verifies |
+|----------|------|------------|---------------------|
+| checksums | `checksums.txt` | sha-256 of every published installer + manifest | `sha256sum -c checksums.txt` |
+| sbom | `sbom.spdx.json` | spdx software bill of materials of the source tree (via syft) | feed to any spdx-aware scanner |
+| provenance | (github attestation) | signed, verifiable statement that these binaries came from this repo + workflow run | `gh attestation verify <file> --repo <owner>/ThinkStack` |
+
+sbom and provenance are best-effort (`continue-on-error`): a failure there logs a
+warning but never blocks the release. provenance uses github's
+`attest-build-provenance`, which needs the `id-token: write` and
+`attestations: write` permissions the caller workflows already grant.
+
+### os-level code signing (enterprise hook)
+
+updater signing (above) is separate from the OS developer signing that stops
+gatekeeper / smartscreen warnings. the build workflow already threads the env
+vars through, gated on secrets — add the secrets and the next build signs itself,
+no workflow edit:
+
+| os | secrets to add | effect |
+|----|----------------|--------|
+| macos | `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | tauri signs + notarizes the `.app`/`.dmg`; no gatekeeper prompt |
+| windows | wire an authenticode cert into a signing step (placeholder; azure trusted signing or an `.pfx`) | no smartscreen prompt |
+
+without them the build is unsigned (fine for a student project; users click
+through the one-time warning).
 
 ## signing keys
 
@@ -196,6 +322,32 @@ two of these:
 never commit it, paste it in chat or email, or store it unencrypted in the
 cloud. rotating a lost key means shipping a normal update that carries the new
 public key first, then signing future updates with the new key.
+
+## extending the pipeline
+
+the point of the reusable-workflow layout is that the common changes are small
+and local. concretely:
+
+- **add an OS / architecture** (e.g. linux arm64, windows arm64): add one entry
+  to the `platforms` array in `release.config.json` with its `os`, `target`,
+  `label`, and `bundles`. the matrix picks it up; no workflow edit. (a new
+  *target triple* the runners can't cross-compile natively may still need a
+  toolchain/runner tweak in `_build-desktop.yml`.)
+- **add a channel** (e.g. `canary`): add a `channels.canary` block to the config
+  (its `prerelease`, `rolling_tag`, `endpoint`), then copy `release-beta.yml` to
+  `release-canary.yml` and change the trigger + the `channel:` inputs. ~40 lines.
+- **change the bundled models**: edit the `models` array in the config — the
+  build downloads exactly that list.
+- **move to an org / new repo**: change `repo` in the config, the updater
+  `endpoints` pubkey stays, and update the hardcoded `Rithesh077/ThinkStack`
+  references noted under [hosting the landing page](#hosting-the-landing-page).
+- **ship a second product** from the same repo: give it its own
+  `release.config.<product>.json` and a parallel set of callers that pass a
+  config path into the reusable workflows (add a `config` input to them). the
+  reusable build/publish logic is unchanged.
+- **enterprise / air-gapped distribution**: point a channel's `endpoint` at an
+  internal host and publish the manifest + installers there instead of github;
+  the reusable publish job's release step is the only thing that changes.
 
 ## hosting the landing page
 

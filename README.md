@@ -25,6 +25,17 @@ runs locally through `llama.cpp`, and embeddings run locally too.
 - **encryption vault.** papers can be encrypted locally with password-derived
   keys (a kdf plus an authenticated cipher). nothing is uploaded.
 
+## documentation
+
+- **[docs/ABOUT.md](docs/ABOUT.md)** — what ThinkStack is, how to install it, and
+  how to use each feature (start here as a user).
+- **[docs/FEATURES.md](docs/FEATURES.md)** — the detailed feature reference and
+  roadmap.
+- **[docs/RELEASE_GUIDE.md](docs/RELEASE_GUIDE.md)** — cutting releases, channels,
+  and how auto-updates work.
+- **[docs/gpu_setup.md](docs/gpu_setup.md)** — optional GPU acceleration.
+- **[docs/ADR.md](docs/ADR.md)** — architecture decisions and rationale.
+
 ## architecture
 
 the python backend lives at the repository root and serves both the rest api and
@@ -210,7 +221,7 @@ error recovery, and the api over http:
 
 ```bash
 source .venv/bin/activate
-python scripts/test_paper_writer.py
+python tools/test_paper_writer.py
 ```
 
 ## license

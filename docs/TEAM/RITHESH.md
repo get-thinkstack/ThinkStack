@@ -61,14 +61,20 @@ frozen build ships them read-only.
 
 ## CI/CD and auto-updates
 
-`.github/workflows/build-release.yml` builds installers for Linux, macOS, and
-Windows on a version tag and publishes them to GitHub Releases. Updates use
-Tauri's updater: the installed app checks a signed `latest.json` on each launch
-and installs a newer version if one exists. The signing key stays out of the
-repo (the private key lives at `~/.tauri` and as a CI secret; only the public
-key is committed). The supporting scripts are
+the release pipeline is config-driven and split into reusable workflows:
+`release.config.json` holds the repo, platform matrix, channels, and models;
+`.github/workflows/_build-desktop.yml` and `_publish-release.yml` are reusable
+(`workflow_call`) and hold all the build/publish logic; and the thin channel
+callers `release-stable.yml`, `release-beta.yml`, and `nightly.yml` trigger them
+for the stable / beta / nightly channels. each builds installers for Linux,
+macOS, and Windows and publishes them to GitHub Releases. Updates use Tauri's
+updater: the installed app checks a signed `latest.json` on each launch and
+installs a newer version if one exists (each channel has its own manifest URL).
+The signing key stays out of the repo (the private key lives at `~/.tauri` and as
+a CI secret; only the public key is committed). The supporting scripts are
 `scripts/compose-updater-manifest.sh`, which builds the manifest, and
-`scripts/release.sh`, which bumps the version and tags the release.
+`scripts/release.sh`, which bumps the version and tags the release. See
+[../RELEASE_GUIDE.md](../RELEASE_GUIDE.md) for the full architecture.
 
 ## Backend reconciliation
 
@@ -80,10 +86,11 @@ the `max_tokens` caps, and the onedir packaging) rather than taking it as-is.
 
 ## Scripts, tests, and docs
 
-- `scripts/setup.sh`, `scripts/dev.sh`, `scripts/build.sh`, `scripts/validate.sh`:
-  bootstrap, run, build, and pre-commit checks.
-- `scripts/test_paper_writer.py`: unit and integration tests for the compiler
-  and the paper API.
+- `scripts/` holds the devops scripts only (bootstrap, run, build, validate,
+  release); non-devops utilities moved to `tools/`. See `scripts/README.md`.
+- `tests/` is the automated `pytest` suite (run `pytest`), gated in CI by
+  `.github/workflows/ci.yml`. `tools/test_paper_writer.py` remains as a manual
+  end-to-end paper-writer integration check (real pdflatex compile).
 - `docs/RELEASE_GUIDE.md` is the single guide for cutting a release and for how
   downloads and updates work. I also maintain the landing page (`landing.html`)
   and the ADR entries for the decisions above.
