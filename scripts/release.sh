@@ -60,7 +60,7 @@ fi
 TAG="v${FULL_VERSION}"
 
 # repo comes from the single source of truth so this script and ci agree.
-REPO="$(python3 -c "import json;print(json.load(open('release.config.json'))['repo'])" 2>/dev/null || echo 'Rithesh077/ThinkStack')"
+REPO="$(python3 -c "import json;print(json.load(open('release.config.json'))['repo'])" 2>/dev/null || echo 'get-thinkstack/ThinkStack')"
 
 echo -e "${CYAN}────────────────────────────────────${NC}"
 echo -e "${CYAN}  thinkstack: ${CHANNEL} release ${TAG}${NC}"

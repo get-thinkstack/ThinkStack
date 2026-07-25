@@ -339,7 +339,7 @@ and local. concretely:
 - **change the bundled models**: edit the `models` array in the config — the
   build downloads exactly that list.
 - **move to an org / new repo**: change `repo` in the config, the updater
-  `endpoints` pubkey stays, and update the hardcoded `Rithesh077/ThinkStack`
+  `endpoints` pubkey stays, and update the hardcoded `get-thinkstack/ThinkStack`
   references noted under [hosting the landing page](#hosting-the-landing-page).
 - **ship a second product** from the same repo: give it its own
   `release.config.<product>.json` and a parallel set of callers that pass a
@@ -366,7 +366,7 @@ urls (`github.com/<org>/thinkstack`) drop the personal name. the release flow is
 unchanged, and teammates join the org as members so the project is shared rather
 than tied to one account.
 
-after transferring, update the hardcoded `Rithesh077/ThinkStack` references (the
+after transferring, update the hardcoded `get-thinkstack/ThinkStack` references (the
 `REPO` const in `landing.html`, the updater `endpoint` in `tauri.conf.json`, and
 the urls in the workflows and this guide) to `<org>/ThinkStack`. github redirects
 the old path, but the hardcoded references should point at the new one.

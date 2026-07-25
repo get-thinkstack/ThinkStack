@@ -16,8 +16,8 @@
 # or "nightly") when the installers are published to a rolling release instead.
 #
 # example:
-#   scripts/compose-updater-manifest.sh 0.2.0 all-artifacts Rithesh077/ThinkStack > latest.json
-#   scripts/compose-updater-manifest.sh 0.2.0-beta.1 all-artifacts Rithesh077/ThinkStack beta > latest.json
+#   scripts/compose-updater-manifest.sh 0.2.0 all-artifacts get-thinkstack/ThinkStack > latest.json
+#   scripts/compose-updater-manifest.sh 0.2.0-beta.1 all-artifacts get-thinkstack/ThinkStack beta > latest.json
 #
 # emits nothing (exit 1) when no *.sig files are found, so an unsigned build
 # does not publish a broken manifest. the release job treats that as "skip".

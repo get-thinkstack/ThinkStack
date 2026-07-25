@@ -3,7 +3,7 @@
 
   "product": "ThinkStack",
   "identifier": "com.thinkstack.app",
-  "repo": "Rithesh077/ThinkStack",
+  "repo": "get-thinkstack/ThinkStack",
 
   "channels": {
     "stable": {
