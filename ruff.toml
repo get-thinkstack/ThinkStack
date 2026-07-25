@@ -1,0 +1,20 @@
+# ruff config for the CI lint gate.
+#
+# scoped to real-bug rules, not style: E9 (syntax errors — e.g. a Python-3.12
+# SyntaxError that only shows up under the frozen build's interpreter) and F
+# (pyflakes: undefined names, unused imports, bad f-strings). this catches
+# genuine breakage with near-zero false positives; cosmetic rules are left off so
+# the gate never blocks a PR on formatting opinions.
+
+target-version = "py312"
+
+extend-exclude = [
+    ".venv",
+    "dist",
+    ".build-tmp",
+    "node_modules",
+    "src-tauri/target",
+]
+
+[lint]
+select = ["E9", "F"]
