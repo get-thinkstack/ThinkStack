@@ -36,7 +36,10 @@ find_asset() {
     local pattern="$1"
     # `|| true`: a missing platform asset must yield an empty string, not fail the
     # pipeline under `set -e`/`pipefail` (ls exits non-zero when nothing matches).
-    # shellcheck disable=SC2012
+    # SC2012: `ls` is fine here, we only want a name. SC2086: $pattern is a glob
+    # that MUST stay unquoted so the shell expands it -- quoting would look for a
+    # file literally named e.g. "*.AppImage".
+    # shellcheck disable=SC2012,SC2086
     ls "$ARTIFACTS_DIR"/$pattern 2>/dev/null | head -1 | xargs -r basename || true
 }
 

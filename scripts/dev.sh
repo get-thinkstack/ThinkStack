@@ -9,7 +9,6 @@
 set -e
 
 cd "$(dirname "$0")/.."
-PROJECT_ROOT=$(pwd)
 
 # ── colors ──
 GREEN='\033[0;32m'
