@@ -1,57 +1,132 @@
-name: Build & Release Desktop App
+name: _build-desktop (reusable)
+
+# reusable cross-platform build. NOT triggered on its own -- the channel caller
+# workflows (release-stable / release-beta / nightly) call it with a channel and
+# version. all the actual build knowledge lives here once; a new channel is a
+# ~30-line caller, and a new platform is one entry in release.config.json.
+#
+# the platform matrix, model list, and per-channel updater endpoint are all read
+# from release.config.json so this file rarely changes.
 
 on:
-  push:
-    tags: ['v*']
-  workflow_dispatch:
+  workflow_call:
     inputs:
-      release:
-        description: 'Create a GitHub Release'
+      channel:
+        description: 'stable | beta | nightly'
+        required: true
+        type: string
+      version:
+        description: 'full version for this build (e.g. 0.2.0, 0.2.0-beta.1, 0.2.0-nightly.20260725)'
+        required: true
+        type: string
+      ref:
+        description: 'git ref to build (defaults to the triggering ref)'
         required: false
-        default: false
-        type: boolean
-
-permissions:
-  contents: write
+        type: string
+        default: ''
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY:
+        required: false
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: false
+      # apple code-signing / notarization (macOS). all optional: absent => an
+      # unsigned build. declared here so the reusable workflow can reference them
+      # (callers pass everything through with `secrets: inherit`).
+      APPLE_CERTIFICATE:
+        required: false
+      APPLE_CERTIFICATE_PASSWORD:
+        required: false
+      APPLE_SIGNING_IDENTITY:
+        required: false
+      APPLE_ID:
+        required: false
+      APPLE_PASSWORD:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
 
 env:
-  APP_NAME: ThinkStack
   PYTHON_VERSION: '3.12'
   NODE_VERSION: '20'
 
 jobs:
+  # -- read the platform matrix from release.config.json --
+  # emitting the matrix as a job output keeps the build matrix data-driven:
+  # adding an OS/arch is an edit to release.config.json, not to this workflow.
+  matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.load.outputs.include }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - id: load
+        run: echo "include=$(jq -c '.platforms' release.config.json)" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: matrix
     strategy:
       fail-fast: false
       matrix:
-        # bundle formats chosen for what actually works with this payload:
-        #   linux : deb here; appimage is built separately via appimagetool
-        #           (tauri's linuxdeploy cannot resolve the PyInstaller backend's
-        #           wheel-vendored .so files). rpm bundling hangs for hours.
-        #   windows: msi            (nsis/makensis hits a ~2GB mmap limit)
-        #   macos : app + dmg       (app.tar.gz is the updater artifact)
-        include:
-          - os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            label: linux-x86_64
-            bundles: deb
-          - os: macos-latest
-            target: universal-apple-darwin
-            label: macos-universal
-            bundles: app,dmg
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            label: windows-x86_64
-            bundles: msi
-
+        include: ${{ fromJSON(needs.matrix.outputs.include) }}
     runs-on: ${{ matrix.os }}
-    name: Build (${{ matrix.label }})
+    name: Build (${{ matrix.label }} - ${{ inputs.channel }})
 
     steps:
-      # ── checkout ──
+      # -- checkout --
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
-      # ── system dependencies (linux only) ──
+      # -- stamp the version into the bundle manifests --
+      # the caller owns the version; MSI/WiX ProductVersion must be numeric
+      # major.minor.patch, so the *bundle* version is the numeric core (prerelease
+      # / build suffix stripped). the full inputs.version (e.g. 0.2.0-beta.1) is
+      # carried into the updater manifest by the publish job instead.
+      - name: Stamp bundle version
+        shell: bash
+        run: |
+          NUMERIC="$(echo '${{ inputs.version }}' | sed -E 's/[-+].*$//')"
+          echo "stamping bundle version $NUMERIC (from '${{ inputs.version }}')"
+          # both edits in python: portable across the linux/macos/windows runners
+          # (BSD sed on macos rejects the GNU `0,/re/` range used for Cargo.toml).
+          python3 - "$NUMERIC" <<'PY'
+          import json, re, sys
+          ver = sys.argv[1]
+          p = "src-tauri/tauri.conf.json"
+          d = json.load(open(p))
+          d["version"] = ver
+          json.dump(d, open(p, "w"), indent=2); open(p, "a").write("\n")
+          # replace only the first `version = "..."` (the [package] version)
+          c = "src-tauri/Cargo.toml"
+          txt = open(c).read()
+          txt = re.sub(r'^version = .*$', f'version = "{ver}"', txt, count=1, flags=re.M)
+          open(c, "w").write(txt)
+          PY
+
+      # -- point non-stable builds at their own updater channel --
+      # a beta build must check the beta manifest, not stable's. rewrite the
+      # single updater endpoint from release.config.json for this channel so an
+      # installed beta/nightly self-updates within its channel.
+      - name: Set updater channel endpoint
+        if: inputs.channel != 'stable'
+        shell: bash
+        run: |
+          python3 - '${{ inputs.channel }}' <<'PY'
+          import json, sys
+          ch = sys.argv[1]
+          cfg = json.load(open("release.config.json"))
+          repo = cfg["repo"]; endpoint = cfg["channels"][ch]["endpoint"]
+          url = f"https://github.com/{repo}/{endpoint}"
+          p = "src-tauri/tauri.conf.json"
+          d = json.load(open(p))
+          d["plugins"]["updater"]["endpoints"] = [url]
+          json.dump(d, open(p, "w"), indent=2); open(p, "a").write("\n")
+          print("updater endpoint ->", url)
+          PY
+
+      # -- system dependencies (linux only) --
       - name: Install system deps (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -64,12 +139,13 @@ jobs:
             libpango1.0-dev \
             build-essential
 
-      # ── python ──
+      # -- python --
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install Python dependencies
+        shell: bash
         run: |
           python -m pip install --upgrade pip
           # CPU-only torch. the default torch wheel on linux/windows bundles the
@@ -84,9 +160,8 @@ jobs:
           fi
           pip install -r requirements.txt
           pip install pyinstaller
-        shell: bash
 
-      # ── node ──
+      # -- node --
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -96,12 +171,12 @@ jobs:
             frontend/package-lock.json
 
       - name: Install Node dependencies
+        shell: bash
         run: |
           npm install
           npm --prefix frontend install
-        shell: bash
 
-      # ── rust ──
+      # -- rust --
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
@@ -110,29 +185,30 @@ jobs:
         with:
           workspaces: src-tauri
 
-      # ── build frontend ──
+      # -- build frontend --
       - name: Build frontend
         run: npm --prefix frontend run build
         shell: bash
 
-      # ── download base + analysis models ──
+      # -- download base + analysis models (list lives in release.config.json) --
       # both are bundled (seeded into the user's models dir on first run):
-      #   0.5B  → chat / search / paper-writer (light, fast)
-      #   1.5B  → summarize / claims / gap-finder (0.5B emits unparseable json
-      #           on these; the app routes them to 1.5B — see ollama_client.py)
+      #   0.5B  -> chat / search / paper-writer (light, fast)
+      #   1.5B  -> summarize / claims / gap-finder (0.5B emits unparseable json
+      #           on these; the app routes them to 1.5B -- see ollama_client.py)
       # this makes gap analysis work offline out of the box at the cost of a
-      # larger installer. drop the 1.5B line to ship a smaller 0.5B-only build.
-      - name: Download Qwen2.5 models
+      # larger installer. drop a model line in release.config.json to slim it.
+      - name: Download models
+        shell: bash
         run: |
           mkdir -p data/models
-          curl -L -o data/models/qwen2.5-0.5b-instruct-q4_k_m.gguf \
-            "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf"
-          curl -L -o data/models/qwen2.5-1.5b-instruct-q4_k_m.gguf \
-            "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf"
+          jq -r '.models[]' release.config.json | while read -r url; do
+            fname="$(basename "$url")"
+            echo "downloading $fname"
+            curl -L -o "data/models/$fname" "$url"
+          done
           ls -lh data/models/
-        shell: bash
 
-      # ── freeze python backend ──
+      # -- freeze python backend --
       # --onedir (NOT --onefile): tauri.conf.json bundles dist/thinkstack-api/
       # as the "api/" resource dir, which lib.rs launches. onefile would
       # re-extract its multi-GB payload to a temp dir on every app launch.
@@ -143,6 +219,7 @@ jobs:
       # crash at model load) and sentence_transformers' package data (embeddings/
       # search break). torch/transformers/sklearn are collected by their own hooks.
       - name: Freeze backend (PyInstaller)
+        shell: bash
         run: |
           ADD_DATA="--add-data frontend/dist:frontend/dist"
           if ls data/models/*.gguf 1>/dev/null 2>&1; then
@@ -166,17 +243,12 @@ jobs:
             $ADD_DATA \
             main.py
           test -x dist/thinkstack-api/thinkstack-api || test -x dist/thinkstack-api/thinkstack-api.exe
-        shell: bash
 
-      # no sidecar placement needed: tauri.conf.json bundles the onedir
-      # dist/thinkstack-api/ directly as the "api/" resource.
-
-      # ── build tauri (linux / windows) ──
+      # -- build tauri (linux / windows) --
       # the signing env vars make the bundler emit signed updater artifacts
       # (.sig files) next to each installer, which the auto-updater verifies
-      # against the pubkey in tauri.conf.json. store the private key + password
-      # as repo secrets (see docs/RELEASE_GUIDE.md). absent secrets =>
-      # unsigned build (installers still produced, just no working auto-update).
+      # against the pubkey in tauri.conf.json. absent secrets => unsigned build
+      # (installers still produced, just no working auto-update).
       - name: Build Tauri app
         if: runner.os != 'macOS'
         run: npm run tauri build -- --bundles ${{ matrix.bundles }}
@@ -189,7 +261,7 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: '1'
           NO_STRIP: 'true'
 
-      # ── build the AppImage (Linux only, via appimagetool) ──
+      # -- build the AppImage (Linux only, via appimagetool) --
       # run the appimage bundler to create the AppDir (linuxdeploy fails on the
       # PyInstaller backend, which is expected), then package the AppDir with
       # appimagetool and sign it. see scripts/package-appimage.sh.
@@ -205,7 +277,11 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: '1'
           NO_STRIP: 'true'
 
-      # ── build tauri (macOS universal) ──
+      # -- build tauri (macOS universal) --
+      # env-gated apple code-signing + notarization: when the APPLE_* secrets are
+      # present tauri signs and notarizes the .app/.dmg; absent, it builds an
+      # unsigned bundle (gatekeeper warns once on first launch). this is the
+      # enterprise hook -- add the secrets, no workflow change needed.
       - name: Build Tauri app (macOS universal)
         if: runner.os == 'macOS'
         run: npm run tauri build -- --target universal-apple-darwin --bundles ${{ matrix.bundles }}
@@ -213,11 +289,17 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
-      # ── collect artifacts ──
+      # -- collect artifacts --
       # *.sig are the updater signatures (present only when signing secrets are
-      # set); the release job reads them to build latest.json. the AppImage /
-      # .app.tar.gz / .msi are also the auto-updater's install targets.
+      # set); the publish job reads them to build the channel manifest. the
+      # AppImage / .app.tar.gz / .msi are also the auto-updater's install targets.
       - name: Collect artifacts (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -245,67 +327,10 @@ jobs:
           Get-ChildItem artifacts\
         shell: powershell
 
-      # ── upload as workflow artifacts ──
+      # -- upload as workflow artifacts (consumed by the publish job) --
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: thinkstack-${{ matrix.label }}
+          name: thinkstack-${{ inputs.channel }}-${{ matrix.label }}
           path: artifacts/*
           if-no-files-found: error
-
-  # ── create github release on tag push ──
-  release:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release)
-    runs-on: ubuntu-latest
-    name: Publish Release
-
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: all-artifacts
-          merge-multiple: true
-
-      - name: List release files
-        run: ls -lhR all-artifacts/
-
-      # ── build the auto-updater manifest (latest.json) ──
-      # composes the signed manifest the desktop app polls. runs BEFORE the
-      # stable-named copies below so it only sees the versioned files (which have
-      # the matching .sig). skips cleanly if no .sig files are present.
-      - name: Checkout (for the compose script)
-        uses: actions/checkout@v4
-        with:
-          path: repo
-
-      - name: Compose updater manifest (latest.json)
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          bash repo/scripts/compose-updater-manifest.sh \
-            "$VERSION" all-artifacts "Rithesh077/ThinkStack" \
-            > all-artifacts/latest.json || echo "no signed artifacts — skipping latest.json"
-          [ -s all-artifacts/latest.json ] && cat all-artifacts/latest.json || rm -f all-artifacts/latest.json
-
-      # ── stable-named copies (version-independent) ──
-      # the landing page / vercel.json link to these fixed names via
-      # releases/latest/download/, so download links never need a version bump
-      # and always resolve to the newest release. the versioned files stay too
-      # (the updater's latest.json points at those).
-      - name: Create stable-named copies
-        run: |
-          cd all-artifacts
-          cp ThinkStack_*_amd64.AppImage   ThinkStack-linux-x86_64.AppImage   2>/dev/null || true
-          cp ThinkStack_*_amd64.deb        ThinkStack-linux-x86_64.deb        2>/dev/null || true
-          cp ThinkStack_*_x64_en-US.msi    ThinkStack-windows-x86_64.msi      2>/dev/null || true
-          cp ThinkStack_*_universal.dmg    ThinkStack-macos-universal.dmg     2>/dev/null || true
-          ls -lh
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: ${{ github.ref_name || 'Manual Release' }}
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-          files: all-artifacts/*

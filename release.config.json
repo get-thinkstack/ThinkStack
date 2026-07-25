@@ -1,0 +1,60 @@
+{
+  "$comment": "single source of truth for the desktop release pipeline. the reusable ci workflows and scripts/*.sh all read this file, so adding a platform, a channel, or pointing at a new repo/org is a config edit here — not a workflow rewrite. see docs/RELEASE_GUIDE.md.",
+
+  "product": "ThinkStack",
+  "identifier": "com.thinkstack.app",
+  "repo": "Rithesh077/ThinkStack",
+
+  "channels": {
+    "stable": {
+      "prerelease": false,
+      "rolling_tag": null,
+      "manifest": "latest.json",
+      "endpoint": "releases/latest/download/latest.json"
+    },
+    "beta": {
+      "prerelease": true,
+      "rolling_tag": "beta",
+      "manifest": "latest.json",
+      "endpoint": "releases/download/beta/latest.json"
+    },
+    "nightly": {
+      "prerelease": true,
+      "rolling_tag": "nightly",
+      "manifest": "latest.json",
+      "endpoint": "releases/download/nightly/latest.json"
+    }
+  },
+
+  "platforms": [
+    {
+      "os": "ubuntu-22.04",
+      "target": "x86_64-unknown-linux-gnu",
+      "label": "linux-x86_64",
+      "bundles": "deb"
+    },
+    {
+      "os": "macos-latest",
+      "target": "universal-apple-darwin",
+      "label": "macos-universal",
+      "bundles": "app,dmg"
+    },
+    {
+      "os": "windows-latest",
+      "target": "x86_64-pc-windows-msvc",
+      "label": "windows-x86_64",
+      "bundles": "msi"
+    }
+  ],
+
+  "models": [
+    "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+    "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf"
+  ],
+
+  "supply_chain": {
+    "checksums": true,
+    "sbom": true,
+    "provenance": true
+  }
+}

@@ -10,7 +10,10 @@ dist-ssr/
 *.egg
 .eggs/
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
 .coverage
+coverage.xml
 htmlcov/
 
 # ── Virtual environments ─────────────────────────────────
@@ -105,3 +108,7 @@ src-tauri/bin/
 
 # on-disk temp for AppImage builds (RAM-backed /tmp is too small)
 .build-tmp/
+
+# ── Downloaded dev tools (fetched on demand, not committed) ──
+# actionlint: the GitHub Actions linter binary, pulled by CI and for local runs.
+/actionlint

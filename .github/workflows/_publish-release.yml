@@ -1,0 +1,168 @@
+name: _publish-release (reusable)
+
+# reusable publish stage. called after _build-desktop by every channel caller.
+# it downloads the built installers, composes the channel's signed updater
+# manifest, adds the supply-chain artifacts (checksums / SBOM / provenance), and
+# publishes the GitHub release. where it publishes is data-driven from
+# release.config.json:
+#   stable  -> a versioned release  v<version>   (the repo's "latest")
+#   beta    -> a rolling prerelease tagged "beta"
+#   nightly -> a rolling prerelease tagged "nightly"
+# so installed apps in each channel poll a stable per-channel manifest URL.
+
+on:
+  workflow_call:
+    inputs:
+      channel:
+        description: 'stable | beta | nightly'
+        required: true
+        type: string
+      version:
+        description: 'full version being published (e.g. 0.2.0, 0.2.0-beta.1)'
+        required: true
+        type: string
+
+# attest-build-provenance needs id-token + attestations; release needs contents.
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    name: Publish (${{ inputs.channel }} - ${{ inputs.version }})
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: repo
+
+      # -- resolve channel settings from release.config.json --
+      # download_tag: which release tag holds the installers (the updater manifest
+      #   URLs point here). rolling for beta/nightly, versioned for stable.
+      # release_tag: the tag the release is published under.
+      - name: Resolve channel config
+        id: cfg
+        run: |
+          CH='${{ inputs.channel }}'
+          VER='${{ inputs.version }}'
+          CONF=repo/release.config.json
+          REPO=$(jq -r '.repo' "$CONF")
+          PRERELEASE=$(jq -r ".channels.$CH.prerelease" "$CONF")
+          ROLLING=$(jq -r ".channels.$CH.rolling_tag // empty" "$CONF")
+          SC_CHECKSUMS=$(jq -r '.supply_chain.checksums' "$CONF")
+          SC_SBOM=$(jq -r '.supply_chain.sbom' "$CONF")
+          SC_PROV=$(jq -r '.supply_chain.provenance' "$CONF")
+          if [ -n "$ROLLING" ]; then
+            RELEASE_TAG="$ROLLING"; DOWNLOAD_TAG="$ROLLING"
+          else
+            RELEASE_TAG="v$VER"; DOWNLOAD_TAG="v$VER"
+          fi
+          {
+            echo "repo=$REPO"
+            echo "prerelease=$PRERELEASE"
+            echo "rolling=$ROLLING"
+            echo "release_tag=$RELEASE_TAG"
+            echo "download_tag=$DOWNLOAD_TAG"
+            echo "sc_checksums=$SC_CHECKSUMS"
+            echo "sc_sbom=$SC_SBOM"
+            echo "sc_prov=$SC_PROV"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-artifacts
+          pattern: thinkstack-${{ inputs.channel }}-*
+          merge-multiple: true
+
+      - name: List downloaded files
+        run: ls -lhR all-artifacts/
+
+      # -- compose the signed updater manifest for this channel --
+      # runs BEFORE the stable-named copies + checksums so it only sees the
+      # versioned installers (which carry the matching .sig). skips cleanly with
+      # no error if the build was unsigned (no .sig present).
+      - name: Compose updater manifest
+        run: |
+          VERSION='${{ inputs.version }}'
+          bash repo/scripts/compose-updater-manifest.sh \
+            "$VERSION" all-artifacts "${{ steps.cfg.outputs.repo }}" "${{ steps.cfg.outputs.download_tag }}" \
+            > all-artifacts/latest.json || echo "no signed artifacts -- skipping latest.json"
+          if [ -s all-artifacts/latest.json ]; then cat all-artifacts/latest.json; else rm -f all-artifacts/latest.json; fi
+
+      # -- stable-named copies (stable channel only) --
+      # the landing page links to these fixed names via releases/latest/download/,
+      # so its download links never need a version bump. beta/nightly are opt-in
+      # channels reached from their own release page, so they skip this.
+      - name: Create stable-named copies
+        if: inputs.channel == 'stable'
+        run: |
+          cd all-artifacts
+          cp ThinkStack_*_amd64.AppImage   ThinkStack-linux-x86_64.AppImage   2>/dev/null || true
+          cp ThinkStack_*_amd64.deb        ThinkStack-linux-x86_64.deb        2>/dev/null || true
+          cp ThinkStack_*_x64_en-US.msi    ThinkStack-windows-x86_64.msi      2>/dev/null || true
+          cp ThinkStack_*_universal.dmg    ThinkStack-macos-universal.dmg     2>/dev/null || true
+          ls -lh
+
+      # -- supply chain: sha-256 checksums for every published asset --
+      - name: Generate checksums
+        if: steps.cfg.outputs.sc_checksums == 'true'
+        run: |
+          cd all-artifacts
+          # hash installers + manifest, not the .sig sidecars
+          find . -maxdepth 1 -type f ! -name '*.sig' ! -name 'checksums.txt' -printf '%f\n' \
+            | sort | xargs -r sha256sum > checksums.txt
+          echo "-- checksums.txt --"; cat checksums.txt
+
+      # -- supply chain: SBOM (spdx) of the source tree --
+      # non-blocking: a failed SBOM must not block a release.
+      - name: Generate SBOM
+        if: steps.cfg.outputs.sc_sbom == 'true'
+        continue-on-error: true
+        uses: anchore/sbom-action@v0
+        with:
+          path: repo
+          format: spdx-json
+          output-file: all-artifacts/sbom.spdx.json
+          artifact-name: sbom-${{ inputs.channel }}.spdx.json
+
+      # -- supply chain: signed build provenance for the installers --
+      # non-blocking: attestation is best-effort until it is proven in ci.
+      - name: Attest build provenance
+        if: steps.cfg.outputs.sc_prov == 'true'
+        continue-on-error: true
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            all-artifacts/*.AppImage
+            all-artifacts/*.deb
+            all-artifacts/*.dmg
+            all-artifacts/*.msi
+
+      # -- rolling channels: wipe the previous rolling release for a clean set --
+      # beta/nightly reuse one tag; deleting first prevents stale installers from
+      # older versions piling up on the release. GH recreates it on publish below.
+      - name: Reset rolling release
+        if: steps.cfg.outputs.rolling != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete "${{ steps.cfg.outputs.release_tag }}" \
+            --repo "${{ github.repository }}" --yes --cleanup-tag 2>/dev/null \
+            || echo "no existing ${{ steps.cfg.outputs.release_tag }} release to delete"
+
+      # -- publish the release --
+      # stable -> versioned release, marked latest, not prerelease.
+      # beta/nightly -> rolling tag, prerelease (kept out of the repo's "latest").
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.cfg.outputs.release_tag }}
+          name: ${{ inputs.channel == 'stable' && format('v{0}', inputs.version) || format('{0} {1}', inputs.channel, inputs.version) }}
+          draft: false
+          prerelease: ${{ steps.cfg.outputs.prerelease == 'true' }}
+          make_latest: ${{ inputs.channel == 'stable' }}
+          generate_release_notes: ${{ inputs.channel == 'stable' }}
+          body: ${{ inputs.channel != 'stable' && format('Automated {0} build -- version {1}. Opt-in channel; not the stable release.', inputs.channel, inputs.version) || '' }}
+          files: all-artifacts/*
