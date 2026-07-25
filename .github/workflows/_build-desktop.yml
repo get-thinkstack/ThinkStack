@@ -221,9 +221,15 @@ jobs:
       - name: Freeze backend (PyInstaller)
         shell: bash
         run: |
-          ADD_DATA="--add-data frontend/dist:frontend/dist"
+          # built as an array, not a string: an unquoted string expansion relies
+          # on word splitting (shellcheck SC2086) and breaks on any path with a
+          # space. PyInstaller's --add-data separator is os.pathsep, so it must be
+          # ';' on Windows and ':' elsewhere.
+          SEP=":"
+          [ "$RUNNER_OS" = "Windows" ] && SEP=";"
+          ADD_DATA=(--add-data "frontend/dist${SEP}frontend/dist")
           if ls data/models/*.gguf 1>/dev/null 2>&1; then
-            ADD_DATA="$ADD_DATA --add-data data/models:data/models"
+            ADD_DATA+=(--add-data "data/models${SEP}data/models")
           fi
           pyinstaller --name thinkstack-api --onedir --clean --noconfirm \
             --hidden-import uvicorn \
@@ -240,7 +246,7 @@ jobs:
             --hidden-import psutil \
             --collect-all llama_cpp \
             --collect-all sentence_transformers \
-            $ADD_DATA \
+            "${ADD_DATA[@]}" \
             main.py
           test -x dist/thinkstack-api/thinkstack-api || test -x dist/thinkstack-api/thinkstack-api.exe
 

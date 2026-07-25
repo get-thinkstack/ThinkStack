@@ -91,6 +91,15 @@ jobs:
           workspaces: src-tauri
       - name: Formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+
+      # tauri.conf.json bundles ../dist/thinkstack-api/ as the "api/" resource,
+      # and tauri's build script fails if that path is missing. this job checks
+      # the Rust code only -- it deliberately does not freeze the multi-GB python
+      # backend -- so stand in an empty dir to satisfy the resource check. the
+      # real bundle is produced by the release workflow (_build-desktop.yml).
+      - name: Stub backend resource dir
+        run: mkdir -p dist/thinkstack-api
+
       - name: Compile check
         run: cargo check --manifest-path src-tauri/Cargo.toml
       - name: Clippy (non-blocking)
