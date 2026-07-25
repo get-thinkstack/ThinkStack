@@ -2,11 +2,12 @@
 gap analysis api routes.
 
 provides the endpoint for running comprehensive gap analysis across
-ingested documents, combining claim extraction with gap detection
-and research direction suggestions.
+ingested documents. per-document summary+claims analysis is cached (computed
+at ingest time, or lazily on first scan), so a gap scan of already-analyzed
+papers reuses that work and only pays for the single combined gaps+suggestions
+call.
 """
 
-import json
 import logging
 from dataclasses import asdict
 
@@ -14,27 +15,13 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from domain.knowledge_base.repository import get_chunks_by_doc_id
-from domain.gap_finder.gap_analyzer import analyze_gaps
-from domain.gap_finder.suggestion_engine import generate_suggestions
-from domain.fine_tuning.data_collector import save_gap_analysis_pair
-from infrastructure.ollama_client import ollama_client
+from domain.analysis.document_analysis import analyze_document
+from domain.gap_finder.gap_pipeline import analyze_gaps_and_suggestions
+from infrastructure.analysis_cache import doc_analysis_cache
+from infrastructure.gap_history import gap_history
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-DOCUMENT_ANALYSIS_PROMPT = """analyze the following research paper text and return a json object with:
-1. summary: a concise 3-5 sentence summary
-2. claims: a list of 3-5 key claims or findings
-
-for each claim object include only:
-- claim_text (one sentence, in your own words -- do not quote the paper)
-- claim_type (finding, methodology, limitation, future_work)
-
-paper text:
-{text}
-
-respond only in valid json with keys summary and claims."""
 
 
 class GapAnalysisRequest(BaseModel):
@@ -43,58 +30,61 @@ class GapAnalysisRequest(BaseModel):
     password: str | None = None
 
 
-async def _analyze_document(doc_id: str, text: str) -> tuple[dict, list[dict]]:
-    """summarize a paper and extract claims in a single model call.
+def _decrypt_or_join(doc_id: str, chunks: dict, password: str | None) -> str:
+    """reconstruct a document's text, decrypting it if stored encrypted."""
+    first_meta = chunks["metadatas"][0] if chunks["metadatas"] else {}
+    is_enc = first_meta.get("is_encrypted")
+    if is_enc == "true" or is_enc is True:
+        if not password:
+            raise HTTPException(
+                status_code=403,
+                detail="document is encrypted. password required.",
+            )
+        from domain.encryption.vault import decrypt_paper, WrongPasswordError
+        from domain.encryption.envelope import EnvelopeFormatError
+        envelope = first_meta.get("encrypted_envelope")
+        try:
+            return decrypt_paper(envelope, password)
+        except WrongPasswordError:
+            raise HTTPException(status_code=403, detail="incorrect password")
+        except EnvelopeFormatError:
+            raise HTTPException(status_code=422, detail="corrupted envelope")
+    return " ".join(chunks["documents"])
 
-    this keeps the gap-finder path shorter by avoiding separate summary
-    and claim extraction calls for each paper.
+
+async def _get_analysis(doc_id: str, password: str | None) -> dict | None:
+    """return a document's summary+claims, using the cache when possible.
+
+    a cache hit needs no chunk fetch, no decryption, and no model call. on a
+    miss the document text is analyzed once and the result cached for future
+    scans. returns None if the document has no chunks or analysis fails, so
+    the caller can skip it.
     """
-    prompt = DOCUMENT_ANALYSIS_PROMPT.format(text=text[:2500])
-    system = (
-        "you are an academic analysis tool. produce concise, grounded output "
-        "and respond only with valid json."
-    )
+    cached = doc_analysis_cache.get(doc_id)
+    if cached is not None:
+        return cached
 
-    try:
-        response = await ollama_client.generate_json(
-            prompt,
-            system=system,
-            max_tokens=800,
-            task_type="gap_analysis",
-        )
-        data = json.loads(response)
-        summary_text = data.get("summary", "")
-        claims = data.get("claims", [])
+    chunks = get_chunks_by_doc_id(doc_id)
+    if not chunks["ids"]:
+        logger.warning("no chunks found for document %s, skipping", doc_id)
+        return None
 
-        summaries = [{"doc_id": doc_id, "text": summary_text}]
-        claim_rows = []
-        for claim in claims:
-            claim_rows.append({
-                "doc_id": doc_id,
-                "text": claim.get("claim_text", ""),
-                "type": claim.get("claim_type", "finding"),
-            })
+    text = _decrypt_or_join(doc_id, chunks, password)
+    analysis = await analyze_document(doc_id, text)
+    if analysis is None:
+        return None
 
-        return summaries[0], claim_rows
-    except Exception as e:
-        logger.error("document analysis failed for %s: %s", doc_id, e)
-        return {
-            "doc_id": doc_id,
-            "text": f"analysis failed: {str(e)}",
-        }, []
+    doc_analysis_cache.put(doc_id, analysis["summary"], analysis["claims"])
+    return analysis
 
 
 @router.post("/analyze")
 async def analyze(request: GapAnalysisRequest):
     """run comprehensive gap analysis across multiple documents.
 
-    orchestrates the full gap analysis pipeline:
-    1. generates summaries for each document
-    2. extracts claims from each document
-    3. analyzes gaps across all claims and summaries
-    4. generates research direction suggestions
-
-    requires at least 2 documents for meaningful gap analysis.
+    for each document it obtains a cached (or freshly computed) summary and
+    claims, then runs a single combined pass that identifies gaps and proposes
+    research directions. requires at least 2 processable documents.
 
     args:
         request: list of document ids to analyze for gaps.
@@ -112,31 +102,16 @@ async def analyze(request: GapAnalysisRequest):
     all_claims = []
 
     for doc_id in request.doc_ids:
-        chunks = get_chunks_by_doc_id(doc_id)
-        if not chunks["ids"]:
-            logger.warning("no chunks found for document %s, skipping", doc_id)
+        analysis = await _get_analysis(doc_id, request.password)
+        if analysis is None:
             continue
-
-        first_meta = chunks["metadatas"][0] if chunks["metadatas"] else {}
-        is_enc = first_meta.get("is_encrypted")
-        if is_enc == "true" or is_enc is True:
-            if not request.password:
-                raise HTTPException(status_code=403, detail=f"document is encrypted. password required.")
-            from domain.encryption.vault import decrypt_paper, WrongPasswordError
-            from domain.encryption.envelope import EnvelopeFormatError
-            envelope = first_meta.get("encrypted_envelope")
-            try:
-                text = decrypt_paper(envelope, request.password)
-            except WrongPasswordError:
-                raise HTTPException(status_code=403, detail="incorrect password")
-            except EnvelopeFormatError:
-                raise HTTPException(status_code=422, detail="corrupted envelope")
-        else:
-            text = " ".join(chunks["documents"])
-
-        summary_row, doc_claims = await _analyze_document(doc_id, text)
-        summaries.append(summary_row)
-        all_claims.extend(doc_claims)
+        summaries.append({"doc_id": doc_id, "text": analysis["summary"]})
+        for claim in analysis.get("claims", []):
+            all_claims.append({
+                "doc_id": doc_id,
+                "text": claim.get("text", ""),
+                "type": claim.get("type", "finding"),
+            })
 
     if len(summaries) < 2:
         raise HTTPException(
@@ -144,27 +119,11 @@ async def analyze(request: GapAnalysisRequest):
             detail="could not process enough documents for gap analysis",
         )
 
-    gaps = await analyze_gaps(summaries, all_claims, request.doc_ids)
-    suggestions = await generate_suggestions(gaps)
+    gaps, suggestions = await analyze_gaps_and_suggestions(
+        summaries, all_claims, request.doc_ids
+    )
 
-    # save training pair for future fine-tuning (best-effort, privacy-safe)
-    try:
-        combined_text = "\n".join(
-            f"[{s['doc_id']}] {s['text'][:200]}" for s in summaries
-        )
-        result_json = json.dumps({
-            "gaps": [asdict(g) for g in gaps],
-            "suggestions": [asdict(s) for s in suggestions],
-        }, ensure_ascii=False)
-        save_gap_analysis_pair(
-            paper_content=combined_text,
-            system="gap analysis across research papers",
-            analysis_result=result_json,
-        )
-    except Exception:  # noqa: BLE001 - data collection is non-critical
-        pass
-
-    return {
+    result = {
         "gaps": [asdict(g) for g in gaps],
         "suggestions": [asdict(s) for s in suggestions],
         "papers_analyzed": len(summaries),
@@ -172,3 +131,24 @@ async def analyze(request: GapAnalysisRequest):
         "total_gaps": len(gaps),
         "total_suggestions": len(suggestions),
     }
+
+    # log this run so a subsequent scan doesn't discard it; the saved record
+    # adds run_id + created_at, which we surface so the ui can select it.
+    saved = gap_history.add({"doc_ids": request.doc_ids, **result})
+    result["run_id"] = saved["run_id"]
+    result["created_at"] = saved["created_at"]
+    return result
+
+
+@router.get("/history")
+async def list_history():
+    """list past gap-analysis runs, newest first."""
+    return {"runs": gap_history.list()}
+
+
+@router.delete("/history/{run_id}")
+async def delete_history_run(run_id: str):
+    """delete a single past gap-analysis run by id."""
+    if not gap_history.delete(run_id):
+        raise HTTPException(status_code=404, detail="run not found")
+    return {"deleted": True, "run_id": run_id}

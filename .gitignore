@@ -87,6 +87,9 @@ backend.log
 git_branches.txt
 git_log_output.txt
 
+# ── Playwright MCP scratch snapshots (browser-tool artifacts) ──
+.playwright-mcp/
+
 # ── PyInstaller build artifacts ──────────────────────────
 thinkstack-api.spec
 *.spec

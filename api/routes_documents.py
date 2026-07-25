@@ -20,12 +20,14 @@ from infrastructure.file_manager import (
 from domain.ingestion.pdf_parser import extract_text, get_page_count
 from domain.ingestion.chunker import chunk_pages
 from domain.ingestion.metadata_extractor import extract_metadata
+from domain.analysis.document_analysis import analyze_document
 from domain.knowledge_base.repository import (
     store_chunks,
     get_chunks_by_doc_id,
     delete_chunks_by_doc_id,
     get_collection_stats,
 )
+from infrastructure.analysis_cache import doc_analysis_cache
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -68,6 +70,19 @@ async def upload_document(file: UploadFile = File(...)):
 
         chunks = chunk_pages(pages, doc_id)
         stored_count = store_chunks(chunks, metadata)
+
+        # precompute the per-document summary+claims now, at ingest time, so a
+        # later gap scan reuses it and only pays for the single aggregation
+        # call. best-effort: if the model is unavailable this must not fail the
+        # upload -- the gap route falls back to computing it lazily on demand.
+        try:
+            analysis = await analyze_document(doc_id, full_text)
+            if analysis is not None:
+                doc_analysis_cache.put(
+                    doc_id, analysis["summary"], analysis["claims"]
+                )
+        except Exception as e:  # noqa: BLE001 - ingest-time analysis is optional
+            logger.warning("ingest-time analysis skipped for %s: %s", doc_id, e)
 
         return {
             "doc_id": doc_id,
@@ -180,6 +195,9 @@ async def delete_document(doc_id: str):
     """
     pdf_deleted = delete_pdf(doc_id)
     chunks_deleted = delete_chunks_by_doc_id(doc_id)
+    # drop any cached gap-analysis for this document so a re-upload under a new
+    # id is never served a previous document's summary.
+    doc_analysis_cache.delete(doc_id)
 
     if not pdf_deleted and not chunks_deleted:
         raise HTTPException(status_code=404, detail="document not found")
