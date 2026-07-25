@@ -25,7 +25,7 @@ export default function Analysis() {
   const [history, setHistory] = useState([]);
   const [activeRunId, setActiveRunId] = useState(null);
 
-  // single shared local model — disable runs while it's busy elsewhere
+  // single shared local model - disable runs while it's busy elsewhere
   const { busy } = useLlmBusy();
 
   useEffect(() => {

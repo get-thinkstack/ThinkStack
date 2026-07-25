@@ -65,7 +65,29 @@ else
     source .venv/bin/activate
     export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 
-    pyinstaller --name thinkstack-api --onefile --clean \
+    # verify at least one gguf model exists for bundling
+    MODEL_COUNT=$(find data/models -name "*.gguf" 2>/dev/null | wc -l)
+    if [ "$MODEL_COUNT" -eq 0 ]; then
+        echo -e "  ${YELLOW}warning: no gguf model found in data/models/${NC}"
+        echo -e "  ${YELLOW}the bundled app will require a model to be placed manually${NC}"
+    else
+        echo -e "  ${GREEN}found ${MODEL_COUNT} gguf model(s) to bundle${NC}"
+    fi
+
+    # build add-data flags
+    ADD_DATA_FLAGS="--add-data frontend/dist:frontend/dist"
+    if [ "$MODEL_COUNT" -gt 0 ]; then
+        ADD_DATA_FLAGS="$ADD_DATA_FLAGS --add-data data/models:data/models"
+    fi
+
+    # --onedir (NOT --onefile): the backend is shipped as a Tauri *resource*
+    # dir (tauri.conf.json bundle.resources -> "api/"), which lib.rs launches.
+    # a onefile build would re-extract its multi-GB payload to a temp dir on
+    # every launch; onedir unpacks once at install.
+    # --collect-all llama_cpp / sentence_transformers are REQUIRED (neither has a
+    # PyInstaller hook): without them the frozen build omits llama_cpp's lib/*.so
+    # and sentence_transformers' data, breaking chat/gap-analysis and search.
+    pyinstaller --name thinkstack-api --onedir --clean --noconfirm \
         --hidden-import uvicorn \
         --hidden-import uvicorn.logging \
         --hidden-import uvicorn.loops \
@@ -77,22 +99,27 @@ else
         --hidden-import uvicorn.protocols.websockets.auto \
         --hidden-import uvicorn.lifespan \
         --hidden-import uvicorn.lifespan.on \
-        --add-data "frontend/dist:frontend/dist" \
+        --hidden-import psutil \
+        --collect-all llama_cpp \
+        --collect-all sentence_transformers \
+        $ADD_DATA_FLAGS \
         main.py
 
-    echo -e "  ${GREEN}backend frozen to dist/thinkstack-api${NC}"
+    echo -e "  ${GREEN}backend frozen to dist/thinkstack-api/ (onedir)${NC}"
 fi
 
-# ── step 3: prepare tauri sidecar directory ──
+# ── step 3: verify the onedir backend for tauri to bundle ──
+# no sidecar copy needed: tauri.conf.json bundles dist/thinkstack-api/ directly
+# as the "api/" resource. this step just sanity-checks the build.
 echo ""
-echo -e "${CYAN}[3/4] preparing sidecar directory...${NC}"
-if [ -f "dist/thinkstack-api" ]; then
-    mkdir -p src-tauri/bin
-    cp dist/thinkstack-api "src-tauri/bin/thinkstack-api-${TRIPLE}"
-    chmod +x "src-tauri/bin/thinkstack-api-${TRIPLE}"
-    echo -e "  ${GREEN}sidecar placed at src-tauri/bin/thinkstack-api-${TRIPLE}${NC}"
+echo -e "${CYAN}[3/4] verifying onedir backend...${NC}"
+if [ -x "dist/thinkstack-api/thinkstack-api" ] || [ -x "dist/thinkstack-api/thinkstack-api.exe" ]; then
+    echo -e "  ${GREEN}backend dir ready: dist/thinkstack-api/ (tauri bundles it as api/)${NC}"
+elif [ "$SKIP_PYINSTALLER" = true ]; then
+    echo -e "  ${YELLOW}skipped pyinstaller — expecting an existing dist/thinkstack-api/${NC}"
 else
-    echo -e "  ${YELLOW}no frozen backend found at dist/thinkstack-api — skipping sidecar${NC}"
+    echo -e "  ${RED}error: dist/thinkstack-api/thinkstack-api not found after freeze${NC}"
+    exit 1
 fi
 
 # ── step 4: compile tauri desktop app ──
@@ -117,8 +144,7 @@ echo -e "${CYAN}─────────────────────�
 echo -e "${GREEN}  build complete.${NC}"
 echo ""
 echo -e "  artifacts:"
-[ -f "dist/thinkstack-api" ] && echo -e "    frozen backend: ${GREEN}dist/thinkstack-api${NC}"
-[ -f "src-tauri/bin/thinkstack-api-${TRIPLE}" ] && echo -e "    sidecar:        ${GREEN}src-tauri/bin/thinkstack-api-${TRIPLE}${NC}"
+[ -d "dist/thinkstack-api" ] && echo -e "    frozen backend: ${GREEN}dist/thinkstack-api/ (onedir)${NC}"
 if [ -d "src-tauri/target/release/bundle" ]; then
     echo -e "    desktop app:    ${GREEN}src-tauri/target/release/bundle/${NC}"
 fi

@@ -29,7 +29,14 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "deb",
+      "appimage",
+      "app",
+      "dmg",
+      "msi"
+    ],
+    "createUpdaterArtifacts": true,
     "resources": {
       "../dist/thinkstack-api/": "api/"
     },
@@ -40,5 +47,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/Rithesh077/ThinkStack/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEREQkQ0QjFBNUEyQkQzRTEKUldUaDB5dGFHa3U5M2N0SytrQXlrWW1wbUhXNlZ1S1ZQeHQ5dE43aWNQQVpjNW9oSGpmWDgzMkQK"
+    }
   }
 }

@@ -6,6 +6,13 @@
    [data-theme="dark"] (set on <html>) overrides only colors.
    Legacy variable names used across components are defined once
    as var(--design-token) so they follow whichever theme is active. */
+/* ============================================================
+   THEME SYSTEM
+   :root holds the LIGHT theme + all theme-independent tokens.
+   [data-theme="dark"] (set on <html>) overrides only colors.
+   Legacy variable names used across components are defined once
+   as var(--design-token) so they follow whichever theme is active.
+   ============================================================ */
 :root {
   /* ---- theme-independent ---- */
   --radius-sm: 8px;
@@ -994,6 +1001,172 @@ input::-webkit-credentials-auto-fill-button {
    re-skin elements that hard-coded light-on-dark colors so they
    read correctly in BOTH themes. these come last, so they win,
    and they reference tokens so they follow the active theme. */
+.chat-header-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 0.5rem;
+  border-radius: 50%;
+  transition: all var(--transition-fast);
+}
+
+.chat-header-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.chat-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  scrollbar-width: thin;
+}
+
+.chat-empty {
+  margin: auto;
+  text-align: center;
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 0.9rem;
+}
+
+.chat-message {
+  display: flex;
+  gap: 1rem;
+  max-width: 90%;
+}
+
+.chat-message-user {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.chat-message-assistant {
+  align-self: flex-start;
+}
+
+.chat-avatar {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+  color: var(--accent-secondary);
+  border: 1px solid var(--border-light);
+  flex-shrink: 0;
+}
+
+.chat-bubble {
+  padding: 1rem;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.chat-message-user .chat-bubble {
+  background: var(--accent-primary);
+  color: #000;
+  border-bottom-right-radius: 2px;
+}
+
+.chat-message-assistant .chat-bubble {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-light);
+  color: var(--text-primary);
+  border-bottom-left-radius: 2px;
+}
+
+.chat-bubble-loading {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  color: var(--text-muted);
+}
+
+.chat-thinking-loader {
+  width: 20px;
+  height: 20px;
+}
+
+.chat-panel-footer {
+  padding: 1.5rem;
+  border-top: 1px solid var(--border-subtle);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.chat-input-wrap {
+  display: flex;
+  gap: 0.5rem;
+  position: relative;
+}
+
+.chat-input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  color: var(--text-primary);
+  font-family: var(--font-base);
+  resize: none;
+  font-size: 0.95rem;
+  outline: none;
+  transition: all var(--transition-fast);
+}
+
+.chat-input:focus {
+  border-color: var(--accent-primary);
+  background: rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+}
+
+.chat-send-btn {
+  background: var(--accent-primary);
+  color: #000;
+  border: none;
+  border-radius: var(--radius-md);
+  width: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.chat-send-btn:hover:not(:disabled) {
+  background: var(--accent-secondary);
+  transform: translateY(-2px);
+}
+
+.chat-send-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(1);
+}
+
+.chat-input-hint {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-top: 0.75rem;
+  justify-content: flex-end;
+}
+
+/* ============================================================
+   THEME RECONCILIATION
+   re-skin elements that hard-coded light-on-dark colors so they
+   read correctly in BOTH themes. these come last, so they win,
+   and they reference tokens so they follow the active theme.
+   ============================================================ */
 .stat-value { color: var(--text); }
 .page-header h2 { text-shadow: none; }
 
@@ -1134,6 +1307,7 @@ input::-webkit-credentials-auto-fill-button {
 }
 
 /* PAPER WRITER */
+/* ---- PAPER WRITER ---- */
 .pw-bar {
   display: flex;
   align-items: center;
@@ -1284,6 +1458,43 @@ input::-webkit-credentials-auto-fill-button {
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ============================================================
+   CHAT FIX — wrap long messages so nothing gets clipped
+   ============================================================ */
+.chat-panel-content,
+.chat-message,
+.chat-bubble-content { min-width: 0; }
+
+.chat-message { max-width: 88%; }
+
+.chat-bubble {
+  min-width: 0;
+  max-width: 100%;
+  white-space: pre-wrap;       /* preserve the model's line breaks */
+  overflow-wrap: anywhere;     /* break long words / urls */
+  word-break: break-word;
+}
+
+.chat-bubble-content { overflow-wrap: anywhere; }
+
+/* keep the assistant "thinking" loader from forcing overflow */
+.chat-bubble-loading { flex-wrap: wrap; }
+
+/* "model busy" hint when another task holds the single local model */
+.chat-busy-hint {
+  color: var(--accent);
+  font-weight: 600;
+  justify-content: flex-start;
+}
+
+/* multi-line agent prompt (chat) — grows with content, then scrolls */
+.chat-input {
+  min-height: 46px;
+  max-height: 160px;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+
 /* multi-line AI prompt in the paper writer */
 .pw-ai { align-items: flex-end; }
 .pw-ai-input {
@@ -1334,6 +1545,15 @@ input::-webkit-credentials-auto-fill-button {
    Outfit display, acid-green signal, SVG brush-slash page titles,
    bento surfaces, and definitions for the classes the components
    reference. Appended last so it wins over earlier rules. */
+/* chat side panel: never overflow a narrow window (also helps the desktop app) */
+.chat-side-panel { width: min(400px, 92vw); }
+
+/* ============================================================
+   NEON CONTINUITY  — ports the landing page's language into the app:
+   Outfit display, acid-green signal, SVG brush-slash page titles,
+   bento surfaces, and definitions for the classes the components
+   reference. Appended last so it wins over earlier rules.
+   ============================================================ */
 
 /* ---- display type: Outfit needs real weight (Anton was single-weight) ---- */
 .sidebar-brand h1 { font-weight: 800; letter-spacing: -0.02em; color: var(--text); text-shadow: none; }
@@ -1417,6 +1637,11 @@ input::-webkit-credentials-auto-fill-button {
 /* MISSING-CLASS DEFINITIONS
    these were referenced by components but never styled, so they
    rendered as raw HTML. defined here on the token system. */
+/* ============================================================
+   MISSING-CLASS DEFINITIONS
+   these were referenced by components but never styled, so they
+   rendered as raw HTML. defined here on the token system.
+   ============================================================ */
 
 /* empty & loading states */
 .empty-state {
@@ -1501,6 +1726,9 @@ input::-webkit-credentials-auto-fill-button {
 }
 
 /* PAPER WRITER: PREVIEW TAB SWITCHER */
+/* ============================================================
+   PAPER WRITER: PREVIEW TAB SWITCHER
+   ============================================================ */
 .pw-preview-tabs {
   display: flex;
   gap: 0;
@@ -1539,6 +1767,9 @@ input::-webkit-credentials-auto-fill-button {
 }
 
 /* LATEX PREVIEW RENDERER STYLES */
+/* ============================================================
+   LATEX PREVIEW RENDERER STYLES
+   ============================================================ */
 .lp-root {
   font-family: 'Computer Modern', 'Latin Modern Roman', 'STIX Two Text', Georgia, 'Times New Roman', serif;
   font-size: 0.95rem;

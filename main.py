@@ -69,7 +69,7 @@ app.include_router(encryption_router, prefix="/api/encryption", tags=["encryptio
 app.include_router(papers_router, prefix="/api/papers", tags=["papers"])
 
 frontend_dist = settings.base_dir / "frontend" / "dist"
-if frontend_dist.exists():
+if frontend_dist.exists() and (frontend_dist / "index.html").exists():
     # serve hashed build assets directly
     assets_dir = frontend_dist / "assets"
     if assets_dir.exists():

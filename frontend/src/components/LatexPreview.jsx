@@ -1,8 +1,8 @@
 /**
- * LatexPreview — real-time client-side LaTeX → HTML renderer.
+ * LatexPreview - real-time client-side LaTeX → HTML renderer.
  *
  * Converts common LaTeX structural commands to styled HTML and uses KaTeX
- * for math expressions. Runs entirely in the browser — no pdflatex needed.
+ * for math expressions. Runs entirely in the browser - no pdflatex needed.
  *
  * Supports: sections, lists, math, tables, formatting, abstract, title block.
  */
@@ -11,7 +11,7 @@ import { useMemo, useState, useEffect } from 'react';
 
 /* KaTeX is code-split into its own chunk and loaded on first render, so it
    never weighs down the initial bundle. The import must stay resolvable by the
-   bundler — marking it @vite-ignore leaves a bare "katex" specifier in the
+   bundler - marking it @vite-ignore leaves a bare "katex" specifier in the
    output, which no browser can resolve, and every equation then silently
    degrades to the <code> fallback below. */
 let _katex = null;
@@ -94,7 +94,7 @@ function latexToHtml(source) {
   }
 
   // ── display math environments ────────────────────────────────────
-  // equation, align, gather, multline — render as display math
+  // equation, align, gather, multline - render as display math
   text = text.replace(
     /\\begin\{(equation|align|gather|multline)\*?\}([\s\S]*?)\\end\{\1\*?\}/g,
     (_, _env, body) => `<div class="lp-display-math">${renderMath(body, true)}</div>`
@@ -137,14 +137,14 @@ function latexToHtml(source) {
     }
   );
 
-  // ── figures / tikz / tables — show a styled placeholder ──────────
+  // ── figures / tikz / tables - show a styled placeholder ──────────
   text = text.replace(
     /\\begin\{figure\}[\s\S]*?\\end\{figure\}/g,
-    '<div class="lp-placeholder">[Figure — compile to view]</div>'
+    '<div class="lp-placeholder">[Figure - compile to view]</div>'
   );
   text = text.replace(
     /\\begin\{tikzpicture\}[\s\S]*?\\end\{tikzpicture\}/g,
-    '<div class="lp-placeholder">[TikZ diagram — compile to view]</div>'
+    '<div class="lp-placeholder">[TikZ diagram - compile to view]</div>'
   );
 
   // simple tabular → HTML table
@@ -155,7 +155,7 @@ function latexToHtml(source) {
         .split(/\\\\/)
         .map(r => r.replace(/\\(?:toprule|midrule|bottomrule|hline|cmidrule\{[^}]*\})/g, '').trim())
         .filter(r => r);
-      if (!rows.length) return '<div class="lp-placeholder">[Table — compile to view]</div>';
+      if (!rows.length) return '<div class="lp-placeholder">[Table - compile to view]</div>';
       const html = rows.map((row, i) => {
         const cells = row.split('&').map(c => processInline(c.trim()));
         const tag = i === 0 ? 'th' : 'td';
@@ -222,7 +222,7 @@ function processInline(text) {
   // ~ → non-breaking space, \\ → <br>, -- → en-dash, --- → em-dash
   text = text.replace(/~/g, '&nbsp;');
   text = text.replace(/\\\\/g, '<br/>');
-  text = text.replace(/---/g, '—');
+  text = text.replace(/---/g, '\u2014'); // LaTeX --- renders as an em dash
   text = text.replace(/--/g, '–');
 
   return text;

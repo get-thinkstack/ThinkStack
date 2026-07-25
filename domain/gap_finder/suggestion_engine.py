@@ -58,6 +58,11 @@ async def generate_suggestions(gaps: list[ResearchGap]) -> list[Suggestion]:
         if gap.evidence:
             gaps_text += f"\n  evidence: {'; '.join(gap.evidence[:3])}"
 
+    # cap total input to prevent exceeding the model's context window
+    if len(gaps_text) > 3000:
+        gaps_text = gaps_text[:3000]
+        logger.info("truncated gap text to 3000 chars for model safety")
+
     prompt = SUGGESTION_PROMPT.format(gaps=gaps_text)
 
     system = (
@@ -71,6 +76,7 @@ async def generate_suggestions(gaps: list[ResearchGap]) -> list[Suggestion]:
             prompt,
             system=system,
             max_tokens=800,
+            task_type="gap_analysis",
         )
         data = json.loads(response)
         suggestions_data = data.get("suggestions", [])

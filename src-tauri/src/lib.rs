@@ -16,6 +16,40 @@ use std::time::Duration;
 
 const BACKEND_ADDR: &str = "127.0.0.1:8000";
 
+/// Detect available VRAM and compute safe gpu_layers.
+/// Returns -1 (full offload) if sufficient VRAM, 0 for CPU-only.
+fn detect_gpu_layers() -> String {
+    // check for NVIDIA GPU via nvidia-smi
+    if let Ok(output) = Command::new("nvidia-smi")
+        .args(["--query-gpu=memory.total", "--format=csv,noheader,nounits"])
+        .output()
+    {
+        if output.status.success() {
+            if let Ok(mem_str) = String::from_utf8(output.stdout) {
+                if let Ok(vram_mb) = mem_str.trim().parse::<u64>() {
+                    let vram_gb = vram_mb as f64 / 1024.0;
+                    // full offload if >= 2GB VRAM, else CPU-only
+                    if vram_gb >= 2.0 {
+                        return "-1".to_string();
+                    }
+                }
+            }
+        }
+    }
+    "0".to_string()
+}
+
+/// Resolve the models directory: bundled data/models or project data/models.
+fn models_dir() -> String {
+    let project = project_dir();
+    let bundled = format!("{project}/data/models");
+    if std::path::Path::new(&bundled).is_dir() {
+        return bundled;
+    }
+    // fallback to relative path (the backend config default)
+    "data/models".to_string()
+}
+
 /// Resolve the python interpreter: env var → project venv → system python3.
 fn python_path() -> String {
     if let Ok(p) = std::env::var("THINKSTACK_PYTHON") {
@@ -85,7 +119,7 @@ fn sidecar_path() -> Option<std::path::PathBuf> {
 ///
 /// Deliberately sets no defaults of its own. GPU offload is machine-specific:
 /// `THINKSTACK_LLM_GPU_LAYERS=-1` requires a CUDA build of llama-cpp-python, and
-/// the loader raises rather than silently falling back to CPU — so forcing -1
+/// the loader raises rather than silently falling back to CPU - so forcing -1
 /// here would turn "no CUDA on this machine" into a hard crash at model load.
 ///
 /// The machine's own value belongs in the gitignored `.env` shipped next to the
@@ -113,6 +147,9 @@ fn backend_up() -> bool {
 /// Prefers the bundled sidecar binary (production). Falls back to
 /// `python -m uvicorn` for development when no sidecar is found.
 fn start_backend() -> Option<Child> {
+    let gpu_layers = detect_gpu_layers();
+    let model_dir = models_dir();
+
     // ── try sidecar first (production builds) ──
     if let Some(sidecar) = sidecar_path() {
         let mut cmd = Command::new(&sidecar);
@@ -121,6 +158,14 @@ fn start_backend() -> Option<Child> {
         // run from the bundle's own folder so its .env (model path) resolves
         if let Some(dir) = sidecar.parent() {
             cmd.current_dir(dir);
+        }
+
+        // pass hardware-detected settings to the backend
+        cmd.env("THINKSTACK_LLM_GPU_LAYERS", &gpu_layers);
+        cmd.env("THINKSTACK_LLM_MODEL_PATH", &model_dir);
+
+        if let Ok(model) = std::env::var("THINKSTACK_LLM_MODEL_PATH") {
+            cmd.env("THINKSTACK_LLM_MODEL_PATH", model);
         }
         apply_inference_env(&mut cmd);
 
@@ -148,6 +193,13 @@ fn start_backend() -> Option<Child> {
     .current_dir(&project);
 
     apply_inference_env(&mut cmd);
+    // pass hardware-detected settings to the backend
+    cmd.env("THINKSTACK_LLM_GPU_LAYERS", &gpu_layers);
+    cmd.env("THINKSTACK_LLM_MODEL_PATH", &model_dir);
+
+    if let Ok(model) = std::env::var("THINKSTACK_LLM_MODEL_PATH") {
+        cmd.env("THINKSTACK_LLM_MODEL_PATH", model);
+    }
 
     #[cfg(windows)]
     {
@@ -164,7 +216,7 @@ fn kill_backend(child: &mut Child) {
     #[cfg(windows)]
     {
         let pid = child.id();
-        // /T kills the whole tree, /F forces it — belt and suspenders.
+        // /T kills the whole tree, /F forces it - belt and suspenders.
         let _ = Command::new("taskkill")
             .args(["/PID", &pid.to_string(), "/T", "/F"])
             .output();
@@ -187,8 +239,19 @@ pub fn run() {
         std::thread::sleep(Duration::from_millis(400));
     }
 
-    let app = tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
+    let mut builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+
+    // auto-updater (desktop only): lets the frontend check the signed manifest
+    // on github releases and install a new version in-app. `process` is used to
+    // relaunch after an update installs.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        builder = builder
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .plugin(tauri_plugin_process::init());
+    }
+
+    let app = builder
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 

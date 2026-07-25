@@ -17,7 +17,7 @@ function insertLatex(src, gen) {
 }
 
 /**
- * AI LaTeX paper writer — create projects, edit source, generate LaTeX
+ * AI LaTeX paper writer - create projects, edit source, generate LaTeX
  * with the local SLM, compile to PDF, and preview/download. All offline.
  */
 export default function PaperWriter() {
@@ -36,7 +36,7 @@ export default function PaperWriter() {
   const [creating, setCreating] = useState(false);
   const [previewTab, setPreviewTab] = useState('preview'); // 'preview' | 'pdf'
 
-  // single shared local model — block AI generate while it's busy elsewhere
+  // single shared local model - block AI generate while it's busy elsewhere
   const { busy: llmBusy, label } = useLlmBusy();
 
   // grounding: which uploaded papers the AI should use as context
@@ -174,7 +174,7 @@ export default function PaperWriter() {
     <div>
       <PageHeader
         title="Paper Writer"
-        subtitle="Draft, AI-generate, and compile LaTeX papers — fully offline."
+        subtitle="Draft, AI-generate, and compile LaTeX papers - fully offline."
       />
 
       {/* project bar */}
@@ -195,7 +195,7 @@ export default function PaperWriter() {
               </span>
             </button>
           ))}
-          {projects.length === 0 && <span className="pw-hint">no projects yet — create one →</span>}
+          {projects.length === 0 && <span className="pw-hint">no projects yet - create one →</span>}
         </div>
         <div className="pw-create">
           <input
@@ -275,7 +275,7 @@ export default function PaperWriter() {
               {showContext && (
                 <div className="pw-context-list">
                   {docs.length === 0 ? (
-                    <span className="pw-hint">no papers yet — upload in Library</span>
+                    <span className="pw-hint">no papers yet - upload in Library</span>
                   ) : (
                     docs.map((d) => (
                       <button
@@ -299,7 +299,7 @@ export default function PaperWriter() {
               <textarea
                 className="input pw-ai-input"
                 rows={2}
-                placeholder={llmBusy && !generating ? 'Model busy — please wait…' : 'Describe a section, equation, table, or chart for the AI to write… (Shift+Enter for a new line)'}
+                placeholder={llmBusy && !generating ? 'Model busy - please wait…' : 'Describe a section, equation, table, or chart for the AI to write… (Shift+Enter for a new line)'}
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 onKeyDown={(e) => {
@@ -337,7 +337,7 @@ export default function PaperWriter() {
             {warnings.length > 0 && previewTab === 'pdf' && (
               <details className="pw-warn">
                 <summary>
-                  ⚠ Compiled with {warnings.length} warning{warnings.length > 1 ? 's' : ''} — PDF may have missing figures
+                  ⚠ Compiled with {warnings.length} warning{warnings.length > 1 ? 's' : ''} - PDF may have missing figures
                 </summary>
                 <pre>{warnings.join('\n\n')}</pre>
               </details>
