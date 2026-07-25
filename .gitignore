@@ -73,7 +73,12 @@ docs/*.toc
 docs/*.synctex.gz
 
 # ── IDE / Editor / OS ────────────────────────────────────
-.vscode/
+# ignore local .vscode noise but SHARE the workspace config that fixes the
+# YAML-extension false positives on the reusable workflows (settings.json pins
+# the canonical GitHub Actions schema; extensions.json recommends the linters).
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
 .idea/
 *.swp
 *.swo
