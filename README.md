@@ -68,7 +68,7 @@ demand to keep memory bounded, and falls back to cpu when no usable gpu is prese
 ### 1. clone and bootstrap
 
 ```bash
-git clone <repo-url> && cd ScholarLens
+git clone <repo-url> && cd ThinkStack
 ./scripts/setup.sh
 ```
 
