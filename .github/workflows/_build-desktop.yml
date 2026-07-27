@@ -201,10 +201,19 @@ jobs:
         shell: bash
         run: |
           mkdir -p data/models
-          jq -r '.models[]' release.config.json | while read -r url; do
+          # `tr -d '\r'` is required: jq on the Windows runner emits CRLF, so
+          # `read` leaves a trailing carriage return on the URL and curl fails
+          # with "URL rejected: Malformed input to a URL function". Linux/macOS
+          # are unaffected, so this only ever showed up on Windows.
+          #
+          # --fail makes curl exit non-zero on an HTTP error instead of writing
+          # the error page into the .gguf; --retry rides out flaky transfers of
+          # these ~1 GB files.
+          jq -r '.models[]' release.config.json | tr -d '\r' | while read -r url; do
+            [ -n "$url" ] || continue
             fname="$(basename "$url")"
             echo "downloading $fname"
-            curl -L -o "data/models/$fname" "$url"
+            curl -L --fail --retry 3 --retry-delay 5 -o "data/models/$fname" "$url"
           done
           ls -lh data/models/
 
@@ -284,12 +293,30 @@ jobs:
           NO_STRIP: 'true'
 
       # -- build tauri (macOS universal) --
-      # env-gated apple code-signing + notarization: when the APPLE_* secrets are
-      # present tauri signs and notarizes the .app/.dmg; absent, it builds an
-      # unsigned bundle (gatekeeper warns once on first launch). this is the
-      # enterprise hook -- add the secrets, no workflow change needed.
-      - name: Build Tauri app (macOS universal)
+      # apple code-signing is opt-in and must be all-or-nothing. tauri decides to
+      # codesign based on whether APPLE_CERTIFICATE is PRESENT, not whether it has
+      # a value -- and `${{ secrets.X }}` for an undefined secret expands to an
+      # empty string, which still counts as present. that made an unsigned build
+      # fail with "failed to import keychain certificate" instead of quietly
+      # skipping signing. so detect first, then run one of two variants: the
+      # unsigned one does not define the APPLE_* vars at all.
+      - name: Detect Apple signing availability
+        id: apple
         if: runner.os == 'macOS'
+        shell: bash
+        env:
+          CERT: ${{ secrets.APPLE_CERTIFICATE }}
+        run: |
+          if [ -n "$CERT" ]; then
+            echo "signing=true" >> "$GITHUB_OUTPUT"
+            echo "apple signing certificate present - will codesign + notarize"
+          else
+            echo "signing=false" >> "$GITHUB_OUTPUT"
+            echo "no apple certificate - building unsigned (gatekeeper warns once)"
+          fi
+
+      - name: Build Tauri app (macOS universal, signed)
+        if: runner.os == 'macOS' && steps.apple.outputs.signing == 'true'
         run: npm run tauri build -- --target universal-apple-darwin --bundles ${{ matrix.bundles }}
         shell: bash
         env:
@@ -301,6 +328,16 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      # identical build, minus every APPLE_* var, so tauri never attempts to
+      # codesign. still signs the UPDATER artifacts (.sig) so auto-update works.
+      - name: Build Tauri app (macOS universal, unsigned)
+        if: runner.os == 'macOS' && steps.apple.outputs.signing != 'true'
+        run: npm run tauri build -- --target universal-apple-darwin --bundles ${{ matrix.bundles }}
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       # -- collect artifacts --
       # *.sig are the updater signatures (present only when signing secrets are
