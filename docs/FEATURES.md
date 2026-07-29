@@ -117,6 +117,31 @@ ThinkStack sizes itself to the machine it runs on.
 - You can **change the active model** yourself; the choice persists across
   restarts.
 
+### Reusing models you already have
+
+If you already run **Ollama** or **LM Studio**, ThinkStack finds those models and
+uses them instead of downloading its own copy. Nothing is ever fetched that your
+machine already stores.
+
+This matters because every runtime names the same weights differently:
+
+| Where it came from | What it's called |
+|--------------------|------------------|
+| Ollama | `qwen2.5:1.5b` |
+| LM Studio | `Qwen2.5-1.5B-Instruct-Q4_K_M.gguf` |
+| ThinkStack | `qwen2.5-1.5b-instruct-q4_k_m.gguf` |
+
+All three are the same model. ThinkStack reduces them to a canonical
+`family/size` key (`qwen2.5/1.5b`) so they compare equal, then loads the copy you
+already have. Quantisation is ignored on purpose — a `q4` and a `q8` of the same
+model do the same job here, and re-downloading one because you have the other is
+exactly the waste this avoids.
+
+Models are discovered from ThinkStack's own directory, a running Ollama server,
+Ollama's on-disk store (so it works even when Ollama isn't running), and LM
+Studio. Every probe is optional and independently guarded: a missing tool or an
+unreadable directory simply finds nothing, and never delays startup.
+
 ## Fine-tuning data collection
 
 - Every AI generation passively logs a prompt→output training pair as JSONL under

@@ -10,6 +10,7 @@ import pytest
 
 from config import settings
 from infrastructure import hardware
+from domain.model_manager import discovery
 from infrastructure.ollama_client import OllamaClient, _extract_json_text
 
 ANALYSIS = settings.llm_analysis_model  # e.g. qwen2.5-1.5b-instruct-q4_k_m.gguf
@@ -111,3 +112,53 @@ class TestTaskModelMap:
 
     def test_general_has_no_dedicated_model(self):
         assert OllamaClient.TASK_MODEL_MAP["general"] == []
+
+
+class TestReusesModelsAlreadyOnTheMachine:
+    """the loader must use weights the user already has, not re-acquire them.
+
+    Bug found by Aditya: discovery knew about models installed via LM Studio (or
+    a previous download) but the loader only ever looked in ThinkStack's own
+    directory, so an analysis task silently degraded to the base model - or
+    offered a 1.1 GB download - while the identical weights sat on disk under
+    another runtime's naming convention.
+    """
+
+    def _client_with_only_base(self, tmp_path):
+        our = tmp_path / "models"
+        our.mkdir()
+        (our / BASE).write_bytes(b"x" * 1000)
+        c = OllamaClient(provider="llama_cpp", model_path=our)
+        c.model_path = our
+        return c, our
+
+    def test_uses_lm_studio_copy_instead_of_degrading(self, tmp_path, monkeypatch):
+        c, _ = self._client_with_only_base(tmp_path)
+        lms = tmp_path / "lmstudio"
+        lms.mkdir()
+        # LM Studio's naming for the same weights our catalog calls
+        # qwen2.5-1.5b-instruct-q4_k_m.gguf
+        external = lms / "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf"
+        external.write_bytes(b"y" * 1000)
+        monkeypatch.setattr(discovery, "_lmstudio_roots", lambda: [lms])
+
+        got = c._resolve_task_model_path("analysis")
+        assert got == external, "should load the copy the user already has"
+
+    def test_falls_back_to_base_when_nothing_external_matches(self, tmp_path, monkeypatch):
+        c, _ = self._client_with_only_base(tmp_path)
+        lms = tmp_path / "lmstudio"
+        lms.mkdir()
+        (lms / "llama3.2-3b-instruct-q4_k_m.gguf").write_bytes(b"z" * 1000)  # unrelated
+        monkeypatch.setattr(discovery, "_lmstudio_roots", lambda: [lms])
+
+        got = c._resolve_task_model_path("analysis")
+        assert got.name == BASE, "an unrelated external model must not be used"
+
+    def test_missing_external_lookup_never_breaks_loading(self, tmp_path, monkeypatch):
+        c, _ = self._client_with_only_base(tmp_path)
+        def boom():
+            raise OSError("permission denied")
+        monkeypatch.setattr(discovery, "_lmstudio_roots", boom)
+        # a failing bonus lookup must degrade to the base model, not raise
+        assert c._resolve_task_model_path("analysis").name == BASE

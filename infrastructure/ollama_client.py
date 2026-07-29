@@ -199,6 +199,38 @@ class OllamaClient:
         from infrastructure.hardware import model_file_size_gb
         return model_file_size_gb(model_path) <= budget_gb
 
+    def _find_external_model(self, wanted: str) -> Optional[Path]:
+        """a loadable gguf for ``wanted`` sitting outside our own models dir.
+
+        Users often already have these weights via LM Studio or a previous
+        download. Without this the app would degrade to the base model — or
+        offer to download a gigabyte the machine already stores — purely because
+        the file is in someone else's directory.
+
+        Matching is on the canonical family/size key, since every runtime names
+        the same weights differently. Only filesystem sources are consulted:
+        Ollama serves its blobs over HTTP rather than as loadable .gguf files, so
+        probing it here would add latency to a model load for a path llama.cpp
+        cannot use anyway.
+        """
+        try:
+            from domain.model_manager.discovery import (
+                find_lmstudio_models,
+                find_thinkstack_models,
+                model_key,
+            )
+
+            target = model_key(wanted)
+            found = find_thinkstack_models(self._models_dir()) + find_lmstudio_models()
+            for m in found:
+                if m.usable_directly and model_key(m.name) == target:
+                    p = Path(m.path)
+                    if p.is_file():
+                        return p
+        except Exception as e:  # noqa: BLE001 - a bonus lookup must never break loading
+            logger.debug("external model lookup failed for %s: %s", wanted, e)
+        return None
+
     def _resolve_task_model_path(self, task_type: str = "general") -> Path:
         """resolve the model path for a task, tuned to the hardware.
 
@@ -224,13 +256,20 @@ class OllamaClient:
         first_existing: Optional[Path] = None
         for name in candidates:
             path = models_dir / name
+            # not in our dir -> the user may still have these exact weights under
+            # another runtime's naming; use those rather than degrading.
             if not path.is_file():
-                continue
+                external = self._find_external_model(name)
+                if external is None:
+                    continue
+                logger.info("task %s -> reusing %s (already on this machine)",
+                            task_type, external)
+                path = external
             if first_existing is None:
                 first_existing = path
             if self._fits_budget(path, budget):
                 logger.info(
-                    "task %s -> %s (fits hw budget %.1f gb)", task_type, name, budget
+                    "task %s -> %s (fits hw budget %.1f gb)", task_type, path.name, budget
                 )
                 return path
 
