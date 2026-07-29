@@ -89,6 +89,5 @@ from a source checkout it's under the project's `data/` folder.
 ## Getting help / contributing
 
 - Feature details: [FEATURES.md](FEATURES.md)
-- Cutting a release / how updates work: [RELEASE_GUIDE.md](RELEASE_GUIDE.md)
-- GPU acceleration setup: [gpu_setup.md](gpu_setup.md)
+- Cutting a release / how updates work: [../scripts/README.md](../scripts/README.md)
 - Design decisions and rationale: [ADR.md](ADR.md)

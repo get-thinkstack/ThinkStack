@@ -74,7 +74,8 @@ The signing key stays out of the repo (the private key lives at `~/.tauri` and a
 a CI secret; only the public key is committed). The supporting scripts are
 `scripts/compose-updater-manifest.sh`, which builds the manifest, and
 `scripts/release.sh`, which bumps the version and tags the release. See
-[../RELEASE_GUIDE.md](../RELEASE_GUIDE.md) for the full architecture.
+[../ADR.md](../ADR.md) for the decisions and [../../scripts/README.md](../../scripts/README.md)
+for the runbook.
 
 ## Model discovery and reuse
 
@@ -117,6 +118,6 @@ the `max_tokens` caps, and the onedir packaging) rather than taking it as-is.
 - `tests/` is the automated `pytest` suite (run `pytest`), gated in CI by
   `.github/workflows/ci.yml`. `tools/test_paper_writer.py` remains as a manual
   end-to-end paper-writer integration check (real pdflatex compile).
-- `docs/RELEASE_GUIDE.md` is the single guide for cutting a release and for how
+- `scripts/README.md` is the runbook for cutting a release and for how
   downloads and updates work. I also maintain the landing page (`landing.html`)
   and the ADR entries for the decisions above.

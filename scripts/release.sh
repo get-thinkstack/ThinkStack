@@ -20,7 +20,8 @@
 #   scripts/release.sh 0.2.0 --beta 1     # tag v0.2.0-beta.1 (beta channel)
 #   scripts/release.sh 0.2.0 --beta 2 --push
 #
-# see docs/RELEASE_GUIDE.md for the full release + auto-update flow.
+# see scripts/README.md for the release runbook and docs/ADR.md for why the
+# pipeline is shaped this way.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
