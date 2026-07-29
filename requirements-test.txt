@@ -1,0 +1,39 @@
+# lean dependency set for the CI unit-test gate.
+#
+# deliberately does NOT pull in the heavy ML stack (torch, sentence-transformers,
+# llama-cpp-python). the app defers those imports — embedding and model loading
+# are lazy — so the unit tests never trigger them. this keeps the PR gate fast:
+# no multi-GB torch download, no C++ compile of llama-cpp. the full runtime deps
+# live in requirements.txt (installed by the release build, not the test gate).
+#
+# unpinned on purpose: the test env just needs a working, compatible set. the
+# frozen app is what pins exact versions (requirements.txt).
+
+# web / api (FastAPI TestClient)
+fastapi
+httpx
+python-multipart
+pydantic
+pydantic-settings
+
+# core logic deps exercised by the suite
+numpy
+psutil
+
+# encryption module
+cryptography
+argon2-cffi
+
+# ingestion (pdf parsing)
+pymupdf
+pdfplumber
+
+# search
+rank-bm25
+nltk
+
+# test tooling
+pytest>=8,<10
+pytest-asyncio
+pytest-cov>=5
+ruff

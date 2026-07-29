@@ -7,7 +7,6 @@
 set -e
 
 cd "$(dirname "$0")/.."
-PROJECT_ROOT=$(pwd)
 
 # ── colors ──
 GREEN='\033[0;32m'
@@ -74,10 +73,11 @@ else
         echo -e "  ${GREEN}found ${MODEL_COUNT} gguf model(s) to bundle${NC}"
     fi
 
-    # build add-data flags
-    ADD_DATA_FLAGS="--add-data frontend/dist:frontend/dist"
+    # build add-data flags. an array, not a string: an unquoted string expansion
+    # relies on word splitting (SC2086) and breaks on any path containing a space.
+    ADD_DATA_FLAGS=(--add-data "frontend/dist:frontend/dist")
     if [ "$MODEL_COUNT" -gt 0 ]; then
-        ADD_DATA_FLAGS="$ADD_DATA_FLAGS --add-data data/models:data/models"
+        ADD_DATA_FLAGS+=(--add-data "data/models:data/models")
     fi
 
     # --onedir (NOT --onefile): the backend is shipped as a Tauri *resource*
@@ -102,7 +102,7 @@ else
         --hidden-import psutil \
         --collect-all llama_cpp \
         --collect-all sentence_transformers \
-        $ADD_DATA_FLAGS \
+        "${ADD_DATA_FLAGS[@]}" \
         main.py
 
     echo -e "  ${GREEN}backend frozen to dist/thinkstack-api/ (onedir)${NC}"

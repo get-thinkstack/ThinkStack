@@ -9,6 +9,7 @@ import SearchPage from './components/Search';
 import Analysis from './components/Analysis';
 import GapAnalysis from './components/GapAnalysis';
 import PaperWriter from './components/PaperWriter';
+import ModelSetup from './components/ModelSetup';
 import './index.css';
 
 const THEME_KEY = 'ts-theme';
@@ -123,6 +124,9 @@ export default function App() {
 
   return (
     <>
+      {/* first-run only, and only when a better model is both runnable and
+          not already installed. renders nothing otherwise. */}
+      <ModelSetup />
       <div className="ambient-bg">
         <div className="ambient-orb orb-1"></div>
         <div className="ambient-orb orb-2"></div>

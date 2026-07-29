@@ -1,0 +1,47 @@
+#!/bin/bash
+# pre-push: run what CI runs, before the push leaves your machine.
+#
+# This is the real gate. Pushing is the first moment your code can break someone
+# else's build, so this mirrors .github/workflows/ci.yml via scripts/preflight.sh
+# and refuses the push when it would go red.
+#
+# Scope follows the branch you are pushing to:
+#   dev          -> fast gate (lint + tests), scoped to what changed
+#   beta / main  -> full gate: everything CI runs
+#
+# bypass once:  git push --no-verify
+set -uo pipefail
+
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
+ROOT="$(git rev-parse --show-toplevel)"
+
+# git feeds "<local ref> <local sha> <remote ref> <remote sha>" on stdin
+REMOTE_BRANCH=""
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+    [ -n "$remote_ref" ] && REMOTE_BRANCH="${remote_ref#refs/heads/}"
+done
+[ -z "$REMOTE_BRANCH" ] && REMOTE_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+
+echo -e "${CYAN}pre-push${NC} -> ${GREEN}${REMOTE_BRANCH}${NC}"
+
+# protected branches always get the full gate, whatever branch you are on
+case "$REMOTE_BRANCH" in
+    main|master|beta) LEVEL="--full" ;;
+    *)                LEVEL="" ;;
+esac
+
+# preflight does its own fetch/staleness check
+if ! "$ROOT/scripts/preflight.sh" $LEVEL; then
+    echo ""
+    echo -e "${RED}push blocked:${NC} these failures would turn CI red."
+    echo -e "  fix them, or push anyway with ${CYAN}git push --no-verify${NC}"
+    exit 1
+fi
+
+# pushing to the release branch is worth one extra beat of attention
+case "$REMOTE_BRANCH" in
+    main|master)
+        echo -e "${YELLOW}note:${NC} pushing to a release branch. installers ship only when"
+        echo -e "      you tag: ${CYAN}scripts/release.sh <version> --push${NC}"
+        ;;
+esac

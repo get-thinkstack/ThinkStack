@@ -65,7 +65,7 @@ def _get_doc_text(doc_id: str, password: str | None = None) -> str:
     is_enc = first_meta.get("is_encrypted")
     if is_enc == "true" or is_enc is True:
         if not password:
-            raise HTTPException(status_code=403, detail=f"document is encrypted. password required.")
+            raise HTTPException(status_code=403, detail="document is encrypted. password required.")
         from domain.encryption.vault import decrypt_paper, WrongPasswordError
         from domain.encryption.envelope import EnvelopeFormatError
         envelope = first_meta.get("encrypted_envelope")

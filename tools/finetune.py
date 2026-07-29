@@ -27,7 +27,6 @@ privacy: this script reads ONLY from data/training/*.jsonl (local files).
 import argparse
 import json
 import logging
-import os
 import shutil
 import subprocess
 import sys
@@ -396,7 +395,7 @@ privacy:
     print("=" * 55)
     print(f"  task:       {args.task}")
     print(f"  base model: {args.base_model}")
-    print(f"  privacy:    all data stays on this machine")
+    print("  privacy:    all data stays on this machine")
     print("=" * 55)
 
     if args.merge_only:

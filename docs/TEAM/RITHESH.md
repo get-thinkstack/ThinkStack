@@ -49,26 +49,62 @@ Two packaging corrections are worth recording:
 
 ## Model bundling and routing
 
-The app bundles two models: a 0.5B for chat, search, and the paper writer, and a
-1.5B for the analysis tasks (summarize, claims, gap-finder). The 0.5B is fast
-and light but produces malformed JSON on the structured-output tasks, which is
-why those route to the larger model. To keep memory bounded, `ollama_client.py`
-keeps only one model resident at a time and swaps on demand rather than holding
-both. GPU is used when available, with a CPU fallback so the app still runs on
-machines without a usable CUDA setup. `file_manager.seed_bundled_models()`
-copies the bundled models into the writable data directory on first run, since a
-frozen build ships them read-only.
+The installer bundles one model - a 0.5B for chat, search, and the paper writer.
+The 0.5B is fast and light but produces malformed JSON on the structured-output
+tasks (summarize, claims, gap-finder), so those route to a 1.5B when one is
+available; it is fetched on consent or reused from an existing Ollama/LM Studio
+install rather than shipped, which kept installers clear of GitHub's 2 GiB asset
+limit. Analysis degrades to the 0.5B when no larger model is present.
+
+To keep memory bounded, `ollama_client.py` keeps only one model resident at a
+time and swaps on demand rather than holding both. GPU is used when available,
+with a CPU fallback so the app still runs on machines without a usable CUDA
+setup. `file_manager.seed_bundled_models()` copies the bundled model into the
+writable data directory on first run, since a frozen build ships it read-only.
 
 ## CI/CD and auto-updates
 
-`.github/workflows/build-release.yml` builds installers for Linux, macOS, and
-Windows on a version tag and publishes them to GitHub Releases. Updates use
-Tauri's updater: the installed app checks a signed `latest.json` on each launch
-and installs a newer version if one exists. The signing key stays out of the
-repo (the private key lives at `~/.tauri` and as a CI secret; only the public
-key is committed). The supporting scripts are
+the release pipeline is config-driven and split into reusable workflows:
+`release.config.json` holds the repo, platform matrix, channels, and models;
+`.github/workflows/_build-desktop.yml` and `_publish-release.yml` are reusable
+(`workflow_call`) and hold all the build/publish logic; and the thin channel
+callers `release-stable.yml`, `release-beta.yml`, and `nightly.yml` trigger them
+for the stable / beta / nightly channels. each builds installers for Linux,
+macOS, and Windows and publishes them to GitHub Releases. Updates use Tauri's
+updater: the installed app checks a signed `latest.json` on each launch and
+installs a newer version if one exists (each channel has its own manifest URL).
+The signing key stays out of the repo (the private key lives at `~/.tauri` and as
+a CI secret; only the public key is committed). The supporting scripts are
 `scripts/compose-updater-manifest.sh`, which builds the manifest, and
-`scripts/release.sh`, which bumps the version and tags the release.
+`scripts/release.sh`, which bumps the version and tags the release. See
+[../ADR.md](../ADR.md) for the decisions and [../../scripts/README.md](../../scripts/README.md)
+for the runbook.
+
+## Model discovery and reuse
+
+`domain/model_manager/` decides which model the app uses and whether it needs to
+fetch anything. The baseline 0.5B ships inside the installer so a fresh install
+works offline immediately; heavier models are optional and only fetched with
+explicit consent (`api/routes_models.py`).
+
+The part worth recording is the matching. **Aditya spotted that a model the user
+already had could be downloaded again**, and the cause was that we compared
+filenames. Every runtime names the same weights differently:
+
+    ollama      qwen2.5:1.5b
+    lm studio   Qwen2.5-1.5B-Instruct-Q4_K_M.gguf
+    ours        qwen2.5-1.5b-instruct-q4_k_m.gguf
+
+so a copy pulled through Ollama never matched our catalog entry and we offered a
+1.1 GB download for weights already on disk. No OS blocks that — it would have
+silently succeeded and wasted the space. `discovery.model_key()` now reduces all
+of them to a canonical `family/size` (`qwen2.5/1.5b`), ignoring quantisation
+since a q4 and a q8 are the same capability here.
+
+`ollama_client._find_external_model()` closes the other half: the loader used to
+look only in our own directory, so an analysis task degraded to the base model
+even when the right weights sat in LM Studio's folder. It now loads that copy
+instead.
 
 ## Backend reconciliation
 
@@ -80,10 +116,11 @@ the `max_tokens` caps, and the onedir packaging) rather than taking it as-is.
 
 ## Scripts, tests, and docs
 
-- `scripts/setup.sh`, `scripts/dev.sh`, `scripts/build.sh`, `scripts/validate.sh`:
-  bootstrap, run, build, and pre-commit checks.
-- `scripts/test_paper_writer.py`: unit and integration tests for the compiler
-  and the paper API.
-- `docs/RELEASE_GUIDE.md` is the single guide for cutting a release and for how
+- `scripts/` holds the devops scripts only (bootstrap, run, build, validate,
+  release); non-devops utilities moved to `tools/`. See `scripts/README.md`.
+- `tests/` is the automated `pytest` suite (run `pytest`), gated in CI by
+  `.github/workflows/ci.yml`. `tools/test_paper_writer.py` remains as a manual
+  end-to-end paper-writer integration check (real pdflatex compile).
+- `scripts/README.md` is the runbook for cutting a release and for how
   downloads and updates work. I also maintain the landing page (`landing.html`)
   and the ADR entries for the decisions above.

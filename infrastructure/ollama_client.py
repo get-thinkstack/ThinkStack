@@ -1,4 +1,4 @@
-t"""
+"""
 llm client module.
 
 provides a unified async client for local language model inference,
@@ -107,6 +107,9 @@ class OllamaClient:
         # so all generations queue through this lock to avoid contention and
         # state corruption while keeping the event loop responsive.
         self._gen_lock: Optional[asyncio.Lock] = None
+        # cached list of models a running ollama can serve. probed at most once
+        # per process, and only when a task's model is missing from disk.
+        self._ollama_models = None
         # apply any model the user selected in a previous session
         self._apply_persisted_model()
 
@@ -174,26 +177,162 @@ class OllamaClient:
         "general": [],  # always uses the base model
     }
 
-    def _resolve_task_model_path(self, task_type: str = "general") -> Path:
-        """resolve the model path for a specific task type.
+    def _hw_model_budget_gb(self) -> float:
+        """the largest model (gb) that safely fits this machine right now.
 
-        checks if a task-specific gguf exists in the models directory.
-        if found, returns it; otherwise falls back to the base model.
+        delegates to the hardware profiler, which reserves headroom for the os,
+        the app, and — importantly — whatever else the user is running, using
+        *available* ram rather than total. the profile itself is the native one
+        the desktop shell measured at launch (THINKSTACK_HW_PROFILE) when present.
+        returns 0.0 when the budget is unknown, which callers treat as "don't
+        block" (better to attempt a load, with the loader's oom fallback, than to
+        refuse outright).
+        """
+        try:
+            from infrastructure.hardware import max_safe_model_size_gb
+            return max_safe_model_size_gb()
+        except Exception as e:  # noqa: BLE001 - budgeting is best-effort
+            logger.warning("could not compute hw model budget: %s", e)
+            return 0.0
+
+    def _fits_budget(self, model_path: Path, budget_gb: float) -> bool:
+        """whether a gguf fits the hardware budget (unknown budget => yes)."""
+        if budget_gb <= 0:
+            return True
+        from infrastructure.hardware import model_file_size_gb
+        return model_file_size_gb(model_path) <= budget_gb
+
+    def _find_external_model(self, wanted: str) -> Optional[Path]:
+        """a loadable gguf for ``wanted`` sitting outside our own models dir.
+
+        Users often already have these weights via LM Studio or a previous
+        download. Without this the app would degrade to the base model — or
+        offer to download a gigabyte the machine already stores — purely because
+        the file is in someone else's directory.
+
+        Matching is on the canonical family/size key, since every runtime names
+        the same weights differently. Only filesystem sources are consulted:
+        Ollama serves its blobs over HTTP rather than as loadable .gguf files, so
+        probing it here would add latency to a model load for a path llama.cpp
+        cannot use anyway.
+        """
+        try:
+            from domain.model_manager.discovery import (
+                find_lmstudio_models,
+                find_thinkstack_models,
+                model_key,
+            )
+
+            target = model_key(wanted)
+            found = find_thinkstack_models(self._models_dir()) + find_lmstudio_models()
+            for m in found:
+                if m.usable_directly and model_key(m.name) == target:
+                    p = Path(m.path)
+                    if p.is_file():
+                        return p
+        except Exception as e:  # noqa: BLE001 - a bonus lookup must never break loading
+            logger.debug("external model lookup failed for %s: %s", wanted, e)
+        return None
+
+    def _ollama_served_model(self, task_type: str = "general") -> Optional[str]:
+        """an Ollama tag serving the weights this task wants, if Ollama has them.
+
+        Ollama stores models as content-addressed blobs rather than loadable
+        .gguf files, so llama.cpp cannot open them -- but Ollama itself can serve
+        them over HTTP. Without this, a user who already had the analysis model
+        in Ollama got the worst of both: no download prompt (we correctly saw the
+        model as present) and no benefit (the loader could not use it), so
+        analysis silently ran on the base model.
+
+        Returns the tag to generate with, or None when Ollama does not have it.
+        Only consulted when the task's model is missing from disk, and the probe
+        result is cached, so this costs nothing on the common path.
+        """
+        candidates = self.TASK_MODEL_MAP.get(task_type, [])
+        if not candidates:
+            return None
+        try:
+            from domain.model_manager.discovery import find_ollama_running, model_key
+
+            if self._ollama_models is None:
+                self._ollama_models = find_ollama_running(self.base_url)
+
+            wanted = {model_key(c) for c in candidates}
+            for m in self._ollama_models:
+                if model_key(m.name) in wanted:
+                    return m.name
+        except Exception as e:  # noqa: BLE001 - a bonus route must never break generation
+            logger.debug("ollama lookup failed for %s: %s", task_type, e)
+        return None
+
+    def _task_needs_ollama(self, task_type: str) -> Optional[str]:
+        """the Ollama tag to use for this task, or None to load locally.
+
+        Only when the task has a dedicated model, that model is not resolvable as
+        a file, and Ollama can serve it.
+        """
+        if self.provider != "llama_cpp":
+            return None
+        candidates = self.TASK_MODEL_MAP.get(task_type, [])
+        if not candidates:
+            return None
+        models_dir = self._models_dir()
+        for name in candidates:
+            if (models_dir / name).is_file() or self._find_external_model(name):
+                return None  # we can load it ourselves; no need for ollama
+        return self._ollama_served_model(task_type)
+
+    def _resolve_task_model_path(self, task_type: str = "general") -> Path:
+        """resolve the model path for a task, tuned to the hardware.
+
+        specification-based SLM selection: a task-specific gguf (e.g. the heavier
+        1.5b analysis model) is used only when it actually fits the machine's
+        current memory budget. on a constrained machine — or one with other apps
+        running — a too-large task model is skipped and the lighter base model is
+        used instead, so analysis degrades gracefully rather than oom-crashing.
+        the base model resolution honors any model the user selected previously
+        (see _apply_persisted_model), which is how "change the model later" takes
+        effect.
 
         args:
-            task_type: one of 'latex_writer', 'gap_analysis', 'general'.
+            task_type: one of 'latex_writer', 'analysis', 'gap_analysis', 'general'.
 
         returns:
             path to the gguf file to use.
         """
         candidates = self.TASK_MODEL_MAP.get(task_type, [])
         models_dir = self._models_dir()
+        budget = self._hw_model_budget_gb()
+
+        first_existing: Optional[Path] = None
         for name in candidates:
             path = models_dir / name
-            if path.is_file():
-                logger.info("using task-specific model for %s: %s", task_type, name)
+            # not in our dir -> the user may still have these exact weights under
+            # another runtime's naming; use those rather than degrading.
+            if not path.is_file():
+                external = self._find_external_model(name)
+                if external is None:
+                    continue
+                logger.info("task %s -> reusing %s (already on this machine)",
+                            task_type, external)
+                path = external
+            if first_existing is None:
+                first_existing = path
+            if self._fits_budget(path, budget):
+                logger.info(
+                    "task %s -> %s (fits hw budget %.1f gb)", task_type, path.name, budget
+                )
                 return path
-        return self._resolve_llama_model_path()
+
+        # no task-specific model both exists and fits -> base model (user-selected
+        # if they picked one). warn when the skip was specifically about budget.
+        base = self._resolve_llama_model_path()
+        if first_existing is not None and not self._fits_budget(first_existing, budget):
+            logger.warning(
+                "task %s model %s exceeds hw budget %.1f gb; downgrading to %s",
+                task_type, first_existing.name, budget, base.name,
+            )
+        return base
 
     def _compute_load_params(self, model_path: Path) -> tuple[int, int]:
         """compute safe ctx_size and gpu_layers using the hardware profiler.
@@ -336,9 +475,10 @@ class OllamaClient:
         temperature: float,
         max_tokens: int,
         json_mode: bool,
+        model: Optional[str] = None,
     ) -> str:
         payload = {
-            "model": self.model,
+            "model": model or self.model,
             "prompt": prompt,
             "stream": False,
             "options": {
@@ -435,6 +575,15 @@ class OllamaClient:
             - llama.cpp via llama-cpp-python and a local gguf file
         """
         if self.provider == "llama_cpp":
+            # the user already has this task's model in ollama and we cannot load
+            # it as a file -> let ollama serve it rather than degrading.
+            via_ollama = self._task_needs_ollama(task_type)
+            if via_ollama:
+                logger.info("task %s -> ollama:%s (already installed)", task_type, via_ollama)
+                return await self._generate_ollama(
+                    prompt=prompt, system=system, temperature=temperature,
+                    max_tokens=max_tokens, json_mode=False, model=via_ollama,
+                )
             return await self._generate_llama_cpp(
                 prompt=prompt,
                 system=system,
@@ -474,6 +623,14 @@ class OllamaClient:
             raw json string from the model.
         """
         if self.provider == "llama_cpp":
+            via_ollama = self._task_needs_ollama(task_type)
+            if via_ollama:
+                logger.info("task %s -> ollama:%s (already installed)", task_type, via_ollama)
+                raw = await self._generate_ollama(
+                    prompt=prompt, system=system, temperature=temperature,
+                    max_tokens=max_tokens, json_mode=True, model=via_ollama,
+                )
+                return _extract_json_text(raw)
             raw = await self._generate_llama_cpp(
                 prompt=prompt,
                 system=system,

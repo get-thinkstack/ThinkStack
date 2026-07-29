@@ -161,6 +161,24 @@ export const systemApi = {
     request('/system/model', { method: 'POST', body: { model } }),
 };
 
+/**
+ * Model setup.
+ *
+ * The baseline model ships inside the installer, so the app is fully usable
+ * offline the moment it starts. Heavier models are optional: `setup` reports
+ * whether this machine can run a better one AND does not already have it (from
+ * ThinkStack, Ollama or LM Studio), and only then does the UI ask permission.
+ * Nothing is ever downloaded without an explicit `download` call.
+ */
+export const modelsApi = {
+  setup: () => request('/models/setup'),
+  catalog: () => request('/models/catalog'),
+  download: (name) =>
+    request('/models/download', { method: 'POST', body: { name } }),
+  downloadStatus: () => request('/models/download/status'),
+  cancelDownload: () => request('/models/download/cancel', { method: 'POST' }),
+};
+
 export const encryptionApi = {
   encrypt: (docId, password) =>
     request('/encryption/encrypt', {

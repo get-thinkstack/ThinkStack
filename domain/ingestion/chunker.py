@@ -7,8 +7,6 @@ that respects paragraph and sentence boundaries.
 """
 
 import logging
-import re
-import uuid
 
 from config import settings
 from domain.ingestion.models import TextChunk
@@ -79,6 +77,12 @@ def chunk_text(
     returns:
         list of TextChunk objects with unique ids and positional info.
     """
+    # empty / whitespace-only input yields no chunks. without this guard the
+    # splitter bottoms out at [""] and emits a single empty chunk, which would
+    # then be embedded and stored as a junk zero-vector.
+    if not text or not text.strip():
+        return []
+
     separators = ["\n\n", "\n", ". ", " "]
     segments = _split_by_separators(text, separators)
 

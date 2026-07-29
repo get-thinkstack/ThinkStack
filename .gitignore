@@ -10,7 +10,10 @@ dist-ssr/
 *.egg
 .eggs/
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
 .coverage
+coverage.xml
 htmlcov/
 
 # ── Virtual environments ─────────────────────────────────
@@ -70,7 +73,12 @@ docs/*.toc
 docs/*.synctex.gz
 
 # ── IDE / Editor / OS ────────────────────────────────────
-.vscode/
+# ignore local .vscode noise but SHARE the workspace config that fixes the
+# YAML-extension false positives on the reusable workflows (settings.json pins
+# the canonical GitHub Actions schema; extensions.json recommends the linters).
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
 .idea/
 *.swp
 *.swo
@@ -81,6 +89,7 @@ docs/*.synctex.gz
 
 #local
 local/
+docs/superpowers/specs
 
 # Logs and git helper/scratch files
 backend.log
@@ -105,3 +114,11 @@ src-tauri/bin/
 
 # on-disk temp for AppImage builds (RAM-backed /tmp is too small)
 .build-tmp/
+
+# ── Downloaded dev tools (fetched on demand, not committed) ──
+# actionlint: the GitHub Actions linter binary, pulled by CI and for local runs.
+/actionlint
+
+# scratch design notes from AI tooling: kept locally, not part of the repo.
+# (docs/academic/ IS tracked - it is the project's coursework record.)
+docs/superpowers/

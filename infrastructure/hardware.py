@@ -7,9 +7,10 @@ prevents oom crashes by ensuring the llm context size and gpu offload
 are tuned to the available resources.
 """
 
+import json
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -75,11 +76,44 @@ def _classify_tier(total_ram_gb: float, vram_gb: float) -> str:
     return "low"
 
 
+def _profile_from_env() -> HardwareProfile | None:
+    """rebuild the profile from THINKSTACK_HW_PROFILE, set by the tauri shell.
+
+    the desktop app diagnoses the machine natively (src-tauri/src/diagnosis.rs)
+    before spawning this backend and passes the result as json. preferring it
+    means the packaged app never imports torch or probes cuda just to size the
+    model — that probe is slow and can stall on a broken driver. returns none
+    when the var is absent (e.g. the backend run standalone / in dev), so the
+    caller falls back to local detection.
+    """
+    raw = os.environ.get("THINKSTACK_HW_PROFILE")
+    if not raw:
+        return None
+    try:
+        d = json.loads(raw)
+        total = float(d.get("total_ram_gb", 0.0))
+        vram = float(d.get("vram_gb", 0.0))
+        return HardwareProfile(
+            total_ram_gb=total,
+            available_ram_gb=float(d.get("available_ram_gb", 0.0)),
+            cpu_cores=int(d.get("cpu_cores") or d.get("cpu_threads") or 1),
+            gpu_name=str(d.get("gpu_name", "")),
+            vram_gb=vram,
+            has_cuda=bool(d.get("has_cuda", False)),
+            tier=str(d.get("tier") or _classify_tier(total, vram)),
+        )
+    except (ValueError, TypeError) as e:
+        logger.warning("could not parse THINKSTACK_HW_PROFILE, detecting locally: %s", e)
+        return None
+
+
 def profile_system() -> HardwareProfile:
     """detect hardware and return a typed profile.
 
-    this is the primary entry point. results are cached in-module
-    after the first call.
+    this is the primary entry point. results are cached in-module after the
+    first call. prefers the native profile supplied by the desktop shell via
+    THINKSTACK_HW_PROFILE; only when that is absent does it detect locally
+    (which imports torch for the gpu probe).
 
     returns:
         a populated HardwareProfile instance.
@@ -87,6 +121,17 @@ def profile_system() -> HardwareProfile:
     global _cached_profile
     if _cached_profile is not None:
         return _cached_profile
+
+    from_env = _profile_from_env()
+    if from_env is not None:
+        logger.info(
+            "hardware profile (from shell): %s tier - %.1f gb ram (%.1f free), "
+            "%d cores, %s (%.1f gb vram)",
+            from_env.tier, from_env.total_ram_gb, from_env.available_ram_gb,
+            from_env.cpu_cores, from_env.gpu_name or "no gpu", from_env.vram_gb,
+        )
+        _cached_profile = from_env
+        return from_env
 
     total_ram, avail_ram = _detect_ram()
     cores = _detect_cpu_cores()
@@ -104,7 +149,7 @@ def profile_system() -> HardwareProfile:
     )
 
     logger.info(
-        "hardware profile: %s tier - %.1f gb ram (%.1f free), %d cores, %s (%.1f gb vram)",
+        "hardware profile (detected): %s tier - %.1f gb ram (%.1f free), %d cores, %s (%.1f gb vram)",
         tier, total_ram, avail_ram, cores,
         gpu_name or "no gpu", vram,
     )

@@ -8,9 +8,10 @@ name: Deploy landing page
 
 on:
   push:
-    # deploy when the landing page changes on whichever branch you publish from.
-    # trim this list to just your production branch once that is settled.
-    branches: [main, master, demo]
+    # production only. the public page must show what is released, so beta/dev
+    # never publish here -- Vercel already gives per-branch preview deploys for
+    # checking landing page changes before they reach main.
+    branches: [main, master]
     paths: ['landing.html', '.github/workflows/deploy-pages.yml']
   workflow_dispatch:
 
