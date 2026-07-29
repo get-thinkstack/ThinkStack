@@ -28,10 +28,19 @@ Download button, which auto-detects your OS).
 | **Windows** | `ThinkStack_<v>_x64-setup.exe` (or `.msi`) | Run it. If SmartScreen warns, click **More info → Run anyway** (one-time, unsigned build). |
 | **Linux** | `ThinkStack_<v>_amd64.AppImage` | `chmod +x` it and double-click. Or install the `.deb` / `.rpm` for a menu entry. |
 
-Everything the app needs — the AI models, the backend, the interface — is bundled
-in the installer. The one thing it does **not** bundle yet is a TeX engine: to
-compile LaTeX to PDF you need `pdflatex` on your system `PATH` (install TeX Live
-or MiKTeX). The live preview works without it.
+Everything the app needs to work — the backend, the interface, and an AI model —
+is in the installer, so it runs offline the moment it opens.
+
+Two things it does **not** bundle:
+
+- **A larger analysis model.** The built-in model handles chat, search and the
+  paper writer well. Summaries and gap analysis are noticeably better on a bigger
+  model, so on a machine with room to spare the app *offers* to fetch one on
+  first run. Decline and everything still works — analysis just uses the built-in
+  model. If you already run Ollama or LM Studio, ThinkStack uses a model you
+  already have instead of downloading anything.
+- **A TeX engine.** To compile LaTeX to PDF you need `pdflatex` on your `PATH`
+  (install TeX Live or MiKTeX). The live preview works without it.
 
 The app also **updates itself**: when a new version is released, it offers to
 install it on the next launch. Opt-in **beta** and **nightly** channels are
@@ -39,9 +48,11 @@ available for testers.
 
 ## First run
 
-1. **Open the app.** On first launch it detects your hardware and picks a model
-   that fits your machine's memory (leaving headroom for your other apps), so it
-   runs smoothly whether you have a GPU or not.
+1. **Open the app.** On first launch it checks your hardware — RAM, CPU, and GPU
+   — and picks a model that fits your machine's memory, leaving headroom for
+   whatever else you're running. If your machine can comfortably run a better
+   model than the built-in one, it asks once whether to download it; you can
+   decline and never be asked again.
 2. **Add papers.** Import PDFs — ThinkStack parses them, extracts the metadata
    (title, authors, abstract, year), and indexes them into its local knowledge
    base.
@@ -89,6 +100,5 @@ from a source checkout it's under the project's `data/` folder.
 ## Getting help / contributing
 
 - Feature details: [FEATURES.md](FEATURES.md)
-- Cutting a release / how updates work: [RELEASE_GUIDE.md](RELEASE_GUIDE.md)
-- GPU acceleration setup: [gpu_setup.md](gpu_setup.md)
+- Cutting a release / how updates work: [../scripts/README.md](../scripts/README.md)
 - Design decisions and rationale: [ADR.md](ADR.md)

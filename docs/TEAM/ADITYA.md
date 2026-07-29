@@ -100,7 +100,7 @@ through. The parts I own:
   `llama_supports_gpu_offload()` and a bad setup raises with the exact install
   command instead of falling back. Flash attention is enabled where the build
   accepts it, which shrinks the KV cache and buys headroom on a 6 GB card.
-  Supporting work: `docs/gpu_setup.md`, `tools/verify_gpu.py`, and
+  Supporting work: `tools/verify_gpu.py`, and
   `tools/fix_gpu_dlls.py`.
 - Per-call timing in the log (completion tokens, elapsed, tok/s, prompt tokens).
   This is what made the N+2 problem visible: it separates "the model is slow"

@@ -20,7 +20,8 @@
 #   scripts/release.sh 0.2.0 --beta 1     # tag v0.2.0-beta.1 (beta channel)
 #   scripts/release.sh 0.2.0 --beta 2 --push
 #
-# see docs/RELEASE_GUIDE.md for the full release + auto-update flow.
+# see scripts/README.md for the release runbook and docs/ADR.md for why the
+# pipeline is shaped this way.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -145,7 +146,12 @@ PY
         echo "  updated docs/landing/index.html"
     fi
 
-    # 3. src-tauri/Cargo.toml package version
+    # 3. CHANGELOG.md: promote [Unreleased] to this version.
+    # Done here so the changelog is written while the change is fresh in a PR,
+    # rather than reconstructed from git log long afterwards.
+    python3 scripts/_promote_changelog.py "$VERSION"
+
+    # 4. src-tauri/Cargo.toml package version
     if grep -qE '^version = ' src-tauri/Cargo.toml; then
         sed -i "0,/^version = .*/s//version = \"${VERSION}\"/" src-tauri/Cargo.toml
         echo "  updated src-tauri/Cargo.toml"
@@ -160,7 +166,7 @@ PY
     # commit then aborts with "no changes added". That is exactly what happened
     # when this listed a docs/ path that no longer exists.
     # Cargo.lock is included because bumping the package version rewrites it.
-    for f in src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock landing.html; do
+    for f in src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock landing.html CHANGELOG.md; do
         [ -f "$f" ] && git add "$f"
     done
 

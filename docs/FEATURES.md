@@ -2,7 +2,7 @@
 
 A detailed reference for everything ThinkStack does. For "what is it and how do I
 get started", see [ABOUT.md](ABOUT.md). For shipping releases, see
-[RELEASE_GUIDE.md](RELEASE_GUIDE.md).
+[../scripts/README.md](../scripts/README.md).
 
 ThinkStack is an **offline, edge-AI research assistant**: a cross-platform desktop
 app that ingests papers, searches and analyses them, finds research gaps, and
@@ -117,6 +117,48 @@ ThinkStack sizes itself to the machine it runs on.
 - You can **change the active model** yourself; the choice persists across
   restarts.
 
+**Optional NVIDIA acceleration (advanced).** The shipped build is CPU-only, which
+is why AMD and Apple Metal are reported but not used for offload — attempting it
+would fail at model load. To run analysis on an NVIDIA GPU from a source
+checkout, install the CUDA build and repair the two DLL issues the prebuilt wheel
+has on toolkit-less machines:
+
+```bash
+pip install llama-cpp-python \
+  --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
+python tools/fix_gpu_dlls.py   # installs CUDA runtime DLLs, swaps a compatible CPU backend
+python tools/verify_gpu.py     # prints tokens/sec and confirms offload
+```
+
+`fix_gpu_dlls.py` is idempotent — re-run it after any reinstall of
+llama-cpp-python. Set `THINKSTACK_LLM_GPU_LAYERS=-1` to force full offload, or
+`0` to force CPU.
+
+### Reusing models you already have
+
+If you already run **Ollama** or **LM Studio**, ThinkStack finds those models and
+uses them instead of downloading its own copy. Nothing is ever fetched that your
+machine already stores.
+
+This matters because every runtime names the same weights differently:
+
+| Where it came from | What it's called |
+|--------------------|------------------|
+| Ollama | `qwen2.5:1.5b` |
+| LM Studio | `Qwen2.5-1.5B-Instruct-Q4_K_M.gguf` |
+| ThinkStack | `qwen2.5-1.5b-instruct-q4_k_m.gguf` |
+
+All three are the same model. ThinkStack reduces them to a canonical
+`family/size` key (`qwen2.5/1.5b`) so they compare equal, then loads the copy you
+already have. Quantisation is ignored on purpose — a `q4` and a `q8` of the same
+model do the same job here, and re-downloading one because you have the other is
+exactly the waste this avoids.
+
+Models are discovered from ThinkStack's own directory, a running Ollama server,
+Ollama's on-disk store (so it works even when Ollama isn't running), and LM
+Studio. Every probe is optional and independently guarded: a missing tool or an
+unreadable directory simply finds nothing, and never delays startup.
+
 ## Fine-tuning data collection
 
 - Every AI generation passively logs a prompt→output training pair as JSONL under
@@ -129,7 +171,7 @@ ThinkStack sizes itself to the machine it runs on.
 
 Installed apps check a signed manifest on launch and can update themselves in
 place — no manual re-download. Three channels exist: **stable** (everyone),
-**beta**, and **nightly** (opt-in testers). See [RELEASE_GUIDE.md](RELEASE_GUIDE.md).
+**beta**, and **nightly** (opt-in testers). See [../scripts/README.md](../scripts/README.md).
 
 ## Roadmap
 

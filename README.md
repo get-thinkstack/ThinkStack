@@ -31,10 +31,16 @@ runs locally through `llama.cpp`, and embeddings run locally too.
   how to use each feature (start here as a user).
 - **[docs/FEATURES.md](docs/FEATURES.md)** — the detailed feature reference and
   roadmap.
-- **[docs/RELEASE_GUIDE.md](docs/RELEASE_GUIDE.md)** — cutting releases, channels,
-  and how auto-updates work.
-- **[docs/gpu_setup.md](docs/gpu_setup.md)** — optional GPU acceleration.
-- **[docs/ADR.md](docs/ADR.md)** — architecture decisions and rationale.
+- **[scripts/README.md](scripts/README.md)** — the devops runbook: the branch
+  model, cutting a release, the local gate, and the git hooks.
+- **[docs/ADR.md](docs/ADR.md)** — every architecture decision and *why* it was
+  made, including the release pipeline.
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — setup, the branch model, what blocks
+  your push, and how to add tests or models.
+- **[CHANGELOG.md](CHANGELOG.md)** — what changed in each released version.
+
+Two genres, kept apart on purpose: `docs/ADR.md` records **why**, and
+`scripts/README.md` + `CONTRIBUTING.md` are the **how-to**.
 
 ## architecture
 
@@ -57,11 +63,14 @@ data/              runtime state: uploaded papers, vector store, models
 ```
 
 inference is local through `llama.cpp` (`llama-cpp-python`, gguf models) on cpu
-or gpu. the app bundles two models and routes tasks between them: a 0.5b model
-for chat, search, and the paper writer, and a 1.5b model for the structured-json
-analysis tasks (summarize, claims, gap finder), which the smaller model handles
-poorly. only one model is resident at a time; the runtime swaps between them on
-demand to keep memory bounded, and falls back to cpu when no usable gpu is present.
+or gpu. the installer bundles **one** model - a 0.5b used for chat, search, and
+the paper writer - so a fresh install works offline immediately with no download.
+the structured-json analysis tasks (summarize, claims, gap finder) do better on a
+larger model, so the app offers to fetch a 1.5b **only** when the machine can run
+it and no equivalent is already installed (it reuses models you already have via
+ollama or lm studio). without it, analysis degrades to the 0.5b rather than
+failing. only one model is resident at a time; the runtime swaps on demand to
+keep memory bounded, and falls back to cpu when no usable gpu is present.
 
 ## quick start
 
@@ -85,8 +94,9 @@ huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct-GGUF \
   qwen2.5-0.5b-instruct-q4_k_m.gguf --local-dir data/models
 ```
 
-the 0.5b model (about 400 mb) is light enough for low-ram machines. for the
-analysis features to produce reliable output, also download the 1.5b model:
+the 0.5b model (about 400 mb) is light enough for low-ram machines, and is the
+one the installer ships. for the analysis features to produce their best output,
+also download the 1.5b model (the packaged app offers this at first run instead):
 
 ```bash
 huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct-GGUF \
@@ -137,11 +147,17 @@ your setup.
 | script | purpose |
 |--------|---------|
 | `scripts/setup.sh` | one-time bootstrap (system deps, rust, python, node, latex) |
+| `scripts/install-hooks.sh` | activate the shared git hooks (run once per clone) |
 | `scripts/dev.sh` | start the backend and frontend dev servers (add `--tauri` for desktop) |
-| `scripts/validate.sh` | pre-commit checks (python syntax, imports, lint, cargo check) |
+| `scripts/preflight.sh` | run exactly what ci runs, before pushing |
+| `scripts/validate.sh` | the fuller local gate (python, frontend, rust) |
 | `scripts/build.sh` | production build (frontend, pyinstaller, tauri) |
+| `scripts/promote.sh` | move work dev -> beta -> main and ship that channel's installers |
 | `scripts/release.sh` | bump the version and tag a release |
 | `scripts/compose-updater-manifest.sh` | build the auto-updater manifest (`latest.json`) |
+| `scripts/set-repo.sh` | retarget the project at a different github owner/repo |
+
+see [scripts/README.md](scripts/README.md) for the branch model and the full runbook.
 
 ## production build
 
@@ -161,9 +177,9 @@ the pipeline has four steps:
 the installers land in `src-tauri/target/release/bundle/` (`.deb`, `.rpm`, and
 `.AppImage` on linux, `.dmg` on macos, `.msi` and `.exe` on windows).
 
-for the full release and distribution process, including the ci matrix, the
-auto-updater, how end users download and install per os, and how the landing
-page is hosted, see [docs/RELEASE_GUIDE.md](docs/RELEASE_GUIDE.md).
+releases are cut by pushing a tag, never by pushing a branch — see
+[scripts/README.md](scripts/README.md) for the branch model and the release
+runbook, and [docs/ADR.md](docs/ADR.md) for why the pipeline is shaped that way.
 
 ## prerequisites
 

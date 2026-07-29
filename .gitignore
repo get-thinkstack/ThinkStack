@@ -118,3 +118,7 @@ src-tauri/bin/
 # ── Downloaded dev tools (fetched on demand, not committed) ──
 # actionlint: the GitHub Actions linter binary, pulled by CI and for local runs.
 /actionlint
+
+# scratch design notes from AI tooling: kept locally, not part of the repo.
+# (docs/academic/ IS tracked - it is the project's coursework record.)
+docs/superpowers/

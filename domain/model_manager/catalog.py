@@ -107,9 +107,17 @@ def suggested_upgrade(budget_gb: float, installed: set[str]) -> ModelSpec | None
         installed: gguf filenames already available on this machine (from any
             source: bundled, previously downloaded, ollama, lm studio).
     """
+    # compare on the canonical family/size key as well as the raw filename, so a
+    # model the user already pulled through Ollama ("qwen2.5:1.5b") counts as
+    # installed and we never offer to re-download the same weights under our own
+    # naming ("qwen2.5-1.5b-instruct-q4_k_m.gguf").
+    from domain.model_manager.discovery import model_key
+
     candidates = [
         s for s in optional_models()
-        if s.name not in installed and s.min_ram_gb <= budget_gb
+        if s.name not in installed
+        and model_key(s.name) not in installed
+        and s.min_ram_gb <= budget_gb
     ]
     if not candidates:
         return None
