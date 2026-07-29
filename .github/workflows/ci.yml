@@ -11,9 +11,11 @@ name: CI
 on:
   pull_request:
   push:
-    # the three long-lived branches: main = production, dev = beta, demo = binary
-    # validation. master kept while it remains the repo default.
-    branches: [main, master, dev, demo]
+    # the three long-lived branches:
+    #   main = production (what gets tagged for a stable release)
+    #   beta = integration; installers are bundled and tested from here
+    #   dev  = day-to-day work and experiments
+    branches: [main, master, beta, dev]
   workflow_dispatch:
 
 # a newer commit on the same ref supersedes an in-flight run.

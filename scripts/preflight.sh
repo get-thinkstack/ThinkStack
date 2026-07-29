@@ -9,7 +9,7 @@
 #   1. CHANGE-SCOPED. Only checks whose files actually changed are run. Touching
 #      a markdown file does not compile Rust.
 #   2. BRANCH-SCOPED. `dev` is for experimenting, so it runs the fast gate.
-#      `beta`/`prod` gate real builds and releases, so they run everything.
+#      `beta`/`main` gate real builds and releases, so they run everything.
 #
 # usage:
 #   scripts/preflight.sh              # auto: scope by branch + changed files
@@ -49,10 +49,10 @@ echo -e "${CYAN}─────────────────────�
 # ── branch policy ───────────────────────────────────────────
 # dev  : experiment freely, fast gate
 # beta : bundles + tests installers, full gate
-# prod : official releases, full gate
+# main : official releases, full gate
 case "$BRANCH" in
-    prod|main|master|beta|demo) LEVEL="full" ;;
-    *)                          LEVEL="fast" ;;
+    main|master|beta) LEVEL="full" ;;
+    *)                LEVEL="fast" ;;
 esac
 [ "$MODE" = "full" ] && LEVEL="full"
 [ "$MODE" = "fast" ] && LEVEL="fast"
@@ -68,7 +68,7 @@ if $FETCH && git remote get-url origin >/dev/null 2>&1; then
         UPSTREAM="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || echo "")"
         # no upstream yet (new branch) -> compare against the integration branch
         if [ -z "$UPSTREAM" ]; then
-            for cand in origin/dev origin/main origin/prod origin/master; do
+            for cand in origin/dev origin/main origin/master; do
                 if git rev-parse --verify --quiet "$cand" >/dev/null; then UPSTREAM="$cand"; break; fi
             done
         fi

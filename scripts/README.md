@@ -20,11 +20,11 @@ whole team gets the same hooks and updates arrive with a normal `git pull`.
 |--------|---------|-----------|-------------------|
 | `dev`  | day-to-day work, experiments | **fast** — lint + tests on what changed | no |
 | `beta` | integration; bundle and test real installers | **full** — everything CI runs | on a `vX.Y.Z-beta.N` tag |
-| `prod` | official releases | **full** | on a `vX.Y.Z` tag |
+| `main` | official releases | **full** | on a `vX.Y.Z` tag |
 
 **Branches don't build installers — tags do.** Merging to `beta` costs nothing;
 you only pay the ~20 minute three-OS build when you deliberately tag. That keeps
-`dev` fast and loose while `prod` stays deliberate.
+`dev` fast and loose while `main` stays deliberate.
 
 Typical flow:
 
@@ -37,8 +37,8 @@ git switch dev && git pull --rebase
 git switch beta && git merge dev && git push
 scripts/release.sh 0.2.0 --beta 1 --push     # builds + publishes the beta
 
-# 3. beta looks good -> prod
-git switch prod && git merge beta && git push
+# 3. beta looks good -> main
+git switch main && git merge beta && git push
 scripts/release.sh 0.2.0 --push              # the stable release users get
 ```
 

@@ -7,7 +7,7 @@
 #
 # Scope follows the branch you are pushing to:
 #   dev          -> fast gate (lint + tests), scoped to what changed
-#   beta / prod  -> full gate: everything CI runs
+#   beta / main  -> full gate: everything CI runs
 #
 # bypass once:  git push --no-verify
 set -uo pipefail
@@ -26,8 +26,8 @@ echo -e "${CYAN}pre-push${NC} -> ${GREEN}${REMOTE_BRANCH}${NC}"
 
 # protected branches always get the full gate, whatever branch you are on
 case "$REMOTE_BRANCH" in
-    prod|main|master|beta|demo) LEVEL="--full" ;;
-    *)                          LEVEL="" ;;
+    main|master|beta) LEVEL="--full" ;;
+    *)                LEVEL="" ;;
 esac
 
 # preflight does its own fetch/staleness check
@@ -38,9 +38,9 @@ if ! "$ROOT/scripts/preflight.sh" $LEVEL; then
     exit 1
 fi
 
-# releasing to prod/beta is worth one extra beat of attention
+# pushing to the release branch is worth one extra beat of attention
 case "$REMOTE_BRANCH" in
-    prod|main|master)
+    main|master)
         echo -e "${YELLOW}note:${NC} pushing to a release branch. installers ship only when"
         echo -e "      you tag: ${CYAN}scripts/release.sh <version> --push${NC}"
         ;;
