@@ -1,0 +1,80 @@
+name: Dev build (on demand)
+
+# Modular builds for the dev branch. Nothing here is ever published or tagged --
+# it produces downloadable artifacts only, so you can test a real installer
+# without cutting a release.
+#
+# This exists because the three long-lived branches have different needs:
+#   dev  -> experiment. build one OS when you need it, never automatically.
+#   beta -> bundle and test installers, via a vX.Y.Z-beta.N tag.
+#   main -> official releases, via a vX.Y.Z tag.
+#
+# Deliberately manual (workflow_dispatch): building on every dev push would burn
+# ~20 minutes of runner time per commit for a binary nobody asked for. The CI
+# quality gate already runs on every dev push -- this is the heavier, opt-in step.
+#
+# Run it from Actions -> "Dev build (on demand)" -> Run workflow, or:
+#   gh workflow run dev-build.yml -f platform=linux-x86_64
+#   gh workflow run dev-build.yml -f platform=all -f ref=my-feature-branch
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Which OS to build'
+        required: true
+        default: 'linux-x86_64'
+        type: choice
+        options:
+          - linux-x86_64
+          - windows-x86_64
+          - macos-universal
+          - all
+      ref:
+        description: 'Branch or commit to build (blank = the branch you launch from)'
+        required: false
+        type: string
+        default: ''
+      skip_models:
+        description: 'Skip bundling the gguf models (much faster, app has no model)'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-build-${{ github.ref }}-${{ inputs.platform }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    uses: ./.github/workflows/_build-desktop.yml
+    with:
+      channel: dev
+      # dev builds are not releases: the version is only stamped into the bundle
+      # so you can tell two dev builds apart. it never reaches the updater.
+      version: 0.0.0-dev.${{ github.run_number }}
+      ref: ${{ inputs.ref }}
+      only_platform: ${{ inputs.platform }}
+      skip_models: ${{ inputs.skip_models }}
+    secrets: inherit
+
+  summary:
+    needs: build
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report
+        run: |
+          {
+            echo "### Dev build: \`${{ inputs.platform }}\`"
+            echo ""
+            echo "- ref: \`${{ inputs.ref || github.ref_name }}\`"
+            echo "- models bundled: \`${{ inputs.skip_models && 'no' || 'yes' }}\`"
+            echo "- result: \`${{ needs.build.result }}\`"
+            echo ""
+            echo "Installers are under **Artifacts** on this run (kept 7 days)."
+            echo "Nothing was published or tagged."
+          } >> "$GITHUB_STEP_SUMMARY"
