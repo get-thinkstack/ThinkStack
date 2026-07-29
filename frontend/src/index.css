@@ -2058,3 +2058,127 @@ input::-webkit-credentials-auto-fill-button {
   .gap-history-item:hover { transform: none; }
 }
 
+
+/* ── first-run model setup ────────────────────────────────────────────
+   Shown once, only when the machine can run a better model AND does not
+   already have one. The app is fully usable behind it, so it reads as an
+   offer rather than a blocker. */
+.model-setup-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: rgba(10, 14, 6, 0.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.model-setup-card {
+  position: relative;
+  width: min(30rem, 100%);
+  padding: 2rem;
+  border-radius: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+  text-align: center;
+}
+
+.model-setup-close {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.model-setup-close:hover { background: var(--surface-2); color: var(--text); }
+
+.model-setup-icon {
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  margin: 0 auto 1rem;
+  border-radius: 0.875rem;
+  background: var(--surface-2);
+  color: var(--accent);
+}
+.model-setup-icon.success { color: #fff; background: var(--accent); }
+
+.model-setup-card h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.15rem;
+  color: var(--text);
+}
+.model-setup-card p {
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+
+.model-setup-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem 1.25rem;
+  padding: 0.75rem;
+  margin-bottom: 1rem;
+  border-radius: 0.625rem;
+  background: var(--surface-2);
+  font-size: 0.82rem;
+  color: var(--text-2);
+}
+
+/* the reassurance that nothing is required - keep it visually quiet */
+.model-setup-note {
+  font-size: 0.8rem !important;
+  color: var(--text-3) !important;
+}
+
+.model-setup-progress { margin-bottom: 1rem; }
+.model-setup-bar {
+  height: 0.5rem;
+  margin-bottom: 0.5rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.model-setup-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+.model-setup-progress span { font-size: 0.8rem; color: var(--text-2); }
+
+.model-setup-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+  font-size: 0.82rem;
+  color: #b42318;
+}
+
+.model-setup-actions {
+  display: flex;
+  justify-content: center;
+  gap: 0.625rem;
+}
+.model-setup-actions .btn-primary,
+.model-setup-actions .btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}

@@ -41,7 +41,7 @@ available for testers.
 
 1. **Open the app.** On first launch it detects your hardware and picks a model
    that fits your machine's memory (leaving headroom for your other apps), so it
-   runs smoothly whether you have a GPU or not.
+   runs smoothly whether you have a dedicated GPU or not.
 2. **Add papers.** Import PDFs — ThinkStack parses them, extracts the metadata
    (title, authors, abstract, year), and indexes them into its local knowledge
    base.

@@ -162,3 +162,73 @@ class TestReusesModelsAlreadyOnTheMachine:
         monkeypatch.setattr(discovery, "_lmstudio_roots", boom)
         # a failing bonus lookup must degrade to the base model, not raise
         assert c._resolve_task_model_path("analysis").name == BASE
+
+
+class TestUsesOllamaCopyInsteadOfDegrading:
+    """if the user already has the better model, use it - do not fall back.
+
+    Ollama stores models as content-addressed blobs, so llama.cpp cannot open
+    them. Discovery correctly saw them as installed and suppressed the download
+    prompt, but the loader could not use them - so the user got no prompt AND no
+    benefit, with analysis silently running on the base model. Routing that task
+    to Ollama's API is what makes "already installed" actually mean something.
+    """
+
+    def _client(self, tmp_path):
+        our = tmp_path / "models"
+        our.mkdir()
+        (our / BASE).write_bytes(b"x" * 1000)  # baseline only
+        c = OllamaClient(provider="llama_cpp", model_path=our)
+        c.model_path = our
+        return c
+
+    def _with_ollama(self, monkeypatch, *names):
+        from domain.model_manager.discovery import DiscoveredModel
+        monkeypatch.setattr(
+            discovery, "find_ollama_running",
+            lambda _u: [DiscoveredModel(name=n, source="ollama") for n in names],
+        )
+        monkeypatch.setattr(discovery, "find_lmstudio_models", lambda: [])
+
+    def test_analysis_routes_to_ollama_when_only_ollama_has_it(self, tmp_path, monkeypatch):
+        c = self._client(tmp_path)
+        self._with_ollama(monkeypatch, "qwen2.5:1.5b")
+        assert c._task_needs_ollama("analysis") == "qwen2.5:1.5b"
+
+    def test_general_stays_local_on_the_fast_baseline(self, tmp_path, monkeypatch):
+        # general/chat deliberately uses the small model for latency; it has no
+        # dedicated entry, so it must never be routed away.
+        c = self._client(tmp_path)
+        self._with_ollama(monkeypatch, "qwen2.5:1.5b")
+        assert c._task_needs_ollama("general") is None
+
+    def test_local_file_wins_over_ollama(self, tmp_path, monkeypatch):
+        # loading a local gguf avoids an HTTP hop, so prefer it when we have one
+        c = self._client(tmp_path)
+        (tmp_path / "models" / ANALYSIS).write_bytes(b"y" * 1000)
+        self._with_ollama(monkeypatch, "qwen2.5:1.5b")
+        assert c._task_needs_ollama("analysis") is None
+
+    def test_no_ollama_means_no_routing(self, tmp_path, monkeypatch):
+        c = self._client(tmp_path)
+        self._with_ollama(monkeypatch)  # ollama has nothing
+        assert c._task_needs_ollama("analysis") is None
+
+    def test_unrelated_ollama_model_is_not_used(self, tmp_path, monkeypatch):
+        c = self._client(tmp_path)
+        self._with_ollama(monkeypatch, "llama3.2:3b")
+        assert c._task_needs_ollama("analysis") is None
+
+    def test_probe_is_cached(self, tmp_path, monkeypatch):
+        """the probe is HTTP; doing it on every generate would add latency."""
+        c = self._client(tmp_path)
+        calls = {"n": 0}
+        from domain.model_manager.discovery import DiscoveredModel
+        def probe(_u):
+            calls["n"] += 1
+            return [DiscoveredModel(name="qwen2.5:1.5b", source="ollama")]
+        monkeypatch.setattr(discovery, "find_ollama_running", probe)
+        monkeypatch.setattr(discovery, "find_lmstudio_models", lambda: [])
+        for _ in range(5):
+            c._task_needs_ollama("analysis")
+        assert calls["n"] == 1
