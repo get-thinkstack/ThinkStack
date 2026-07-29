@@ -23,7 +23,9 @@ Work merged but not yet tagged.
   is remembered.
 - Model discovery across runtimes — models already installed via **Ollama** or
   **LM Studio** are found and used instead of downloading a second copy.
-- `CONTRIBUTING.md`: setup, branch model, what the hooks block, test conventions.
+- `CONTRIBUTING.md`: setup, branch model, what the hooks block, test conventions,
+  and the merging + release guides — including who may cut a release and what
+  each branch will refuse.
 - On-demand modular builds (`dev-build.yml`) — build one OS without cutting a tag.
 - Release guardrails: a tag is refused when the version is older than what is
   published or when CI is not green; the publish fails if any asset reaches
