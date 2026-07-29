@@ -155,8 +155,21 @@ PY
     echo -e "  ${GREEN}version bumped to ${VERSION}${NC}"
     git --no-pager diff --stat
 
-    git add src-tauri/tauri.conf.json landing.html src-tauri/Cargo.toml docs/landing/index.html 2>/dev/null || true
-    git commit -q -m "chore(release): ${TAG}"
+    # Stage only paths that exist. `git add` is atomic across its pathspecs: one
+    # missing file makes it stage NOTHING, and with the error swallowed the
+    # commit then aborts with "no changes added". That is exactly what happened
+    # when this listed a docs/ path that no longer exists.
+    # Cargo.lock is included because bumping the package version rewrites it.
+    for f in src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock landing.html; do
+        [ -f "$f" ] && git add "$f"
+    done
+
+    if git diff --cached --quiet; then
+        echo -e "  ${YELLOW}nothing to commit - version files already at ${VERSION}${NC}"
+    else
+        git commit -q -m "chore(release): ${TAG}"
+        echo -e "  ${GREEN}committed the version bump${NC}"
+    fi
 fi
 
 git tag -a "$TAG" -m "ThinkStack ${TAG}"
