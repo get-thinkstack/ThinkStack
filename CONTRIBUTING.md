@@ -162,26 +162,107 @@ bug, credit them.
 
 ---
 
+## Merging
+
+Day to day you only ever touch `dev`. Nothing you merge reaches a user until
+someone deliberately tags a release, so this loop is safe to run fast.
+
+```bash
+git switch dev && git pull            # always start from the latest dev
+git switch -c feat/short-description  # or fix/…
+# ... work, commit ...
+scripts/preflight.sh                  # optional: the hook runs it anyway
+git push -u origin feat/short-description
+gh pr create --base dev
+```
+
+Merge it once **CI OK** is green. On `dev` you don't need anyone's approval —
+review each other's work when it's worth reviewing, not as a ritual.
+
+### What each branch will let you do
+
+| | `dev` | `beta` | `main` |
+|---|---|---|---|
+| Push directly | yes | yes | **no — PR only** |
+| Pull request required | no | no | **yes** |
+| `CI OK` must be green | no (hook still gates you) | **yes** | **yes** |
+| Branch must be up to date to merge | — | no | **yes** |
+| Force-push / delete | allowed | blocked | blocked |
+
+`main` and `beta` are **promoted into, never developed on** — use
+`scripts/promote.sh`, which does the branch-and-tag dance for you. A PR straight
+into `main` is for the rare case where a promotion isn't the right shape; it
+still can't merge red.
+
+**If a merge into `dev` breaks something**, fix forward on `dev`. Nothing has
+shipped — no installers were built and no user is running that code.
+
+---
+
 ## Releasing
 
-Only the two long-lived promotions matter:
+### Who can do it
+
+All three of us have **write** access, and a release is triggered by pushing a
+`vX.Y.Z` tag. There is **no tag protection**, so — as things stand — any of us
+can publish a release that auto-updates every installed app.
+
+| | Rithesh (`Rithesh077`) | Aditya (`AdityaMehta2006`) | Jitvan (`jitvanChadha`) |
+|---|---|---|---|
+| Role | admin | write | write |
+| Merge to `dev` / `beta` | yes | yes | yes |
+| Merge to `main` (green PR) | yes | yes | yes |
+| **Cut a release** | yes | yes | yes |
+
+The convention, not currently enforced by GitHub: **stable releases go through
+the maintainer (Rithesh).** Beta tags are fair game for anyone — that's what beta
+is for. If you're about to run `promote.sh release`, say so in the group first.
+
+Note that branch protection does **not** cover tags. A tag can be pushed from any
+commit, including one that never went through `main`. `release.sh` is what
+actually checks that the commit is green (see the guards below) — respect it, and
+don't reach for `git tag` by hand.
+
+### The two paths
 
 ```bash
 # a feature: soak it on beta first, users later
 scripts/promote.sh feature 1.1.0     # dev -> beta,  tags v1.1.0-beta.N
+#   ... testers install the beta on all three OSes ...
 scripts/promote.sh release 1.1.0     # beta -> main, tags v1.1.0
 
 # a bug fix: beta AND main together, no soak
 scripts/promote.sh fix 1.0.1
 ```
 
-Each tag rebuilds and republishes that channel's installers; installed apps
-auto-update to them. Add `--dry-run` to see every git command without running one.
+`--dry-run` prints every git command without running one. Use it the first time.
 
-`release.sh` will refuse to tag when the version is **older than what's
-published** (the updater would drag users backwards) or when **CI isn't green**
-for that commit. CI additionally fails the publish if any asset reaches GitHub's
-**2 GiB** limit. These guards exist because none of it can be un-shipped.
+Each tag kicks off a **~45 minute three-OS build** that publishes installers and
+the signed updater manifest. Installed apps pick the update up on next launch —
+nobody re-downloads anything, and there is nothing to upload by hand.
+
+### What can stop you
+
+`release.sh` refuses to tag when:
+
+- the working tree is dirty, or the tag already exists
+- the version is **older than what's published** — the updater would drag
+  installed apps backwards, and that can't be undone
+- **CI isn't green** for the exact commit being tagged
+
+and CI fails the publish if any installer reaches GitHub's **2 GiB** asset limit
+(it warns past 90%).
+
+None of this can be un-shipped, which is the whole reason the guards exist. If
+one blocks you, it is almost always right.
+
+### If a release goes wrong
+
+A bad **beta** is just another beta tag — bump the counter and re-promote.
+
+A bad **stable** is fixed forward: `scripts/promote.sh fix <next-patch>`. Don't
+delete the tag or the release; installed apps follow whatever `latest` points at,
+and yanking it strands anyone mid-update.
 
 ---
 
