@@ -1,0 +1,485 @@
+name: _build-desktop (reusable)
+
+# reusable cross-platform build. NOT triggered on its own -- the channel caller
+# workflows (release-stable / release-beta / nightly) call it with a channel and
+# version. all the actual build knowledge lives here once; a new channel is a
+# ~30-line caller, and a new platform is one entry in release.config.json.
+#
+# the platform matrix, model list, and per-channel updater endpoint are all read
+# from release.config.json so this file rarely changes.
+
+on:
+  workflow_call:
+    inputs:
+      channel:
+        description: 'stable | beta | nightly'
+        required: true
+        type: string
+      version:
+        description: 'full version for this build (e.g. 0.2.0, 0.2.0-beta.1, 0.2.0-nightly.20260725)'
+        required: true
+        type: string
+      ref:
+        description: 'git ref to build (defaults to the triggering ref)'
+        required: false
+        type: string
+        default: ''
+      only_platform:
+        description: 'build a single platform id from release.config.json, or "all"'
+        required: false
+        type: string
+        default: 'all'
+      skip_models:
+        description: 'skip bundling the gguf models (dev builds only)'
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY:
+        required: false
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: false
+      # apple code-signing / notarization (macOS). all optional: absent => an
+      # unsigned build. declared here so the reusable workflow can reference them
+      # (callers pass everything through with `secrets: inherit`).
+      APPLE_CERTIFICATE:
+        required: false
+      APPLE_CERTIFICATE_PASSWORD:
+        required: false
+      APPLE_SIGNING_IDENTITY:
+        required: false
+      APPLE_ID:
+        required: false
+      APPLE_PASSWORD:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
+
+env:
+  PYTHON_VERSION: '3.12'
+  NODE_VERSION: '20'
+
+jobs:
+  # -- read the platform matrix from release.config.json --
+  # emitting the matrix as a job output keeps the build matrix data-driven:
+  # adding an OS/arch is an edit to release.config.json, not to this workflow.
+  matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.load.outputs.include }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      # `only_platform` lets a dev build target one OS instead of all three
+      # (~17 min instead of ~45). Releases leave it at "all".
+      - id: load
+        env:
+          ONLY: ${{ inputs.only_platform }}
+        run: |
+          if [ -z "$ONLY" ] || [ "$ONLY" = "all" ]; then
+            INCLUDE="$(jq -c '.platforms' release.config.json)"
+          else
+            INCLUDE="$(jq -c --arg l "$ONLY" '[.platforms[] | select(.label == $l)]' release.config.json)"
+            if [ "$INCLUDE" = "[]" ]; then
+              echo "::error::unknown platform '$ONLY'. valid: $(jq -r '[.platforms[].label]|join(", ")' release.config.json)"
+              exit 1
+            fi
+          fi
+          echo "building: $(echo "$INCLUDE" | jq -r '[.[].label]|join(", ")')"
+          echo "include=$INCLUDE" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.matrix.outputs.include) }}
+    runs-on: ${{ matrix.os }}
+    name: Build (${{ matrix.label }} - ${{ inputs.channel }})
+
+    steps:
+      # -- checkout --
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      # -- stamp the version into the bundle manifests --
+      # the caller owns the version; MSI/WiX ProductVersion must be numeric
+      # major.minor.patch, so the *bundle* version is the numeric core (prerelease
+      # / build suffix stripped). the full inputs.version (e.g. 0.2.0-beta.1) is
+      # carried into the updater manifest by the publish job instead.
+      - name: Stamp bundle version
+        shell: bash
+        run: |
+          NUMERIC="$(echo '${{ inputs.version }}' | sed -E 's/[-+].*$//')"
+          echo "stamping bundle version $NUMERIC (from '${{ inputs.version }}')"
+          # both edits in python: portable across the linux/macos/windows runners
+          # (BSD sed on macos rejects the GNU `0,/re/` range used for Cargo.toml).
+          python3 - "$NUMERIC" <<'PY'
+          import json, re, sys
+          ver = sys.argv[1]
+          p = "src-tauri/tauri.conf.json"
+          d = json.load(open(p))
+          d["version"] = ver
+          json.dump(d, open(p, "w"), indent=2); open(p, "a").write("\n")
+          # replace only the first `version = "..."` (the [package] version)
+          c = "src-tauri/Cargo.toml"
+          txt = open(c).read()
+          txt = re.sub(r'^version = .*$', f'version = "{ver}"', txt, count=1, flags=re.M)
+          open(c, "w").write(txt)
+          PY
+
+      # -- point non-stable builds at their own updater channel --
+      # a beta build must check the beta manifest, not stable's. rewrite the
+      # single updater endpoint from release.config.json for this channel so an
+      # installed beta/nightly self-updates within its channel.
+      # stable already points at the right endpoint in tauri.conf.json; beta and
+      # nightly are repointed at their own rolling manifest. `dev` is excluded on
+      # purpose: it is never published, has no channel entry in
+      # release.config.json, and must never ship an updater endpoint.
+      - name: Set updater channel endpoint
+        if: inputs.channel != 'stable' && inputs.channel != 'dev'
+        shell: bash
+        run: |
+          python3 - '${{ inputs.channel }}' <<'PY'
+          import json, sys
+          ch = sys.argv[1]
+          cfg = json.load(open("release.config.json"))
+          repo = cfg["repo"]; endpoint = cfg["channels"][ch]["endpoint"]
+          url = f"https://github.com/{repo}/{endpoint}"
+          p = "src-tauri/tauri.conf.json"
+          d = json.load(open(p))
+          d["plugins"]["updater"]["endpoints"] = [url]
+          json.dump(d, open(p, "w"), indent=2); open(p, "a").write("\n")
+          print("updater endpoint ->", url)
+          PY
+
+      # -- system dependencies (linux only) --
+      - name: Install system deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libpango1.0-dev \
+            build-essential
+
+      # -- python --
+      # cache pip: torch alone is a ~200 MB wheel and the full requirements set
+      # took several minutes per runner before this.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install Python dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          # CPU-only torch. the default torch wheel on linux/windows bundles the
+          # full CUDA stack (nvidia/* ~2.7GB, torch ~1.2GB, triton ~0.7GB) that a
+          # CPU-only app never uses. installing torch from the CPU index first
+          # (~200MB) cuts roughly 4GB from the frozen build. macOS torch is CPU
+          # by default, so it uses the normal index.
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            pip install torch
+          else
+            pip install torch --index-url https://download.pytorch.org/whl/cpu
+          fi
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      # -- node --
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+
+      - name: Install Node dependencies
+        shell: bash
+        run: |
+          npm install
+          npm --prefix frontend install
+
+      # -- rust --
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # -- build frontend --
+      - name: Build frontend
+        run: npm --prefix frontend run build
+        shell: bash
+
+      # -- download base + analysis models (list lives in release.config.json) --
+      # both are bundled (seeded into the user's models dir on first run):
+      #   0.5B  -> chat / search / paper-writer (light, fast)
+      #   1.5B  -> summarize / claims / gap-finder (0.5B emits unparseable json
+      #           on these; the app routes them to 1.5B -- see ollama_client.py)
+      # this makes gap analysis work offline out of the box at the cost of a
+      # larger installer. drop a model line in release.config.json to slim it.
+      # cache the gguf weights. they are ~1.5 GB, identical on every runner and
+      # every build, and were previously re-downloaded from HuggingFace by all
+      # three OS jobs on every single release. the key is the model list itself,
+      # so the cache invalidates only when release.config.json changes.
+      - name: Cache models
+        if: ${{ !inputs.skip_models }}
+        uses: actions/cache@v4
+        with:
+          path: data/models
+          key: models-${{ hashFiles('release.config.json') }}
+
+      - name: Download models
+        if: ${{ !inputs.skip_models }}
+        shell: bash
+        run: |
+          mkdir -p data/models
+          # `tr -d '\r'` is required: jq on the Windows runner emits CRLF, so
+          # `read` leaves a trailing carriage return on the URL and curl fails
+          # with "URL rejected: Malformed input to a URL function". Linux/macOS
+          # are unaffected, so this only ever showed up on Windows.
+          #
+          # --fail makes curl exit non-zero on an HTTP error instead of writing
+          # the error page into the .gguf; --retry rides out flaky transfers of
+          # these ~1 GB files.
+          jq -r '.models[]' release.config.json | tr -d '\r' | while read -r url; do
+            [ -n "$url" ] || continue
+            fname="$(basename "$url")"
+            # restored from cache -> skip the ~1 GB transfer
+            if [ -s "data/models/$fname" ]; then
+              echo "cached: $fname"
+              continue
+            fi
+            echo "downloading $fname"
+            curl -L --fail --retry 3 --retry-delay 5 -o "data/models/$fname" "$url"
+          done
+          ls -lh data/models/
+
+      # -- freeze python backend --
+      # --onedir (NOT --onefile): tauri.conf.json bundles dist/thinkstack-api/
+      # as the "api/" resource dir, which lib.rs launches. onefile would
+      # re-extract its multi-GB payload to a temp dir on every app launch.
+      #
+      # --collect-all llama_cpp / sentence_transformers are REQUIRED and were
+      # validated locally: neither ships a PyInstaller hook, so without these the
+      # frozen build silently omits llama_cpp's lib/*.so (chat + gap analysis
+      # crash at model load) and sentence_transformers' package data (embeddings/
+      # search break). torch/transformers/sklearn are collected by their own hooks.
+      - name: Freeze backend (PyInstaller)
+        shell: bash
+        run: |
+          # built as an array, not a string: an unquoted string expansion relies
+          # on word splitting (shellcheck SC2086) and breaks on any path with a
+          # space. PyInstaller's --add-data separator is os.pathsep, so it must be
+          # ';' on Windows and ':' elsewhere.
+          SEP=":"
+          [ "$RUNNER_OS" = "Windows" ] && SEP=";"
+          ADD_DATA=(--add-data "frontend/dist${SEP}frontend/dist")
+          if ls data/models/*.gguf 1>/dev/null 2>&1; then
+            ADD_DATA+=(--add-data "data/models${SEP}data/models")
+          fi
+          pyinstaller --name thinkstack-api --onedir --clean --noconfirm \
+            --hidden-import uvicorn \
+            --hidden-import uvicorn.logging \
+            --hidden-import uvicorn.loops \
+            --hidden-import uvicorn.loops.auto \
+            --hidden-import uvicorn.protocols \
+            --hidden-import uvicorn.protocols.http \
+            --hidden-import uvicorn.protocols.http.auto \
+            --hidden-import uvicorn.protocols.websockets \
+            --hidden-import uvicorn.protocols.websockets.auto \
+            --hidden-import uvicorn.lifespan \
+            --hidden-import uvicorn.lifespan.on \
+            --hidden-import psutil \
+            --collect-all llama_cpp \
+            --collect-all sentence_transformers \
+            "${ADD_DATA[@]}" \
+            main.py
+          test -x dist/thinkstack-api/thinkstack-api || test -x dist/thinkstack-api/thinkstack-api.exe
+
+      # -- smoke test the frozen backend --
+      # The only check that exercises the BUNDLE rather than the source tree.
+      # pytest imports from source, so it cannot see a missing PyInstaller hidden
+      # import, a dropped shared library, or a syntax error that only CI's Python
+      # rejects -- all of which are fatal at runtime and invisible until a user
+      # launches the app. A shipped build once failed exactly this way.
+      #
+      # Boots the frozen binary and requires a real HTTP response, so a bundle
+      # that cannot start fails the build instead of reaching a release.
+      - name: Smoke test frozen backend
+        shell: bash
+        run: |
+          BIN=dist/thinkstack-api/thinkstack-api
+          [ -x "$BIN" ] || BIN=dist/thinkstack-api/thinkstack-api.exe
+
+          "$BIN" --host 127.0.0.1 --port 8765 > backend-smoke.log 2>&1 &
+          PID=$!
+
+          # onedir unpacks a lot on first start; allow a generous window but
+          # bail out early the moment it answers.
+          UP=0
+          for i in $(seq 1 60); do
+            if ! kill -0 "$PID" 2>/dev/null; then
+              echo "::error::frozen backend exited during startup"
+              break
+            fi
+            if curl -fsS -m 5 "http://127.0.0.1:8765/api/system/health" -o smoke-health.json 2>/dev/null; then
+              UP=1; echo "backend answered after ~${i}s"; break
+            fi
+            sleep 1
+          done
+
+          kill "$PID" 2>/dev/null || true
+          wait "$PID" 2>/dev/null || true
+
+          if [ "$UP" -ne 1 ]; then
+            echo "::error::frozen backend never served /api/system/health"
+            echo "---- backend log (last 60 lines) ----"
+            tail -60 backend-smoke.log || true
+            exit 1
+          fi
+
+          echo "---- /api/system/health ----"
+          cat smoke-health.json; echo
+          # a 200 with an unparseable body still means the bundle is broken
+          python3 -c "import json,sys; json.load(open('smoke-health.json'))"
+          echo "smoke test passed: the frozen bundle starts and serves requests"
+
+      - name: Upload smoke test log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-log-${{ matrix.label }}
+          path: backend-smoke.log
+          if-no-files-found: ignore
+
+      # -- build tauri (linux / windows) --
+      # the signing env vars make the bundler emit signed updater artifacts
+      # (.sig files) next to each installer, which the auto-updater verifies
+      # against the pubkey in tauri.conf.json. absent secrets => unsigned build
+      # (installers still produced, just no working auto-update).
+      - name: Build Tauri app
+        if: runner.os != 'macOS'
+        run: npm run tauri build -- --bundles ${{ matrix.bundles }}
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # linuxdeploy is itself an AppImage and needs libfuse2 to FUSE-mount;
+          # extract-and-run avoids that so the AppImage builds without libfuse2.
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+          NO_STRIP: 'true'
+
+      # -- build the AppImage (Linux only, via appimagetool) --
+      # run the appimage bundler to create the AppDir (linuxdeploy fails on the
+      # PyInstaller backend, which is expected), then package the AppDir with
+      # appimagetool and sign it. see scripts/package-appimage.sh.
+      - name: Build AppImage (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          npm run tauri build -- --bundles appimage || echo "linuxdeploy failed as expected; packaging AppDir with appimagetool"
+          bash scripts/package-appimage.sh
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+          NO_STRIP: 'true'
+
+      # -- build tauri (macOS universal) --
+      # apple code-signing is opt-in and must be all-or-nothing. tauri decides to
+      # codesign based on whether APPLE_CERTIFICATE is PRESENT, not whether it has
+      # a value -- and `${{ secrets.X }}` for an undefined secret expands to an
+      # empty string, which still counts as present. that made an unsigned build
+      # fail with "failed to import keychain certificate" instead of quietly
+      # skipping signing. so detect first, then run one of two variants: the
+      # unsigned one does not define the APPLE_* vars at all.
+      - name: Detect Apple signing availability
+        id: apple
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          CERT: ${{ secrets.APPLE_CERTIFICATE }}
+        run: |
+          if [ -n "$CERT" ]; then
+            echo "signing=true" >> "$GITHUB_OUTPUT"
+            echo "apple signing certificate present - will codesign + notarize"
+          else
+            echo "signing=false" >> "$GITHUB_OUTPUT"
+            echo "no apple certificate - building unsigned (gatekeeper warns once)"
+          fi
+
+      - name: Build Tauri app (macOS universal, signed)
+        if: runner.os == 'macOS' && steps.apple.outputs.signing == 'true'
+        run: npm run tauri build -- --target universal-apple-darwin --bundles ${{ matrix.bundles }}
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      # identical build, minus every APPLE_* var, so tauri never attempts to
+      # codesign. still signs the UPDATER artifacts (.sig) so auto-update works.
+      - name: Build Tauri app (macOS universal, unsigned)
+        if: runner.os == 'macOS' && steps.apple.outputs.signing != 'true'
+        run: npm run tauri build -- --target universal-apple-darwin --bundles ${{ matrix.bundles }}
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      # -- collect artifacts --
+      # *.sig are the updater signatures (present only when signing secrets are
+      # set); the publish job reads them to build the channel manifest. the
+      # AppImage / .app.tar.gz / .msi are also the auto-updater's install targets.
+      - name: Collect artifacts (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p artifacts
+          cp src-tauri/target/release/bundle/deb/*.deb artifacts/ 2>/dev/null || true
+          cp src-tauri/target/release/bundle/appimage/*.AppImage artifacts/ 2>/dev/null || true
+          cp src-tauri/target/release/bundle/appimage/*.AppImage.sig artifacts/ 2>/dev/null || true
+          ls -lh artifacts/
+
+      - name: Collect artifacts (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p artifacts
+          cp src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg artifacts/ 2>/dev/null || true
+          cp src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz artifacts/ 2>/dev/null || true
+          cp src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz.sig artifacts/ 2>/dev/null || true
+          ls -lh artifacts/
+
+      - name: Collect artifacts (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          Copy-Item src-tauri\target\release\bundle\msi\*.msi artifacts\ -ErrorAction SilentlyContinue
+          Copy-Item src-tauri\target\release\bundle\msi\*.msi.sig artifacts\ -ErrorAction SilentlyContinue
+          Get-ChildItem artifacts\
+        shell: powershell
+
+      # -- upload as workflow artifacts (consumed by the publish job) --
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: thinkstack-${{ inputs.channel }}-${{ matrix.label }}
+          path: artifacts/*
+          if-no-files-found: error

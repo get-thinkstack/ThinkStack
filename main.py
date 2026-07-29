@@ -25,6 +25,7 @@ from api.routes_system import router as system_router
 from api.routes_chat import router as chat_router
 from api.routes_encryption import router as encryption_router
 from api.routes_papers import router as papers_router
+from api.routes_models import router as models_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -67,6 +68,7 @@ app.include_router(system_router, prefix="/api/system", tags=["system"])
 app.include_router(chat_router, prefix="/api/chat", tags=["chat"])
 app.include_router(encryption_router, prefix="/api/encryption", tags=["encryption"])
 app.include_router(papers_router, prefix="/api/papers", tags=["papers"])
+app.include_router(models_router, prefix="/api/models", tags=["models"])
 
 frontend_dist = settings.base_dir / "frontend" / "dist"
 if frontend_dist.exists() and (frontend_dist / "index.html").exists():

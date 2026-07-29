@@ -8,7 +8,6 @@ for downstream gap analysis.
 
 import json
 import logging
-import uuid
 
 from domain.analysis.models import Claim
 from infrastructure.ollama_client import ollama_client

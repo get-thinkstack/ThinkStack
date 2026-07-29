@@ -1,0 +1,71 @@
+name: Release (nightly)
+
+# nightly channel. runs on a schedule and publishes to the rolling "nightly"
+# prerelease. the version is derived: <base>-nightly.<date>.<shortsha>, where
+# <base> is the numeric version currently in tauri.conf.json. skips the build
+# when there were no commits in the last day (no point rebuilding an identical
+# tree), unless dispatched by hand with force=true.
+
+on:
+  schedule:
+    - cron: '0 5 * * *'   # 05:00 UTC daily
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'build even if there were no commits today'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      should_run: ${{ steps.gate.outputs.should_run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: gate
+        run: |
+          FORCE='${{ github.event.inputs.force }}'
+          if [ "$FORCE" = "true" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ -z "$(git log --since='24 hours ago' --oneline)" ]; then
+            echo "no commits in the last 24h -- skipping nightly"
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - id: v
+        run: |
+          BASE=$(jq -r '.version' src-tauri/tauri.conf.json)
+          echo "version=${BASE}-nightly.$(date -u +%Y%m%d).$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: setup
+    if: needs.setup.outputs.should_run == 'true'
+    uses: ./.github/workflows/_build-desktop.yml
+    with:
+      channel: nightly
+      version: ${{ needs.setup.outputs.version }}
+    # inherit passes every repo secret through, so adding a new signing/notary
+    # secret later (enterprise, mobile) needs no edit here.
+    secrets: inherit
+
+  publish:
+    needs: [setup, build]
+    if: needs.setup.outputs.should_run == 'true'
+    uses: ./.github/workflows/_publish-release.yml
+    with:
+      channel: nightly
+      version: ${{ needs.setup.outputs.version }}

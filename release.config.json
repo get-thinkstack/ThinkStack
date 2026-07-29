@@ -1,0 +1,55 @@
+{
+  "$comment": "single source of truth for the desktop release pipeline. the reusable ci workflows and scripts/*.sh all read this file, so adding a platform, a channel, or pointing at a new repo/org is a config edit here \u2014 not a workflow rewrite. see docs/RELEASE_GUIDE.md.",
+  "product": "ThinkStack",
+  "identifier": "com.thinkstack.app",
+  "repo": "get-thinkstack/ThinkStack",
+  "channels": {
+    "stable": {
+      "prerelease": false,
+      "rolling_tag": null,
+      "manifest": "latest.json",
+      "endpoint": "releases/latest/download/latest.json"
+    },
+    "beta": {
+      "prerelease": true,
+      "rolling_tag": "beta",
+      "manifest": "latest.json",
+      "endpoint": "releases/download/beta/latest.json"
+    },
+    "nightly": {
+      "prerelease": true,
+      "rolling_tag": "nightly",
+      "manifest": "latest.json",
+      "endpoint": "releases/download/nightly/latest.json"
+    }
+  },
+  "platforms": [
+    {
+      "os": "ubuntu-22.04",
+      "target": "x86_64-unknown-linux-gnu",
+      "label": "linux-x86_64",
+      "bundles": "deb"
+    },
+    {
+      "os": "macos-latest",
+      "target": "universal-apple-darwin",
+      "label": "macos-universal",
+      "bundles": "app,dmg"
+    },
+    {
+      "os": "windows-latest",
+      "target": "x86_64-pc-windows-msvc",
+      "label": "windows-x86_64",
+      "bundles": "msi"
+    }
+  ],
+  "models": [
+    "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+  ],
+  "supply_chain": {
+    "checksums": true,
+    "sbom": true,
+    "provenance": true
+  },
+  "$comment_models": "Only the BASELINE model ships inside the installer, so a fresh install works offline immediately without a download. Heavier models are optional: the app detects what the machine can run, checks whether an equivalent is already present (ThinkStack, Ollama or LM Studio), and only then asks permission to fetch one. Adding a model here puts it back in the installer - keep in step with domain/model_manager/catalog.py, and mind GitHub's 2 GiB asset limit."
+}

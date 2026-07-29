@@ -129,6 +129,13 @@ export const analysisApi = {
       method: 'POST',
       body: { doc_ids: docIds, password },
     }),
+
+  /** past analysis runs (summaries/claims/themes), newest first */
+  history: () => request('/analysis/history'),
+
+  /** delete a single saved analysis run by id */
+  deleteRun: (runId) =>
+    request(`/analysis/history/${runId}`, { method: 'DELETE' }),
 };
 
 export const gapsApi = {
@@ -137,6 +144,13 @@ export const gapsApi = {
       method: 'POST',
       body: { doc_ids: docIds, password },
     }),
+
+  /** past gap-analysis runs, newest first */
+  history: () => request('/gaps/history'),
+
+  /** delete a single saved run by id */
+  deleteRun: (runId) =>
+    request(`/gaps/history/${runId}`, { method: 'DELETE' }),
 };
 
 export const systemApi = {
@@ -145,6 +159,24 @@ export const systemApi = {
   stats: () => request('/system/stats'),
   setModel: (model) =>
     request('/system/model', { method: 'POST', body: { model } }),
+};
+
+/**
+ * Model setup.
+ *
+ * The baseline model ships inside the installer, so the app is fully usable
+ * offline the moment it starts. Heavier models are optional: `setup` reports
+ * whether this machine can run a better one AND does not already have it (from
+ * ThinkStack, Ollama or LM Studio), and only then does the UI ask permission.
+ * Nothing is ever downloaded without an explicit `download` call.
+ */
+export const modelsApi = {
+  setup: () => request('/models/setup'),
+  catalog: () => request('/models/catalog'),
+  download: (name) =>
+    request('/models/download', { method: 'POST', body: { name } }),
+  downloadStatus: () => request('/models/download/status'),
+  cancelDownload: () => request('/models/download/cancel', { method: 'POST' }),
 };
 
 export const encryptionApi = {

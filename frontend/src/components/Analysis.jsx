@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Brain, Lightbulb, Layers, Lock, Eye, EyeOff, Plus } from 'lucide-react';
+import { Brain, Lightbulb, Layers, Lock, Eye, EyeOff, Plus, Clock, X } from 'lucide-react';
 import { documentsApi, analysisApi, useLlmBusy } from '../utils/api';
 import PageHeader from './PageHeader';
+
+const RUN_LABELS = { summarize: 'Summary', claims: 'Claims', themes: 'Themes' };
 
 /**
  * analysis dashboard component.
@@ -20,21 +22,85 @@ export default function Analysis() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showNewAnalysis, setShowNewAnalysis] = useState(false);
+  const [history, setHistory] = useState([]);
+  const [activeRunId, setActiveRunId] = useState(null);
 
   // single shared local model - disable runs while it's busy elsewhere
   const { busy } = useLlmBusy();
 
   useEffect(() => {
-    const loadDocs = async () => {
+    const load = async () => {
       try {
-        const data = await documentsApi.list();
-        setDocuments(data.documents || []);
+        const [docs, past] = await Promise.all([
+          documentsApi.list(),
+          analysisApi.history(),
+        ]);
+        setDocuments(docs.documents || []);
+        const runs = past.runs || [];
+        setHistory(runs);
+        // surface the most recent analysis so past work persists visually
+        if (runs.length > 0) openRun(runs[0]);
       } catch (err) {
-        console.error('failed to load documents:', err);
+        console.error('failed to load analysis data:', err);
       }
     };
-    loadDocs();
+    load();
   }, []);
+
+  const refreshHistory = async () => {
+    try {
+      const past = await analysisApi.history();
+      setHistory(past.runs || []);
+    } catch (err) {
+      console.error('failed to refresh history:', err);
+    }
+  };
+
+  // load a saved run into the result pane, restoring the tab it was run under
+  // so the correct view (summary / claims / themes) renders.
+  const openRun = (run) => {
+    setResult(run.result || null);
+    setActiveTab(run.type);
+    setActiveRunId(run.run_id);
+  };
+
+  const selectRun = (run) => {
+    openRun(run);
+    setError('');
+    setShowNewAnalysis(false);
+  };
+
+  const deleteRun = async (runId) => {
+    try {
+      await analysisApi.deleteRun(runId);
+      const remaining = history.filter((r) => r.run_id !== runId);
+      setHistory(remaining);
+      if (activeRunId === runId) {
+        if (remaining.length > 0) openRun(remaining[0]);
+        else { setResult(null); setActiveRunId(null); }
+      }
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const formatRunDate = (iso) => {
+    if (!iso) return 'run';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return 'run';
+    return d.toLocaleString([], {
+      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+    });
+  };
+
+  const runMeta = (run) => {
+    const n = run.doc_ids?.length || 0;
+    const papers = `${n} ${n === 1 ? 'paper' : 'papers'}`;
+    const total = run.result?.total;
+    if (run.type === 'claims') return `${papers} · ${total ?? 0} claims`;
+    if (run.type === 'themes') return `${papers} · ${total ?? 0} themes`;
+    return papers;
+  };
 
   const toggleDoc = (docId) => {
     setSelectedDocs((prev) =>
@@ -75,7 +141,11 @@ export default function Analysis() {
           return;
       }
       setResult(data);
+      setActiveRunId(data.run_id || null);
       setShowNewAnalysis(false);
+      // saved server-side; refresh the log so it appears in Past analyses
+      // without discarding the run we just opened.
+      refreshHistory();
     } catch (err) {
       setError(err.message);
     }
@@ -198,6 +268,41 @@ export default function Analysis() {
         </div>
       )}
 
+      {history.length > 0 && (
+        <div className="card gap-history-card fade-up stagger-2" style={{ marginBottom: '1.5rem' }}>
+          <div className="card-header" style={{ marginBottom: '1rem' }}>
+            <span className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
+              <Clock size={16} style={{ color: 'var(--accent)' }} />
+              Past analyses
+            </span>
+            <span className="doc-meta">{history.length} saved</span>
+          </div>
+          <div className="gap-history-list">
+            {history.map((run) => (
+              <div
+                key={run.run_id}
+                className={`gap-history-item ${activeRunId === run.run_id ? 'active' : ''}`}
+              >
+                <button className="gap-history-main" onClick={() => selectRun(run)}>
+                  <span className="gap-history-date">{RUN_LABELS[run.type] || run.type}</span>
+                  <span className="gap-history-meta">
+                    {formatRunDate(run.created_at)} · {runMeta(run)}
+                  </span>
+                </button>
+                <button
+                  className="btn-icon btn-icon-danger gap-history-del"
+                  onClick={() => deleteRun(run.run_id)}
+                  title="Delete this analysis"
+                  aria-label="Delete this analysis"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {result && (
         <div className="card fade-up stagger-4">
           {activeTab === 'summarize' && (
@@ -261,7 +366,7 @@ export default function Analysis() {
         </div>
       )}
 
-      {!result && !loading && !showNewAnalysis && (
+      {!result && !loading && !showNewAnalysis && history.length === 0 && (
         <div className="card fade-up stagger-2">
           <div className="empty-state">
             <h3>No Analyses Yet</h3>

@@ -11,13 +11,13 @@ academic use with collections of up to a few thousand documents.
 
 import json
 import logging
-import os
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
 
 from config import settings
+from infrastructure.atomic_io import atomic_write_json
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +58,13 @@ class VectorStore:
             self._embeddings = None
 
     def _save(self):
-        """persist vectors to disk."""
-        with open(self._data_file, "w", encoding="utf-8") as f:
-            json.dump(self._entries, f)
+        """persist vectors to disk atomically.
+
+        writes to a temp file and renames it over ``vectors.json`` so a crash
+        or power loss mid-write can never truncate the existing store. if the
+        data is not serializable the write raises and the old file is kept.
+        """
+        atomic_write_json(self._data_file, self._entries)
 
     def _rebuild_matrix(self):
         """rebuild the numpy embedding matrix from entries."""

@@ -1,0 +1,57 @@
+name: Release (stable)
+
+# stable channel. push a plain semver tag (v0.2.0) -- scripts/release.sh does the
+# bump+tag -- and this publishes the versioned release + updater manifest that the
+# landing page and installed stable apps point at.
+#
+# this file is intentionally thin: all build/publish logic is in the reusable
+# workflows. a new channel is a copy of this file with a different trigger.
+
+on:
+  push:
+    # plain semver only. the trailing-suffix guard is the glob itself: a beta tag
+    # like v0.2.0-beta.1 does not match this pattern (extra chars after patch).
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'version to build, e.g. 0.2.0'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            V='${{ inputs.version }}'
+          else
+            V="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: setup
+    uses: ./.github/workflows/_build-desktop.yml
+    with:
+      channel: stable
+      version: ${{ needs.setup.outputs.version }}
+    # inherit passes every repo secret through, so adding a new signing/notary
+    # secret later (enterprise, mobile) needs no edit here.
+    secrets: inherit
+
+  publish:
+    needs: [setup, build]
+    uses: ./.github/workflows/_publish-release.yml
+    with:
+      channel: stable
+      version: ${{ needs.setup.outputs.version }}

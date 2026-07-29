@@ -6,18 +6,23 @@ the model is loaded once and cached in memory for efficient reuse
 across embedding requests.
 """
 
-import logging
+from __future__ import annotations
 
-from sentence_transformers import SentenceTransformer
+import logging
 
 from config import settings
 
 logger = logging.getLogger(__name__)
 
-_model: SentenceTransformer | None = None
+# typed as Any-in-practice; the real import is deferred (see get_model). importing
+# sentence_transformers pulls in torch + transformers (~4s warm, far worse in a
+# frozen build), and doing it at module load is what made the backend socket — and
+# therefore the tauri loading screen — wait seconds on every launch. keeping it
+# lazy lets the server come up in ~1s; torch loads only on the first embed.
+_model = None
 
 
-def get_model() -> SentenceTransformer:
+def get_model():
     """load and cache the sentence-transformer embedding model.
 
     prefers the copy shipped inside the bundle so a packaged build never
@@ -34,6 +39,9 @@ def get_model() -> SentenceTransformer:
     """
     global _model
     if _model is None:
+        # lazy import: keep torch/transformers out of backend startup.
+        from sentence_transformers import SentenceTransformer
+
         bundled = settings.bundled_embedding_dir
         source = str(bundled) if bundled.is_dir() else settings.embedding_model
         logger.info("loading embedding model: %s (cpu)", source)
