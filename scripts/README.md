@@ -52,6 +52,24 @@ Rollback: a bad beta is just a new beta tag. A bad stable is fixed by
 `scripts/promote.sh fix <next-patch>` — installed apps auto-update to whatever
 `latest` points at.
 
+### Release guardrails
+
+A tag ships installers to real users and cannot be un-shipped, so `release.sh`
+refuses to cut one when:
+
+| Guard | Why |
+|-------|-----|
+| working tree is dirty | uncommitted work would not be in the build |
+| tag already exists | re-tagging silently changes what a version means |
+| **version is older than what's published** | the updater would move installed apps *backwards* |
+| **CI is not green for this commit** | the tag is what builds installers; a red commit ships broken |
+| no CI results found | the commit isn't pushed, so nothing has been verified (prompts on stable) |
+
+CI adds one more, at publish time: any asset **≥ 2 GiB** fails the release with a
+named file, because GitHub rejects it and the upload would otherwise die partway
+through after a ~45 minute build. Installers currently sit near 1.9 GiB, so a
+warning fires past 90%.
+
 ## Scripts
 
 | script | what it does |

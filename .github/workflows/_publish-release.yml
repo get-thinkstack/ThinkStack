@@ -79,6 +79,36 @@ jobs:
       - name: List downloaded files
         run: ls -lhR all-artifacts/
 
+      # -- guardrail: GitHub rejects any release asset over 2 GiB --
+      # The installers bundle ~1.5 GB of gguf weights and already sit around
+      # 1.9 GiB, so this is close. Without the check the upload fails partway
+      # through with an opaque API error, after a ~45 minute build, leaving a
+      # half-populated release. Fail here instead, naming the file and the fix.
+      - name: Check asset sizes
+        run: |
+          LIMIT=$((2 * 1024 * 1024 * 1024))
+          WARN=$((LIMIT * 90 / 100))
+          OVER=0
+          while IFS= read -r f; do
+            SIZE=$(stat -c%s "$f")
+            NAME=$(basename "$f")
+            PCT=$((SIZE * 100 / LIMIT))
+            if [ "$SIZE" -ge "$LIMIT" ]; then
+              echo "::error::$NAME is $((SIZE / 1024 / 1024)) MiB - over GitHub's 2 GiB asset limit"
+              OVER=1
+            elif [ "$SIZE" -ge "$WARN" ]; then
+              echo "::warning::$NAME is $((SIZE / 1024 / 1024)) MiB (${PCT}% of the 2 GiB limit)"
+            fi
+          done < <(find all-artifacts -maxdepth 1 -type f)
+
+          if [ "$OVER" = "1" ]; then
+            echo "Headroom is gone. Shrink the payload before releasing:"
+            echo "  - drop the 1.5 GB analysis model from the bundle and fetch it"
+            echo "    on first run instead (see domain/model_manager/)"
+            echo "  - or host the installers off GitHub (e.g. Cloudflare R2)"
+            exit 1
+          fi
+
       # -- compose the signed updater manifest for this channel --
       # runs BEFORE the stable-named copies + checksums so it only sees the
       # versioned installers (which carry the matching .sig). skips cleanly with
