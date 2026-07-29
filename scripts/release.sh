@@ -74,6 +74,52 @@ if git rev-parse "$TAG" >/dev/null 2>&1; then
     echo -e "${RED}tag ${TAG} already exists.${NC}"; exit 1
 fi
 
+# ── refuse to release a version older than what users already have ──
+# The updater serves whatever `latest` points at. Publishing a lower version
+# after a higher one makes installed apps see an "update" that moves them
+# backwards, and there is no clean way to undo that once it has shipped.
+if command -v gh >/dev/null 2>&1; then
+    LATEST="$(gh release view --repo "$REPO" --json tagName -q .tagName 2>/dev/null | sed 's/^v//' || true)"
+    if [ -n "$LATEST" ]; then
+        # sort -V puts the lower version first; if that is not the published one,
+        # the new version is going backwards.
+        LOWEST="$(printf '%s\n%s\n' "$LATEST" "$VERSION" | sort -V | head -1)"
+        if [ "$VERSION" != "$LATEST" ] && [ "$LOWEST" = "$VERSION" ]; then
+            echo -e "${RED}refusing to release ${VERSION}: ${LATEST} is already published.${NC}"
+            echo -e "  releasing backwards would push installed apps to an older build."
+            echo -e "  bump past ${LATEST} instead."
+            exit 1
+        fi
+    fi
+fi
+
+# ── refuse to tag a commit whose CI is not green ──
+# A tag is what builds and ships installers. Tagging a red commit means the
+# broken build reaches users, and the only fix is another release. Checks are
+# looked up for the exact commit being tagged.
+if command -v gh >/dev/null 2>&1; then
+    SHA="$(git rev-parse HEAD)"
+    CONCLUSIONS="$(gh api "repos/${REPO}/commits/${SHA}/check-runs" \
+        --jq '.check_runs[] | select(.name != "CI OK") | .conclusion' 2>/dev/null || true)"
+    if [ -z "$CONCLUSIONS" ]; then
+        echo -e "${YELLOW}!${NC} no CI results found for ${SHA:0:8} (not pushed yet?)."
+        echo -e "  push the commit and let CI finish before tagging a release."
+        if [ "$CHANNEL" = "stable" ]; then
+            printf "  release anyway? [y/N] "
+            read -r ans
+            case "$ans" in y|Y|yes) ;; *) echo "  aborted."; exit 1 ;; esac
+        fi
+    elif echo "$CONCLUSIONS" | grep -qvE '^(success|skipped|neutral)$'; then
+        echo -e "${RED}CI is not green for ${SHA:0:8}:${NC}"
+        gh api "repos/${REPO}/commits/${SHA}/check-runs" \
+            --jq '.check_runs[] | select(.conclusion != "success" and .conclusion != "skipped" and .conclusion != "neutral") | "    \(.name): \(.conclusion // .status)"' 2>/dev/null || true
+        echo -e "  fix these before releasing - a tag ships installers to users."
+        exit 1
+    else
+        echo -e "  ${GREEN}✓${NC} CI green for ${SHA:0:8}"
+    fi
+fi
+
 # ── stable: bump the hard-coded versions and commit ──
 # beta cuts a tag at HEAD with no file bump (ci stamps the bundle version, and
 # the landing page keeps pointing at the stable download).

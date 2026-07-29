@@ -26,24 +26,49 @@ whole team gets the same hooks and updates arrive with a normal `git pull`.
 you only pay the ~20 minute three-OS build when you deliberately tag. That keeps
 `dev` fast and loose while `main` stays deliberate.
 
-Typical flow:
+### Promoting work (and shipping the binaries for it)
+
+`promote.sh` encodes both paths so nobody has to remember the branch/tag dance.
+Every tag it cuts rebuilds and republishes that channel's installers, and
+installed apps auto-update to them — so the binaries swap as a consequence of
+promoting, with nothing to upload by hand.
 
 ```bash
-# 1. work on dev
-git switch dev && git pull --rebase
-#    ... commit, push (fast gate runs automatically)
+# a feature: soak it on beta first, users later
+scripts/promote.sh feature 0.2.0     # dev -> beta,  tags v0.2.0-beta.N
+#   ... testers try the beta installers ...
+scripts/promote.sh release 0.2.0     # beta -> main, tags v0.2.0 (users get it)
 
-# 2. ready to test real binaries -> beta
-git switch beta && git merge dev && git push
-scripts/release.sh 0.2.0 --beta 1 --push     # builds + publishes the beta
-
-# 3. beta looks good -> main
-git switch main && git merge beta && git push
-scripts/release.sh 0.2.0 --push              # the stable release users get
+# a bug fix: beta AND main together, no soak
+scripts/promote.sh fix 0.1.1         # dev -> beta + main, tags both
 ```
 
-Rollback: a bad beta is just a new beta tag. A bad stable is fixed by tagging the
-next patch — installed apps auto-update to whatever `latest` points at.
+`--dry-run` prints every git command without running one. `--yes` skips the
+prompt. It refuses to start from a dirty tree, fast-forwards each target from
+origin first, aborts cleanly on a merge conflict, and picks the next
+`-beta.N` counter for you.
+
+Rollback: a bad beta is just a new beta tag. A bad stable is fixed by
+`scripts/promote.sh fix <next-patch>` — installed apps auto-update to whatever
+`latest` points at.
+
+### Release guardrails
+
+A tag ships installers to real users and cannot be un-shipped, so `release.sh`
+refuses to cut one when:
+
+| Guard | Why |
+|-------|-----|
+| working tree is dirty | uncommitted work would not be in the build |
+| tag already exists | re-tagging silently changes what a version means |
+| **version is older than what's published** | the updater would move installed apps *backwards* |
+| **CI is not green for this commit** | the tag is what builds installers; a red commit ships broken |
+| no CI results found | the commit isn't pushed, so nothing has been verified (prompts on stable) |
+
+CI adds one more, at publish time: any asset **≥ 2 GiB** fails the release with a
+named file, because GitHub rejects it and the upload would otherwise die partway
+through after a ~45 minute build. Installers currently sit near 1.9 GiB, so a
+warning fires past 90%.
 
 ## Scripts
 
@@ -57,6 +82,7 @@ next patch — installed apps auto-update to whatever `latest` points at.
 | `build.sh` | local production build (freeze backend, build frontend, compile Tauri) |
 | `package-appimage.sh` | package the Tauri AppDir into an AppImage |
 | `compose-updater-manifest.sh` | build the signed `latest.json` updater manifest |
+| `promote.sh` | move work dev→beta→main and ship that channel's installers |
 | `release.sh` | cut a release: bump version, tag the channel, push |
 | `set-repo.sh` | retarget the project at a different GitHub owner/repo |
 

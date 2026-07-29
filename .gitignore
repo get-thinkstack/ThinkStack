@@ -89,6 +89,7 @@ docs/*.synctex.gz
 
 #local
 local/
+docs/superpowers/specs
 
 # Logs and git helper/scratch files
 backend.log

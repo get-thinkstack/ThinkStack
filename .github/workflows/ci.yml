@@ -27,12 +27,76 @@ permissions:
   contents: read
 
 jobs:
+  # -- which parts of the repo actually changed? --
+  # Every job below is gated on this, so a push runs only the checks its changes
+  # can affect: editing a doc does not compile Rust, and a frontend-only change
+  # does not run the Python suite. Protected branches (main/beta) ignore the
+  # scoping and run everything, because that is what gets tagged and shipped.
+  #
+  # Plain git rather than a third-party action: no extra dependency, and the
+  # comparison base is explicit.
+  changes:
+    runs-on: ubuntu-latest
+    name: Detect changes
+    outputs:
+      python: ${{ steps.f.outputs.python }}
+      rust: ${{ steps.f.outputs.rust }}
+      workflows: ${{ steps.f.outputs.workflows }}
+      frontend: ${{ steps.f.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: f
+        env:
+          # on a PR, compare against the target branch; on a push, against the
+          # commit the branch was at before it.
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ -n "$BASE_REF" ]; then
+            git fetch --quiet origin "$BASE_REF"
+            RANGE="origin/$BASE_REF...HEAD"
+          elif [ -n "$BEFORE" ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            RANGE="$BEFORE..HEAD"
+          else
+            RANGE=""   # first push / unknown base -> treat everything as changed
+          fi
+
+          if [ -z "$RANGE" ]; then
+            CHANGED="$(git ls-files)"
+          else
+            CHANGED="$(git diff --name-only "$RANGE")"
+          fi
+          echo "range: ${RANGE:-<all files>}"
+          echo "$CHANGED" | head -40
+
+          # main/beta are what get shipped: never skip a check there.
+          case "${{ github.ref_name }}" in
+            main|master|beta) FORCE=1 ;;
+            *)                FORCE=0 ;;
+          esac
+
+          emit() {  # name, regex
+            if [ "$FORCE" = "1" ] || echo "$CHANGED" | grep -qE "$2"; then
+              echo "$1=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "$1=false" >> "$GITHUB_OUTPUT"
+            fi
+          }
+          emit python    '\.py$|requirements.*\.txt|pytest\.ini|ruff\.toml'
+          emit rust      '^src-tauri/'
+          emit workflows '^\.github/workflows/'
+          emit frontend  '^frontend/'
+
   # -- workflows: authoritative GitHub Actions validation --
   # actionlint is what actually mirrors GitHub's own workflow validation. it is
   # the source of truth for "are the workflows correct" -- the VSCode extension's
   # diagnostics on local reusable workflows are known false positives, so this
   # job (not the editor) is what gates workflow changes.
   actionlint:
+    needs: changes
+    if: needs.changes.outputs.workflows == 'true'
     runs-on: ubuntu-latest
     name: Workflows (actionlint)
     steps:
@@ -44,6 +108,8 @@ jobs:
 
   # -- python: real-bug lint (ruff E9 + pyflakes) --
   python-lint:
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
     name: Lint (ruff)
     steps:
@@ -57,6 +123,8 @@ jobs:
 
   # -- python: unit tests (lean deps -- no torch/llama compile) --
   python-test:
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
     name: Test (pytest)
     steps:
@@ -75,6 +143,8 @@ jobs:
   # validates src-tauri (incl. diagnosis.rs and the sysinfo dep) without doing a
   # full release build. `cargo check` proves it compiles; fmt keeps it tidy.
   rust-check:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     name: Rust (check + fmt)
     steps:
@@ -106,3 +176,27 @@ jobs:
         run: cargo check --manifest-path src-tauri/Cargo.toml
       - name: Clippy (non-blocking)
         run: cargo clippy --manifest-path src-tauri/Cargo.toml || true
+
+  # -- the single check to require in branch protection --
+  # Because the jobs above are skipped when irrelevant, requiring them directly
+  # would leave a PR pending forever on a check that never runs (GitHub does not
+  # resolve a required-but-skipped context). This one always runs and passes only
+  # when nothing that DID run failed, so "skipped" and "passed" are both green
+  # while any real failure is red.
+  ci-ok:
+    needs: [changes, actionlint, python-lint, python-test, rust-check]
+    if: always()
+    runs-on: ubuntu-latest
+    name: CI OK
+    steps:
+      - name: Verify no job failed
+        run: |
+          RESULTS="${{ join(needs.*.result, ' ') }}"
+          echo "job results: $RESULTS"
+          for r in $RESULTS; do
+            case "$r" in
+              success|skipped) ;;
+              *) echo "::error::a required job did not pass ($r)"; exit 1 ;;
+            esac
+          done
+          echo "all checks accounted for"

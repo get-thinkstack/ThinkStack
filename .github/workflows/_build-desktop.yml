@@ -24,6 +24,16 @@ on:
         required: false
         type: string
         default: ''
+      only_platform:
+        description: 'build a single platform id from release.config.json, or "all"'
+        required: false
+        type: string
+        default: 'all'
+      skip_models:
+        description: 'skip bundling the gguf models (dev builds only)'
+        required: false
+        type: boolean
+        default: false
     secrets:
       TAURI_SIGNING_PRIVATE_KEY:
         required: false
@@ -61,8 +71,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref || github.ref }}
+      # `only_platform` lets a dev build target one OS instead of all three
+      # (~17 min instead of ~45). Releases leave it at "all".
       - id: load
-        run: echo "include=$(jq -c '.platforms' release.config.json)" >> "$GITHUB_OUTPUT"
+        env:
+          ONLY: ${{ inputs.only_platform }}
+        run: |
+          if [ -z "$ONLY" ] || [ "$ONLY" = "all" ]; then
+            INCLUDE="$(jq -c '.platforms' release.config.json)"
+          else
+            INCLUDE="$(jq -c --arg l "$ONLY" '[.platforms[] | select(.label == $l)]' release.config.json)"
+            if [ "$INCLUDE" = "[]" ]; then
+              echo "::error::unknown platform '$ONLY'. valid: $(jq -r '[.platforms[].label]|join(", ")' release.config.json)"
+              exit 1
+            fi
+          fi
+          echo "building: $(echo "$INCLUDE" | jq -r '[.[].label]|join(", ")')"
+          echo "include=$INCLUDE" >> "$GITHUB_OUTPUT"
 
   build:
     needs: matrix
@@ -109,8 +134,12 @@ jobs:
       # a beta build must check the beta manifest, not stable's. rewrite the
       # single updater endpoint from release.config.json for this channel so an
       # installed beta/nightly self-updates within its channel.
+      # stable already points at the right endpoint in tauri.conf.json; beta and
+      # nightly are repointed at their own rolling manifest. `dev` is excluded on
+      # purpose: it is never published, has no channel entry in
+      # release.config.json, and must never ship an updater endpoint.
       - name: Set updater channel endpoint
-        if: inputs.channel != 'stable'
+        if: inputs.channel != 'stable' && inputs.channel != 'dev'
         shell: bash
         run: |
           python3 - '${{ inputs.channel }}' <<'PY'
@@ -140,9 +169,13 @@ jobs:
             build-essential
 
       # -- python --
+      # cache pip: torch alone is a ~200 MB wheel and the full requirements set
+      # took several minutes per runner before this.
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements.txt
 
       - name: Install Python dependencies
         shell: bash
@@ -197,7 +230,19 @@ jobs:
       #           on these; the app routes them to 1.5B -- see ollama_client.py)
       # this makes gap analysis work offline out of the box at the cost of a
       # larger installer. drop a model line in release.config.json to slim it.
+      # cache the gguf weights. they are ~1.5 GB, identical on every runner and
+      # every build, and were previously re-downloaded from HuggingFace by all
+      # three OS jobs on every single release. the key is the model list itself,
+      # so the cache invalidates only when release.config.json changes.
+      - name: Cache models
+        if: ${{ !inputs.skip_models }}
+        uses: actions/cache@v4
+        with:
+          path: data/models
+          key: models-${{ hashFiles('release.config.json') }}
+
       - name: Download models
+        if: ${{ !inputs.skip_models }}
         shell: bash
         run: |
           mkdir -p data/models
@@ -212,6 +257,11 @@ jobs:
           jq -r '.models[]' release.config.json | tr -d '\r' | while read -r url; do
             [ -n "$url" ] || continue
             fname="$(basename "$url")"
+            # restored from cache -> skip the ~1 GB transfer
+            if [ -s "data/models/$fname" ]; then
+              echo "cached: $fname"
+              continue
+            fi
             echo "downloading $fname"
             curl -L --fail --retry 3 --retry-delay 5 -o "data/models/$fname" "$url"
           done
@@ -258,6 +308,62 @@ jobs:
             "${ADD_DATA[@]}" \
             main.py
           test -x dist/thinkstack-api/thinkstack-api || test -x dist/thinkstack-api/thinkstack-api.exe
+
+      # -- smoke test the frozen backend --
+      # The only check that exercises the BUNDLE rather than the source tree.
+      # pytest imports from source, so it cannot see a missing PyInstaller hidden
+      # import, a dropped shared library, or a syntax error that only CI's Python
+      # rejects -- all of which are fatal at runtime and invisible until a user
+      # launches the app. A shipped build once failed exactly this way.
+      #
+      # Boots the frozen binary and requires a real HTTP response, so a bundle
+      # that cannot start fails the build instead of reaching a release.
+      - name: Smoke test frozen backend
+        shell: bash
+        run: |
+          BIN=dist/thinkstack-api/thinkstack-api
+          [ -x "$BIN" ] || BIN=dist/thinkstack-api/thinkstack-api.exe
+
+          "$BIN" --host 127.0.0.1 --port 8765 > backend-smoke.log 2>&1 &
+          PID=$!
+
+          # onedir unpacks a lot on first start; allow a generous window but
+          # bail out early the moment it answers.
+          UP=0
+          for i in $(seq 1 60); do
+            if ! kill -0 "$PID" 2>/dev/null; then
+              echo "::error::frozen backend exited during startup"
+              break
+            fi
+            if curl -fsS -m 5 "http://127.0.0.1:8765/api/system/health" -o smoke-health.json 2>/dev/null; then
+              UP=1; echo "backend answered after ~${i}s"; break
+            fi
+            sleep 1
+          done
+
+          kill "$PID" 2>/dev/null || true
+          wait "$PID" 2>/dev/null || true
+
+          if [ "$UP" -ne 1 ]; then
+            echo "::error::frozen backend never served /api/system/health"
+            echo "---- backend log (last 60 lines) ----"
+            tail -60 backend-smoke.log || true
+            exit 1
+          fi
+
+          echo "---- /api/system/health ----"
+          cat smoke-health.json; echo
+          # a 200 with an unparseable body still means the bundle is broken
+          python3 -c "import json,sys; json.load(open('smoke-health.json'))"
+          echo "smoke test passed: the frozen bundle starts and serves requests"
+
+      - name: Upload smoke test log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-log-${{ matrix.label }}
+          path: backend-smoke.log
+          if-no-files-found: ignore
 
       # -- build tauri (linux / windows) --
       # the signing env vars make the bundler emit signed updater artifacts
