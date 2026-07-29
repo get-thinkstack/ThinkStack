@@ -151,6 +151,11 @@ because something broke — say which thing.
 Conventional-ish prefixes: `feat:`, `fix:`, `ci:`, `docs:`, `chore:`,
 `test:`, `refactor:`.
 
+User-visible changes go under `## [Unreleased]` in
+[CHANGELOG.md](CHANGELOG.md) in the same PR. `release.sh` promotes that section
+to the new version when you tag, so the changelog is never reconstructed from
+memory afterwards.
+
 Write the body for whoever hits this in six months. State the problem, the cause,
 and why the fix is right — not a restatement of the diff. If a teammate found the
 bug, credit them.

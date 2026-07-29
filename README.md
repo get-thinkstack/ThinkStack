@@ -35,9 +35,9 @@ runs locally through `llama.cpp`, and embeddings run locally too.
   model, cutting a release, the local gate, and the git hooks.
 - **[docs/ADR.md](docs/ADR.md)** — every architecture decision and *why* it was
   made, including the release pipeline.
-
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — setup, the branch model, what blocks
   your push, and how to add tests or models.
+- **[CHANGELOG.md](CHANGELOG.md)** — what changed in each released version.
 
 Two genres, kept apart on purpose: `docs/ADR.md` records **why**, and
 `scripts/README.md` + `CONTRIBUTING.md` are the **how-to**.
