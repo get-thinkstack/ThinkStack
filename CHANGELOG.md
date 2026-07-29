@@ -17,6 +17,10 @@ See [scripts/README.md](scripts/README.md) for how releases are cut.
 
 Work merged but not yet tagged.
 
+---
+
+## [1.0.0] - 2026-07-29
+
 ### Added
 - First-run model setup: the app detects what your machine can run and offers a
   larger analysis model once, with a progress bar and a cancel button. Declining
