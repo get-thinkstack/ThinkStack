@@ -8,6 +8,8 @@ LM Studio). every probe must also degrade to "found nothing" rather than raise.
 
 import json
 
+import pytest
+
 from domain.model_manager import discovery
 from domain.model_manager.catalog import (
     ANALYSIS_MODEL,
@@ -20,6 +22,7 @@ from domain.model_manager.catalog import (
     suggested_upgrade,
 )
 from domain.model_manager.discovery import (
+    model_key,
     DiscoveredModel,
     discover_all,
     find_lmstudio_models,
@@ -238,6 +241,38 @@ class TestInstalledNames:
         assert installed_names([]) == set()
 
 
+class TestModelKey:
+    """the same weights are named differently by each runtime.
+
+    Comparing raw filenames misses a model the user already has, so we would
+    prompt them to download a gigabyte they are already storing. These all have
+    to reduce to the same family/size key.
+    """
+
+    def test_ollama_tag_and_our_gguf_match(self):
+        assert model_key("qwen2.5:1.5b") == model_key("qwen2.5-1.5b-instruct-q4_k_m.gguf")
+
+    def test_lm_studio_capitalised_name_matches(self):
+        assert model_key("Qwen2.5-1.5B-Instruct-Q4_K_M.gguf") == model_key("qwen2.5:1.5b")
+
+    def test_quantisation_is_ignored(self):
+        # a q4 and a q8 of the same model are the same capability for our purposes
+        assert model_key("qwen2.5:1.5b-instruct-q8_0") == model_key("qwen2.5:1.5b")
+
+    def test_different_sizes_do_not_match(self):
+        assert model_key("qwen2.5-0.5b-instruct-q4_k_m.gguf") != model_key("qwen2.5:1.5b")
+
+    def test_different_families_do_not_match(self):
+        assert model_key("llama3.2:3b") != model_key("qwen2.5:1.5b")
+
+    def test_family_version_is_not_read_as_the_size(self):
+        # "qwen2.5" must not be parsed as a 2.5B model
+        assert model_key("qwen2.5:1.5b") == "qwen2.5/1.5b"
+
+    def test_name_without_a_size_survives(self):
+        assert model_key("mystery-model.gguf") == "mystery-model"
+
+
 class TestOfferIsSuppressedByExistingModels:
     """the behaviour the user asked for: don't re-download what they already run."""
 
@@ -250,6 +285,38 @@ class TestOfferIsSuppressedByExistingModels:
         monkeypatch.setattr(discovery, "find_lmstudio_models", lambda: [])
         found = discover_all(tmp_path, "http://localhost:11434")
         assert suggested_upgrade(16.0, installed_names(found)) is None
+
+    @pytest.mark.parametrize("tag", [
+        "qwen2.5:1.5b",                      # what ollama actually reports
+        "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf", # what lm studio stores
+        "qwen2.5:1.5b-instruct-q8_0",        # a different quantisation
+    ])
+    def test_equivalent_model_under_any_naming_suppresses_the_download(
+        self, tag, tmp_path, monkeypatch
+    ):
+        """the real-world case: re-downloading 1.1 GB the user already has.
+
+        Ollama names it "qwen2.5:1.5b" while our catalog calls it
+        "qwen2.5-1.5b-instruct-q4_k_m.gguf"; matching on filename alone missed
+        that and offered the download anyway.
+        """
+        monkeypatch.setattr(
+            discovery, "find_ollama_running",
+            lambda _u: [DiscoveredModel(name=tag, source="ollama")],
+        )
+        monkeypatch.setattr(discovery, "find_lmstudio_models", lambda: [])
+        found = discover_all(tmp_path, "http://localhost:11434")
+        assert suggested_upgrade(16.0, installed_names(found)) is None
+
+    def test_an_unrelated_model_still_gets_the_offer(self, tmp_path, monkeypatch):
+        # having llama3.2 says nothing about whether qwen2.5-1.5b is present
+        monkeypatch.setattr(
+            discovery, "find_ollama_running",
+            lambda _u: [DiscoveredModel(name="llama3.2:3b", source="ollama")],
+        )
+        monkeypatch.setattr(discovery, "find_lmstudio_models", lambda: [])
+        found = discover_all(tmp_path, "http://localhost:11434")
+        assert suggested_upgrade(16.0, installed_names(found)) is ANALYSIS_MODEL
 
     def test_prompt_appears_when_nothing_comparable_is_installed(self, tmp_path, monkeypatch):
         monkeypatch.setattr(discovery, "find_ollama_running", lambda _u: [])

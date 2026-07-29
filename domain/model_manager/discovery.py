@@ -17,6 +17,7 @@ failed probe must never block startup.
 """
 
 import json
+import re
 import logging
 import os
 from dataclasses import dataclass
@@ -194,12 +195,52 @@ def discover_all(models_dir: Path, ollama_base_url: str) -> list[DiscoveredModel
     return unique
 
 
-def installed_names(models: list[DiscoveredModel]) -> set[str]:
-    """the set used to decide whether an upgrade is still worth offering.
+# quantisation / variant suffixes that say nothing about which model this is.
+_VARIANT = re.compile(
+    r"[-_.:](q\d+[_a-z0-9]*|iq\d[_a-z0-9]*|f16|f32|bf16|gguf|instruct|chat|it|base|"
+    r"text|latest|v\d+(\.\d+)*)\b"
+)
+# the parameter count, e.g. "1.5b" in qwen2.5-1.5b-instruct or qwen2.5:1.5b
+_SIZE = re.compile(r"(\d+(?:\.\d+)?)\s*b(?![a-z0-9])")
 
-    includes a normalised form of ollama tags ("qwen2.5:1.5b" -> "qwen2.5-1.5b")
-    so an equivalent model already pulled through ollama suppresses the prompt to
-    download our gguf of it.
+
+def model_key(name: str) -> str:
+    """a canonical "family/size" key for comparing models across runtimes.
+
+    The same weights are named differently depending on where they came from:
+
+        ollama     qwen2.5:1.5b
+        our gguf   qwen2.5-1.5b-instruct-q4_k_m.gguf
+        lm studio  Qwen2.5-1.5B-Instruct-Q4_K_M.gguf
+
+    Comparing raw filenames therefore misses a model the user already has, and we
+    would prompt them to download a gigabyte they are already storing. Reducing
+    all three to ``qwen2.5/1.5b`` makes them compare equal.
+
+    Quantisation is deliberately ignored: a q4 and a q8 of the same model are the
+    same capability for our purposes, and re-downloading one because the user has
+    the other is exactly the waste this prevents.
+    """
+    s = name.strip().lower()
+    if s.endswith(".gguf"):
+        s = s[: -len(".gguf")]
+    s = _VARIANT.sub("", s)
+
+    m = _SIZE.search(s)
+    if not m:
+        return s.strip("-_.: /")
+    size = f"{m.group(1)}b"
+    family = s[: m.start()].strip("-_.: /")
+    return f"{family}/{size}"
+
+
+def installed_names(models: list[DiscoveredModel]) -> set[str]:
+    """every identifier under which the machine already has each model.
+
+    Includes the raw name, a punctuation-normalised form, and the canonical
+    ``model_key`` family/size. The last one is what actually stops us offering a
+    download of something the user already pulled through Ollama or LM Studio
+    under a different naming convention.
     """
     names: set[str] = set()
     for m in models:
@@ -208,4 +249,5 @@ def installed_names(models: list[DiscoveredModel]) -> set[str]:
         names.add(base)
         if base.endswith(".gguf"):
             names.add(base[: -len(".gguf")])
+        names.add(model_key(m.name))
     return names
