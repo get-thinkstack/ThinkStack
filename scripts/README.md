@@ -50,7 +50,18 @@ origin first, aborts cleanly on a merge conflict, and picks the next
 
 Rollback: a bad beta is just a new beta tag. A bad stable is fixed by
 `scripts/promote.sh fix <next-patch>` — installed apps auto-update to whatever
-`latest` points at.
+`latest` points at. Don't delete a published tag or release: installed apps
+follow `latest`, and yanking it strands anyone mid-update.
+
+### Who can cut one
+
+Everyone with write access can push a tag, and a tag is what ships installers —
+branch protection covers `main` and `beta` but **not tags**. By convention
+**stable releases go through the maintainer**; beta tags are open to anyone.
+See [CONTRIBUTING.md](../CONTRIBUTING.md#releasing) for the access table.
+
+Because nothing enforces this, use `release.sh`/`promote.sh` rather than
+`git tag` by hand — the guards below only run if you do.
 
 ### Release guardrails
 
