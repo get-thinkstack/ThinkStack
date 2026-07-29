@@ -1013,7 +1013,7 @@
             </div>
             macOS
           </div>
-          <a href="/download/macos" class="dl-btn dl-btn-primary" id="dl-macos">Download for macOS</a>
+          <a href="https://github.com/get-thinkstack/ThinkStack/releases/latest/download/ThinkStack-macos-universal.dmg" download class="dl-btn dl-btn-primary" id="dl-macos">Download for macOS</a>
           <p class="dl-format">.dmg &middot; universal (Apple Silicon + Intel)</p>
           <div class="dl-requirements">
             <h5>Minimum Requirements</h5>
@@ -1029,7 +1029,7 @@
             </div>
             Windows
           </div>
-          <a href="/download/windows" class="dl-btn dl-btn-primary" id="dl-win-x64">Download for Windows</a>
+          <a href="https://github.com/get-thinkstack/ThinkStack/releases/latest/download/ThinkStack-windows-x86_64.msi" download class="dl-btn dl-btn-primary" id="dl-win-x64">Download for Windows</a>
           <p class="dl-format">.msi installer &middot; 64-bit</p>
           <div class="dl-requirements">
             <h5>Minimum Requirements</h5>
@@ -1050,7 +1050,7 @@
             </div>
             Linux
           </div>
-          <a href="/download/linux" class="dl-btn dl-btn-primary" id="dl-linux-x64">Download for Linux</a>
+          <a href="https://github.com/get-thinkstack/ThinkStack/releases/latest/download/ThinkStack-linux-x86_64.AppImage" download class="dl-btn dl-btn-primary" id="dl-linux-x64">Download for Linux</a>
           <p class="dl-format">.AppImage &middot; runs on any distro</p>
           <div class="dl-requirements">
             <h5>Minimum Requirements</h5>
@@ -1061,7 +1061,7 @@
       </div>
 
       <p class="dl-other reveal reveal-delay-4">
-        On Debian or Ubuntu, prefer the <a href="/download/linux-deb"><code>.deb</code> package</a> for a menu entry.
+        On Debian or Ubuntu, prefer the <a href="https://github.com/get-thinkstack/ThinkStack/releases/latest/download/ThinkStack-linux-x86_64.deb" download><code>.deb</code> package</a> for a menu entry.
         Every download is the latest release, always current.
       </p>
       <div class="dl-github-row reveal reveal-delay-4">
@@ -1184,10 +1184,16 @@
     });
   });
 
-  /* Download links point at stable-named assets on the latest GitHub release
-   * (ThinkStack-<os>.<ext> via /releases/latest/download/). the CI release job
-   * creates these fixed names, so the links always resolve to the newest release
-   * and never need a version bump. No per-version JS wiring is needed. */
+  /* Download links point straight at the stable-named assets on the latest
+   * GitHub release (ThinkStack-<os>.<ext> via /releases/latest/download/). The
+   * CI release job creates those fixed names, so the links always resolve to the
+   * newest release and never need a version bump.
+   *
+   * They are absolute rather than the earlier /download/<os> form, which relied
+   * on the vercel.json rewrites and therefore 404'd on GitHub Pages. Absolute
+   * release URLs work on every host, and GitHub serves the assets with
+   * Content-Disposition: attachment, so the browser downloads the installer
+   * directly instead of navigating to a page. */
 </script>
 </body>
 </html>
