@@ -49,15 +49,18 @@ Two packaging corrections are worth recording:
 
 ## Model bundling and routing
 
-The app bundles two models: a 0.5B for chat, search, and the paper writer, and a
-1.5B for the analysis tasks (summarize, claims, gap-finder). The 0.5B is fast
-and light but produces malformed JSON on the structured-output tasks, which is
-why those route to the larger model. To keep memory bounded, `ollama_client.py`
-keeps only one model resident at a time and swaps on demand rather than holding
-both. GPU is used when available, with a CPU fallback so the app still runs on
-machines without a usable CUDA setup. `file_manager.seed_bundled_models()`
-copies the bundled models into the writable data directory on first run, since a
-frozen build ships them read-only.
+The installer bundles one model - a 0.5B for chat, search, and the paper writer.
+The 0.5B is fast and light but produces malformed JSON on the structured-output
+tasks (summarize, claims, gap-finder), so those route to a 1.5B when one is
+available; it is fetched on consent or reused from an existing Ollama/LM Studio
+install rather than shipped, which kept installers clear of GitHub's 2 GiB asset
+limit. Analysis degrades to the 0.5B when no larger model is present.
+
+To keep memory bounded, `ollama_client.py` keeps only one model resident at a
+time and swaps on demand rather than holding both. GPU is used when available,
+with a CPU fallback so the app still runs on machines without a usable CUDA
+setup. `file_manager.seed_bundled_models()` copies the bundled model into the
+writable data directory on first run, since a frozen build ships it read-only.
 
 ## CI/CD and auto-updates
 
