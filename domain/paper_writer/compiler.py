@@ -6,8 +6,10 @@ the working directory for latex projects on disk.
 """
 
 import logging
+import os
 import re
 import shutil
+import sys
 import subprocess
 import uuid
 from pathlib import Path
@@ -215,6 +217,21 @@ def save_source(project_id: str, source: str) -> dict:
     return {"project_id": project_id, "status": "saved"}
 
 
+def _tex_install_hint() -> str:
+    """The install command for THIS machine's OS.
+
+    We printed `sudo dnf install texlive-...` to every user on every platform,
+    so a macOS tester chasing a missing package was handed a Fedora command.
+    Advice written by a Linux developer must not be shown to everyone.
+    """
+    if sys.platform == "darwin":
+        return "brew install --cask mactex-no-gui"
+    if sys.platform.startswith("win"):
+        return "install MiKTeX from https://miktex.org"
+    return ("sudo dnf install texlive-scheme-basic  (fedora) or "
+            "sudo apt install texlive-latex-recommended  (debian/ubuntu)")
+
+
 def _extract_errors(log_text: str) -> list[str]:
     """pull the meaningful ``! ...`` error blocks out of a pdflatex log.
 
@@ -249,9 +266,8 @@ def _detect_missing_packages(log_text: str) -> list[str]:
     for sty in dict.fromkeys(missing):  # deduplicate
         pkg = sty.replace(".sty", "")
         hints.append(
-            f"missing TeX package: {sty} - install with: "
-            f"sudo dnf install texlive-{pkg}  (fedora) or "
-            f"sudo apt install texlive-latex-extra  (debian/ubuntu)"
+            f"missing TeX package: {sty} ({pkg}) - "
+            f"install a fuller TeX distribution: {_tex_install_hint()}"
         )
     return hints
 
@@ -339,24 +355,78 @@ def _neutralize_all_figures(source: str) -> tuple[str, str | None]:
     return new, f"{total} figure(s) could not be rendered and were replaced with placeholders"
 
 
-def _run_pdflatex(pdflatex: str, tex_file: Path, project_dir: Path):
-    """run a single non-interactive pdflatex pass.
+def _find_engine() -> tuple[str, str] | None:
+    """Locate a TeX engine: bundled Tectonic first, then anything on PATH.
 
-    note: there is intentionally NO ``-halt-on-error``. in nonstopmode pdflatex
-    recovers from most errors and still ships a PDF (overleaf behaviour); we then
-    treat "a PDF exists" as success and surface the errors as warnings.
+    The bundled copy is preferred so a packaged install compiles with no LaTeX
+    on the machine. Requiring users to install MacTeX or MiKTeX made the
+    flagship feature fail on every clean machine, which is not a documentation
+    problem -- it is a missing dependency.
+
+    returns (executable_path, kind) where kind is "tectonic" or "pdflatex".
     """
+    exe = "tectonic.exe" if sys.platform.startswith("win") else "tectonic"
+    bundled = settings.bundled_tex_dir / exe
+    if bundled.is_file():
+        return str(bundled), "tectonic"
+    found = shutil.which("tectonic")
+    if found:
+        return found, "tectonic"
+    found = shutil.which("pdflatex")
+    if found:
+        return found, "pdflatex"
+    return None
+
+
+def _tectonic_env() -> dict:
+    """Environment for Tectonic, pointing it at a writable, pre-warmed cache.
+
+    The cache we ship holds every package the writer's preamble uses, so a
+    compile needs no network. Tectonic writes to its cache, and the bundle is
+    read-only, so the shipped copy is seeded into the user's data dir once --
+    the same approach used for the gguf models.
+    """
+    env = dict(os.environ)
+    cache = settings.tex_cache_dir
+    try:
+        seed = settings.bundled_tex_dir / "cache"
+        if seed.is_dir() and not cache.exists():
+            shutil.copytree(seed, cache)
+            logger.info("seeded bundled TeX cache into %s", cache)
+        cache.mkdir(parents=True, exist_ok=True)
+        env["TECTONIC_CACHE_DIR"] = str(cache)
+    except OSError as e:  # noqa: BLE001 - fall back to tectonic's own default
+        logger.warning("could not prepare the TeX cache: %s", e)
+    return env
+
+
+def _run_engine(engine: str, kind: str, tex_file: Path, project_dir: Path):
+    """Run one compile pass with whichever engine we found.
+
+    Both engines are asked to keep going after errors rather than halting:
+    a document that is mid-edit usually still produces a usable PDF, and
+    "a PDF exists" is what we treat as success (overleaf behaviour), with the
+    errors surfaced as warnings.
+    """
+    if kind == "tectonic":
+        return subprocess.run(
+            [
+                engine, "-X", "compile", str(tex_file),
+                "--outdir", str(project_dir),
+                "--keep-logs", "--synctex",
+                "-Z", "continue-on-errors",
+            ],
+            capture_output=True, text=True, timeout=180,
+            cwd=str(project_dir), env=_tectonic_env(),
+        )
     return subprocess.run(
         [
-            pdflatex,
+            engine,
             "-interaction=nonstopmode",
             "-output-directory", str(project_dir),
             str(tex_file),
         ],
-        capture_output=True,
-        text=True,
-        timeout=60,
-        cwd=str(project_dir),
+        capture_output=True, text=True, timeout=60, cwd=str(project_dir),
     )
 
 
@@ -399,11 +469,15 @@ def compile_pdf(project_id: str) -> tuple[Path, list[str]]:
     except Exception as e:  # noqa: BLE001 - best-effort, never block compile
         logger.warning("latex auto-heal skipped: %s", e)
 
-    pdflatex = shutil.which("pdflatex")
-    if not pdflatex:
+    found = _find_engine()
+    if not found:
         raise RuntimeError(
-            "pdflatex is not installed. install texlive-latex-base or equivalent."
+            "No TeX engine found, so the PDF cannot be compiled. This build "
+            "should ship one -- if you are running from source, install a TeX "
+            f"distribution to enable PDF export: {_tex_install_hint()}"
         )
+    engine, kind = found
+    logger.info("compiling with %s (%s)", kind, engine)
 
     # remove any stale pdf so "pdf exists" reliably means "this run produced one"
     try:
@@ -417,7 +491,7 @@ def compile_pdf(project_id: str) -> tuple[Path, list[str]]:
 
     # try to produce a PDF; if a pass yields none, salvage the broken env + retry
     for _ in range(MAX_SALVAGE + 1):
-        result = _run_pdflatex(pdflatex, tex_file, project_dir)
+        result = _run_engine(engine, kind, tex_file, project_dir)
         if pdf_path.exists():
             break
 
@@ -431,7 +505,7 @@ def compile_pdf(project_id: str) -> tuple[Path, list[str]]:
             errors = _extract_errors(log_text)
             pkg_hints = _detect_missing_packages(log_text)
             detail = "\n\n".join(pkg_hints + errors) if (pkg_hints or errors) else (result.stdout or "")[-1500:]
-            raise RuntimeError(f"pdflatex failed:\n{detail}")
+            raise RuntimeError(f"{kind} failed:\n{detail}")
         tex_file.write_text(new_source, encoding="utf-8")
         warnings.append(note)
     else:
@@ -440,13 +514,13 @@ def compile_pdf(project_id: str) -> tuple[Path, list[str]]:
         errors = _extract_errors(log_text)
         pkg_hints = _detect_missing_packages(log_text)
         detail = "\n\n".join(pkg_hints + errors) if (pkg_hints or errors) else (result.stdout if result else "")[-1500:]
-        raise RuntimeError(f"pdflatex failed to produce a PDF:\n{detail}")
+        raise RuntimeError(f"{kind} failed to produce a PDF:\n{detail}")
 
     # second pass for cross-references / toc (best effort; PDF already exists)
     try:
-        _run_pdflatex(pdflatex, tex_file, project_dir)
+        _run_engine(engine, kind, tex_file, project_dir)
     except Exception as e:  # noqa: BLE001
-        logger.warning("pdflatex reference pass skipped: %s", e)
+        logger.warning("%s reference pass skipped: %s", kind, e)
 
     # surface any errors pdflatex recovered from as warnings (overleaf-style)
     if log_file.exists():

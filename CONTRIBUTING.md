@@ -400,8 +400,11 @@ we'll correct this table.
 
 Report these only if the workaround fails:
 
-- **macOS** — "ThinkStack can't be opened because it is from an unidentified
-  developer." Right-click the app → **Open** → Open. One time only.
+- **macOS** — "Apple could not verify ThinkStack is free of malware." The build
+  is not notarized (that needs a paid Apple Developer account). On **macOS 15+
+  the right-click → Open trick no longer works**: go **System Settings → Privacy
+  & Security → Open Anyway**. On macOS 14 and earlier, right-click → Open. One
+  time either way.
 - **Windows** — SmartScreen blue box. **More info** → **Run anyway**. One time.
 - **Linux** — the AppImage needs `chmod +x` before it will run.
 
@@ -417,25 +420,73 @@ installed app, and cannot be un-shipped.
 
 ---
 
-## Repository layout
+## Repository layout and dependencies
 
 ```text
 main.py            fastapi app: serves the react spa and /api
 config.py          pydantic-settings config (env prefix: THINKSTACK_)
-api/               rest endpoints
-domain/            core logic (ingestion, search, analysis, paper_writer,
-                   encryption, model_manager, ...)
-infrastructure/    llm client, vector store, hardware profiler, file manager
+api/               9 routers: documents, search, analysis, gaps, chat,
+                   encryption, papers, models, system
+domain/            core logic, one package per capability:
+                     ingestion/       pdf_parser, chunker, metadata_extractor
+                     knowledge_base/  embedding_service, repository
+                     search/          semantic, keyword (BM25), hybrid (RRF)
+                     analysis/        summarizer, claim_extractor, theme_clusterer
+                     gap_finder/      gap_analyzer, suggestion_engine, pipeline
+                     chat/            chat_service
+                     paper_writer/    compiler (the largest single module)
+                     encryption/      kdf (argon2), cipher, envelope, vault
+                     model_manager/   catalog, discovery, downloader
+                     fine_tuning/     data_collector
+infrastructure/    ollama_client (llm runtime), local_vector_store, hardware,
+                   file_manager, atomic_io, caches and histories
 frontend/          react 19 + vite spa
-src-tauri/         tauri 2 desktop shell (rust), incl. startup hardware diagnosis
-scripts/           devops only — setup, dev, preflight, build, promote, release
-tools/             developer utilities (gpu checks, fine-tuning, manual e2e)
+src-tauri/         tauri 2 desktop shell (rust): lib.rs, diagnosis.rs
+scripts/           devops only
+tools/             developer utilities
 tests/             the pytest suite
-docs/              ABOUT (users), FEATURES (reference), ADR (decisions), TEAM
 ```
 
-If you add a script, ask whether it's **devops** (`scripts/`) or a **developer
-utility** (`tools/`). `scripts/` stays small enough to read in one sitting.
+51 Python modules, ~8k lines. Small enough to read; do that before guessing.
+
+### Every runtime dependency
+
+This table is the answer to "what does a clean machine need?". It was
+compiled by walking every import and every `subprocess`/`Command::new` call,
+after we shipped a build whose flagship feature needed a package no user had.
+
+**Python — all frozen into the bundle by PyInstaller:**
+
+`argon2` `cryptography` `fastapi` `fitz` (pymupdf) `httpx` `llama_cpp`
+`numpy` `pdfplumber` `psutil` `pydantic` `pydantic_settings` `rank_bm25`
+`sentence_transformers` `torch` `uvicorn`
+
+**Model weights — shipped inside the installer:**
+
+| Asset | Purpose | Bundled |
+|---|---|---|
+| `qwen2.5-0.5b-instruct-q4_k_m.gguf` | chat, search, paper writer | yes |
+| `all-MiniLM-L6-v2` | embeddings (ingest + search) | yes |
+| `qwen2.5-1.5b-instruct-q4_k_m.gguf` | analysis, gap finder | no — offered on consent |
+
+**External binaries — the only things NOT shipped:**
+
+| Binary | Used by | Status |
+|---|---|---|
+| **`pdflatex`** | paper writer, PDF tab | **NOT bundled.** The live KaTeX preview works without it; only PDF export fails. This is the single unbundled dependency in the product. Roadmap: bundle Tectonic. |
+| `nvidia-smi` | Rust hardware diagnosis | optional, timeout-guarded; absent simply means "no GPU" |
+| `taskkill` | Rust, Windows shutdown | ships with Windows |
+
+**If you add a dependency, add it here.** A dependency that exists only in
+`requirements.txt` is invisible to whoever later asks why a fresh install
+fails on someone else's machine.
+
+### Verifying it
+
+`scripts/validate_bundle.py` runs against a built bundle and exercises the
+real paths — ingest (embedding model), search (BM25 + vectors), inference
+(llama.cpp). CI runs it on macOS, Windows and Linux on every build, so a
+dependency that did not ship fails the build rather than reaching a user.
 
 ---
 

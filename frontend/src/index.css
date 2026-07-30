@@ -2233,3 +2233,39 @@ input::-webkit-credentials-auto-fill-button {
 @keyframes ts-spin { to { transform: rotate(360deg); } }
 .spin { animation: ts-spin 0.9s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+
+/* paper writer: autocompile toggle. Sits with the toolbar actions so the
+   choice is visible where its effect is, not buried in a settings pane. */
+.pw-auto-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  color: var(--text-secondary, #8b8b85);
+  cursor: pointer;
+  user-select: none;
+  padding: 0 0.15rem;
+}
+.pw-auto-toggle input { accent-color: var(--accent, #95ff00); cursor: pointer; }
+.pw-status-err { color: #ff8a80; }
+
+/* paper writer: the inline-AI affordance. Stated under the editor because a
+   keyboard shortcut nobody is told about does not exist. */
+.pw-editor-hint {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.35rem 0.6rem 0;
+  font-size: 0.7rem;
+  color: var(--text-muted, #63635f);
+}
+.pw-undo {
+  font: inherit;
+  font-size: 0.7rem;
+  color: var(--accent, #95ff00);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}

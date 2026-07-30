@@ -93,6 +93,21 @@ class Settings(BaseSettings):
     # through to a HuggingFace download it could never complete.
     bundled_embedding_dir: Path = BUNDLE_DIR / "data" / "models" / "all-MiniLM-L6-v2"
 
+    # TeX engine. We ship Tectonic (a single self-contained binary) plus a
+    # pre-warmed package cache, so the paper writer compiles on a machine with
+    # no LaTeX installed -- which is every machine that is not a developer's.
+    # A system pdflatex/tectonic is still used when the bundled one is absent
+    # (source checkouts).
+    # Under data/ so the one path works in both modes, exactly like the models
+    # above: in a source checkout BUNDLE_DIR is the repo root (data/tex), and in
+    # a frozen build PyInstaller stages it to _internal/data/tex. Getting this
+    # wrong is how the embedding model ended up looking in a directory that is
+    # never built.
+    bundled_tex_dir: Path = BUNDLE_DIR / "data" / "tex"
+    # Tectonic needs its cache writable, and the bundle is read-only, so the
+    # shipped cache is seeded into here on first use -- same pattern as models.
+    tex_cache_dir: Path = STATE_DIR / "texcache"
+
     # chunking
     chunk_size: int = 512
     chunk_overlap: int = 50
