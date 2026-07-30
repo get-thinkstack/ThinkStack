@@ -1,18 +1,42 @@
 name: Deploy landing page
 
-# Publishes landing.html to GitHub Pages as the site's index.html.
-# One-time setup: repo Settings -> Pages -> "Build and deployment" -> Source:
-# "GitHub Actions". After that, every push to the default branch that touches
-# landing.html redeploys the page. You can also run it by hand from the Actions
-# tab (workflow_dispatch).
+# Publishes BOTH channel pages to the single GitHub Pages site this repo gets:
+#
+#   /        <- landing.html from main. The public page. Its download buttons
+#               use /releases/latest/download/, which GitHub always resolves to
+#               the newest STABLE release.
+#   /beta/   <- landing.html from the beta branch, rewritten to point at the
+#               newest PRERELEASE. For invited testers. Not linked from /.
+#
+# Why a subpath and not a second site: a repository gets exactly one GitHub Pages
+# site. A subpath is the only way to serve two channels from this repo, and it
+# has a real advantage -- the beta page is GENERATED from the same landing.html
+# rather than being a second copy, so the two channels cannot drift apart.
+#
+# Why the beta tag is baked in at deploy time: GitHub deliberately resolves
+# /releases/latest/ to the newest stable release and offers no equivalent URL for
+# prereleases. The tag therefore has to be substituted by something. Doing it
+# here keeps /beta/ a static file -- no client-side API call, no rate limit, no
+# way for the buttons to break in a tester's browser.
+#
+# One-time setup: Settings -> Pages -> Build and deployment -> Source:
+# "GitHub Actions".
+#
+# Triggers: a push to main that touches landing.html (refreshes both pages), the
+# completion of a release publish (picks up a new beta tag), or by hand from the
+# Actions tab.
 
 on:
   push:
-    # production only. the public page must show what is released, so beta/dev
-    # never publish here -- Vercel already gives per-branch preview deploys for
-    # checking landing page changes before they reach main.
-    branches: [main, master]
+    # beta is included so a landing-page change on the beta branch reaches
+    # testers without waiting for a release. Both pages are rebuilt either way:
+    # the job always assembles / from main and /beta/ from beta, so a deploy
+    # triggered by one branch can never publish a stale copy of the other.
+    branches: [main, master, beta]
     paths: ['landing.html', '.github/workflows/deploy-pages.yml']
+  release:
+    # a new prerelease changes which tag /beta/ must point at
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -33,12 +57,90 @@ jobs:
     # schemas wrongly flag the name, so it is omitted. add it back if you enable
     # environment protection rules.
     steps:
+      # -- stable page, from the default branch --
+      # The ref is pinned explicitly. A bare checkout takes the triggering ref,
+      # so a push to beta (or a beta release) would publish beta's landing.html
+      # as the PUBLIC page -- shipping pre-release download links to everyone.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
 
-      - name: Assemble the site
+      - name: Assemble the stable page
         run: |
           mkdir -p _site
           cp landing.html _site/index.html
+
+      # -- beta page, from the beta branch --
+      # Checked out separately so testers get the beta branch's own landing.html.
+      # That is the point of a beta channel: a page change is validated by real
+      # people on /beta/ before it reaches the public page.
+      - name: Fetch the beta branch
+        id: beta_src
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          ref: beta
+          path: .beta-src
+
+      - name: Assemble the beta page
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SRC=.beta-src/landing.html
+          if [ ! -f "$SRC" ]; then
+            echo "no beta branch checkout; skipping /beta/"
+            exit 0
+          fi
+
+          TAG="$(gh api "repos/${GITHUB_REPOSITORY}/releases" \
+                  --jq '[.[] | select(.prerelease and (.draft | not))] | first | .tag_name' \
+                  2>/dev/null || true)"
+
+          mkdir -p _site/beta
+
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            echo "no prerelease published yet; /beta/ links to the releases page"
+            SUBST="s#https://github.com/[^\"]*/releases/latest/download/[^\"]*#https://github.com/${GITHUB_REPOSITORY}/releases#g"
+            BANNER="No beta build has been published yet -- see the releases page."
+          else
+            echo "beta page will point at $TAG"
+            SUBST="s#/releases/latest/download/#/releases/download/${TAG}/#g"
+            BANNER="Beta channel - ${TAG}. Pre-release software for invited testers."
+          fi
+
+          sed -e "$SUBST" "$SRC" > _site/beta/index.html
+
+          # Make the channel unmistakable. A tester who cannot tell beta from
+          # stable will file bugs against the wrong build.
+          python3 - "$BANNER" <<'PY'
+          import html, pathlib, sys
+          text = html.escape(sys.argv[1])
+          banner = (
+              '<div style="position:sticky;top:0;z-index:9999;background:#95ff00;'
+              'color:#0a0a0a;padding:.6rem 1rem;text-align:center;'
+              'font:600 14px/1.5 system-ui,-apple-system,sans-serif">'
+              + text
+              + ' <a href="../" style="color:#0a0a0a">Get the stable release instead</a></div>'
+          )
+          p = pathlib.Path("_site/beta/index.html")
+          s = p.read_text(encoding="utf-8")
+          i = s.find("<body>")
+          if i != -1:
+              i += len("<body>")
+              s = s[:i] + banner + s[i:]
+          p.write_text(s, encoding="utf-8")
+          print("banner injected")
+          PY
+
+          # Never hand testers a page whose download buttons 404.
+          if grep -q "/releases/latest/download/" _site/beta/index.html; then
+            echo "::error::/beta/ still contains stable download URLs - the rewrite did not apply"
+            exit 1
+          fi
+
+      - name: Keep the beta checkout out of the published site
+        run: rm -rf .beta-src
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

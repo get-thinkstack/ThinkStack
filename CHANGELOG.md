@@ -17,6 +17,50 @@ See [scripts/README.md](scripts/README.md) for how releases are cut.
 
 Work merged but not yet tagged.
 
+### Fixed
+- **The packaged app never started.** v1.0.0's installer showed a loading spinner
+  indefinitely. The backend lookup missed the AppImage/deb layout (binary in
+  `usr/bin`, resources in `usr/lib/ThinkStack`), so the app silently fell back to
+  running a system `python3` -- which the AppImage's own `AppRun` had already
+  broken by exporting `PYTHONHOME=$APPDIR/usr`, killing it with "Failed to import
+  encodings module" before any of our code ran.
+- **The window crashed a second after loading** on Fedora/Mesa: WebKitGTK's
+  DMABUF renderer corrupts the heap. Disabled on Linux.
+- **The embedding model was never bundled**, so ingesting the first document in a
+  packaged build reached for HuggingFace -- impossible offline, and the docstring
+  promised the opposite. It is now shipped inside the installer.
+- **The model directory was derived from the working directory**, which is wrong
+  for every installed app on every OS. The backend now resolves it itself.
+- The loading screen polled `localhost`, which resolves to `::1` first while the
+  backend binds IPv4 only.
+- Declining the model prompt was permanent and irreversible: the flag lived in
+  the webview's localStorage, outside the app, so even reinstalling did not clear
+  it, and it silenced every future model rather than the one declined.
+
+### Added
+- **The loading screen reports every startup step** with timings, names the
+  backend it is launching, and fails with a real error plus a log path instead of
+  spinning forever. Startup is bounded at 180s.
+- Backend output is captured to `backend.log` (Tauri's app log dir) alongside the
+  startup trace, so a failed launch can be diagnosed after the window is gone.
+- Sidebar: **Add better models**, **Update app**, and the running version.
+- A **beta landing page** at `/beta/`, generated from the same `landing.html` and
+  pointing at the newest prerelease.
+- `scripts/build.sh` copies installers into `local/` (replacing older ones),
+  smoke-tests the frozen backend over HTTP, stages only the models
+  `release.config.json` declares, and packages the AppImage the way CI does.
+- Beta-testing guide in `CONTRIBUTING.md`: what to check on each OS, per-OS log
+  paths, and expected unsigned-build friction.
+
+### Changed
+- **Updates are user-initiated only.** The check that ran on every launch is
+  gone: an offline-first app should not contact the network unprompted. The
+  sidebar button reports every outcome, including "Up to date".
+
+---
+
+## [1.0.0] - 2026-07-29
+
 ### Added
 - First-run model setup: the app detects what your machine can run and offers a
   larger analysis model once, with a progress bar and a cancel button. Declining

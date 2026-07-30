@@ -85,7 +85,13 @@ class Settings(BaseSettings):
     embedding_dimension: int = 384
     # the copy of the embedding model shipped inside the bundle. present only
     # in packaged builds; from source we fall back to the hub/hf cache.
-    bundled_embedding_dir: Path = BUNDLE_DIR / "models" / "all-MiniLM-L6-v2"
+    #
+    # This must sit under data/models, beside the gguf weights -- that is where
+    # the PyInstaller spec puts bundled model data. It previously pointed at
+    # BUNDLE_DIR/models (no `data` segment), a directory that is never built, so
+    # `is_dir()` was always False and a packaged, offline build silently fell
+    # through to a HuggingFace download it could never complete.
+    bundled_embedding_dir: Path = BUNDLE_DIR / "data" / "models" / "all-MiniLM-L6-v2"
 
     # chunking
     chunk_size: int = 512

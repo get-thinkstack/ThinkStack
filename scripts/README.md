@@ -26,6 +26,27 @@ whole team gets the same hooks and updates arrive with a normal `git pull`.
 you only pay the ~20 minute three-OS build when you deliberately tag. That keeps
 `dev` fast and loose while `main` stays deliberate.
 
+### Before you promote: validate the real installer
+
+**Required for every beta and stable release.**
+
+```bash
+./scripts/build.sh     # builds, then refreshes local/ with the new installers
+```
+
+`build.sh` wipes the old installers out of `local/` and copies the fresh ones in,
+so `local/` always holds *the build you are about to release* and nothing older.
+Install and run it **from `local/`** — the packaged artifact, not `tauri dev` and
+not the bare `dist/` backend.
+
+Launch it, watch the loading screen name each startup step, open a PDF, ask one
+question. CI proves the code compiles; only this proves the app runs. We shipped
+a build that spun for 200s on startup because nothing in the gate ever launched
+the packaged app. If it fails, the screen now shows the error and a log path
+(`~/.local/share/com.thinkstack.app/logs/backend.log` on Linux).
+
+Only then run `promote.sh`.
+
 ### Promoting work (and shipping the binaries for it)
 
 `promote.sh` encodes both paths so nobody has to remember the branch/tag dance.
@@ -52,6 +73,19 @@ Rollback: a bad beta is just a new beta tag. A bad stable is fixed by
 `scripts/promote.sh fix <next-patch>` — installed apps auto-update to whatever
 `latest` points at. Don't delete a published tag or release: installed apps
 follow `latest`, and yanking it strands anyone mid-update.
+
+### Beta testing a build
+
+A beta tag publishes all three installers as a **prerelease** — `latest` does not
+move, so no existing install auto-updates. Testers download from the releases
+page, not the landing page.
+
+What a tester checks, and how to report a failure, is in
+[CONTRIBUTING.md → Beta testing](../CONTRIBUTING.md#beta-testing). The short
+version: it must launch, the loading screen must name the **bundled** backend
+(not a system python), and ingesting one PDF must work offline.
+
+Do not promote to stable until all three OSes have passed.
 
 ### Who can cut one
 

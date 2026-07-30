@@ -1,15 +1,15 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { BookOpen, Search, Brain, Target, PenLine, Sun, Moon } from 'lucide-react';
+import { BookOpen, Search, Brain, Target, PenLine, Sun, Moon, HardDrive, RefreshCw, Check, AlertCircle } from 'lucide-react';
 import { systemApi } from './utils/api';
-import { checkForUpdates } from './utils/updater';
+import { checkForUpdatesInteractive, APP_VERSION } from './utils/updater';
 import Library from './components/Library';
 import SearchPage from './components/Search';
 import Analysis from './components/Analysis';
 import GapAnalysis from './components/GapAnalysis';
 import PaperWriter from './components/PaperWriter';
-import ModelSetup from './components/ModelSetup';
+import ModelSetup, { OPEN_MODEL_SETUP } from './components/ModelSetup';
 import './index.css';
 
 const THEME_KEY = 'ts-theme';
@@ -71,11 +71,16 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
-  // check github releases for a newer desktop build once on launch.
-  // no-op in the browser/web build; never throws.
-  useEffect(() => {
-    checkForUpdates();
-  }, []);
+  // No update check on launch, deliberately. ThinkStack's premise is that
+  // nothing leaves the device; reaching out to GitHub unprompted on every start
+  // contradicts that even though the request carries no user data. Updates are
+  // entirely user-initiated via the sidebar button below.
+  const [updateState, setUpdateState] = useState('idle');
+
+  const runUpdateCheck = async () => {
+    setUpdateState('checking');
+    setUpdateState(await checkForUpdatesInteractive());
+  };
 
   // track the OS appearance until the user makes an explicit choice
   useEffect(() => {
@@ -184,6 +189,52 @@ export default function App() {
                 <div className={`status-dot ${llmStatus !== 'connected' ? 'disconnected' : ''}`} />
                 <span>{llmStatus === 'connected' ? 'System Online' : `LLM: ${llmStatus}`}</span>
                 <span className="status-meta">local · slm</span>
+              </div>
+
+              {/* The model prompt is asked once, so there has to be a way back
+                  to it: declining used to be irreversible from inside the app,
+                  because the flag lives in the webview's localStorage, which
+                  even reinstalling does not clear. */}
+              <div className="sidebar-tools">
+                <button
+                  className="sidebar-tool"
+                  onClick={() => window.dispatchEvent(new Event(OPEN_MODEL_SETUP))}
+                  title="Check whether this machine can run a better model"
+                >
+                  <HardDrive size={15} />
+                  <span>Add better models</span>
+                </button>
+
+                <button
+                  className={`sidebar-tool ${updateState === 'current' ? 'is-ok' : ''} ${
+                    updateState === 'error' ? 'is-bad' : ''
+                  }`}
+                  onClick={runUpdateCheck}
+                  disabled={updateState === 'checking'}
+                  title={
+                    updateState === 'current'
+                      ? `You are on the latest version (v${APP_VERSION}). Click to check again.`
+                      : 'Check for a new version of ThinkStack'
+                  }
+                >
+                  {updateState === 'current' ? (
+                    <Check size={15} />
+                  ) : updateState === 'error' ? (
+                    <AlertCircle size={15} />
+                  ) : (
+                    <RefreshCw size={15} className={updateState === 'checking' ? 'spin' : ''} />
+                  )}
+                  <span>
+                    {updateState === 'checking' ? 'Checking…'
+                      : updateState === 'current' ? 'Up to date'
+                      : updateState === 'unsupported' ? 'Desktop app only'
+                      : updateState === 'error' ? 'Check failed — retry'
+                      : 'Update app'}
+                  </span>
+                </button>
+
+                {/* the version a bug report should quote */}
+                <div className="sidebar-version">v{APP_VERSION}</div>
               </div>
             </div>
           </aside>
