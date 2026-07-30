@@ -20,7 +20,16 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-TECTONIC_VERSION="0.17.0"
+# 0.15.0, not the newest. The 0.17.0 Linux build requires GLIBC_2.39, which
+# is newer than Ubuntu 22.04 (2.35) and newer than a great many user machines:
+# it failed to load at all on the CI runner, taking 15ms to not run, which is
+# what left the shipped engine without a package cache. 0.15.0 needs only
+# GLIBC_2.35 and links no OpenSSL 1.1 (which 0.14.1 does, and which modern
+# distributions no longer ship). It supports every flag used here and produces
+# a cache half the size.
+#
+# Before bumping this, check: objdump -T tectonic | grep -o "GLIBC_[0-9.]*" | sort -uV | tail -1
+TECTONIC_VERSION="0.15.0"
 DEST="${1:-data/tex}"
 GREEN='\033[0;32m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
 
