@@ -1,0 +1,78 @@
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric,arrows.meta,positioning,fit,backgrounds,calc}
+\usepackage[hidelinks]{hyperref}
+
+\definecolor{accent}{HTML}{1F4E79}
+\definecolor{soft}{HTML}{F2F4F7}
+\definecolor{rule}{HTML}{B9C2CC}
+\definecolor{ok}{HTML}{2E7D32}
+\definecolor{bad}{HTML}{B3261E}
+
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\fancyhead[L]{\small\itshape ThinkStack}
+\fancyhead[R]{\small\itshape \leftmark}
+\fancyfoot[C]{\small\thepage}
+
+\setlist{itemsep=2pt, topsep=4pt}
+
+\newcommand{\coverpage}[2]{%
+\begin{titlepage}
+\centering
+{\large CHRIST (Deemed to be University), Bengaluru\par}
+{\large Department of Computer Science\par}
+\vspace{1.1cm}
+{\Large\bfseries #1\par}
+\vspace{0.35cm}
+{\large Course: CSC481-5, Computer Science Project\par}
+{\large Semester V\par}
+\vspace{1.5cm}
+{\Huge\bfseries ThinkStack\par}
+\vspace{0.35cm}
+{\large\itshape #2\par}
+\vspace{1.5cm}
+{\large\bfseries Submitted by\par}
+\vspace{0.3cm}
+\begin{tabular}{clc}
+\toprule
+\textbf{Sl. No.} & \textbf{Student Name} & \textbf{Register No.} \\
+\midrule
+1. & Aditya Mehta & 2440204 \\
+2. & Jitvan Chadha & 2440222 \\
+3. & Ritesh K R & 2440233 \\
+\bottomrule
+\end{tabular}
+\vspace{1.2cm}
+
+\begin{tabular}{ll}
+\textbf{Guide:} & Dr. New Begin \\
+\textbf{Class:} & 5BSC CS \\
+\textbf{Repository:} & \texttt{github.com/get-thinkstack/ThinkStack} \\
+\end{tabular}
+\vfill
+{\large July 2026\par}
+\end{titlepage}
+}
+
+\newcommand{\evidence}[1]{%
+\begin{center}
+\fcolorbox{rule}{soft}{\parbox{0.93\linewidth}{\small #1}}
+\end{center}}
+
+\newcommand{\yes}{\textcolor{ok}{\textbf{Yes}}}
+\newcommand{\no}{\textcolor{bad}{\textbf{No}}}
