@@ -66,8 +66,8 @@ Two things it does **not** bundle:
   first run. Decline and everything still works — analysis just uses the built-in
   model. If you already run Ollama or LM Studio, ThinkStack uses a model you
   already have instead of downloading anything.
-- **A TeX engine.** To compile LaTeX to PDF you need `pdflatex` on your `PATH`
-  (install TeX Live or MiKTeX). The live preview works without it.
+Nothing else is needed. The installer also carries a **TeX engine**, so the
+paper writer compiles PDFs on a machine with no LaTeX installed.
 
 The app also **updates itself**: when a new version is released, it offers to
 install it on the next launch. Opt-in **beta** and **nightly** channels are
@@ -103,7 +103,7 @@ Open the paper writer and write your ideas in plain language in a `.ths` file. T
 local model turns them into compilable LaTeX **in place**. You get:
 - a **Live Preview** tab that renders sections, math, and tables instantly as you
   type (no compile needed), and
-- a **Compiled PDF** tab showing the real `pdflatex` output.
+- a **Compiled PDF** view, produced by the TeX engine shipped with the app.
 
 It auto-saves as you go, and the compiler **auto-heals** common problems — missing
 packages, bare snippets, a broken figure — so you still get a PDF instead of a

@@ -16,10 +16,13 @@ runs locally through `llama.cpp`, and embeddings run locally too.
 - **analysis.** paper summaries, key-claim extraction, and thematic clustering.
 - **gap finder.** surfaces under-explored areas and suggests research directions.
 - **chat.** a retrieval-augmented assistant grounded on the papers you select.
-- **paper writer.** an ai-assisted latex editor with a live client-side preview
-  (katex for math, html for structure) and a compiled-pdf tab. the compiler adds
+- **paper writer.** an ai-assisted latex editor. select any plain-english line
+  and press ctrl+enter to have the local model rewrite it as latex in place. the
+  compiled pdf is the preview and rebuilds itself a moment after you stop typing
+  (toggle it off and drive it with the compile button instead). the compiler adds
   missing packages, wraps bare snippets into full documents, recovers from
-  errors, and still produces a pdf when a single figure or table is broken.
+  errors, and still produces a pdf when a single figure or table is broken. a tex
+  engine ships inside the installer, so this works with no latex installed.
 - **fine-tuning data.** prompt-to-latex pairs are collected passively as jsonl
   for a future qlora fine-tuning run.
 - **encryption vault.** papers can be encrypted locally with password-derived
@@ -54,13 +57,19 @@ config.py          pydantic-settings config (env prefix: THINKSTACK_)
 api/               rest endpoints (documents, search, analysis, gaps, chat,
                    papers, encryption, system)
 domain/            core logic: ingestion, knowledge_base, search, analysis,
-                   gap_finder, chat, paper_writer, encryption, fine_tuning
-infrastructure/    llm client (llama.cpp wrapper), vector store, hardware profiler
+                   gap_finder, chat, paper_writer, encryption, fine_tuning,
+                   model_manager (catalog, discovery, downloader)
+infrastructure/    llm client (llama.cpp wrapper), vector store, hardware profiler,
+                   file manager, caches and run histories
 frontend/          react 19 + vite spa (built to frontend/dist, served by fastapi)
-src-tauri/         tauri 2 desktop shell (rust): starts and supervises the backend
-scripts/           setup / dev / validate / build helpers and tests
-data/              runtime state: uploaded papers, vector store, models
-                   (gitignored, recreated on demand)
+src-tauri/         tauri 2 desktop shell (rust): hardware diagnosis, starts and
+                   supervises the backend, reports startup progress
+scripts/           devops only: setup, dev, preflight, build, promote, release,
+                   fetch-tex, validate_bundle
+tools/             developer utilities (gpu checks, fine-tuning, manual e2e)
+tests/             the pytest suite
+data/              runtime state + bundled payloads: papers, vector store, models,
+                   tex engine (gitignored, recreated on demand)
 ```
 
 inference is local through `llama.cpp` (`llama-cpp-python`, gguf models) on cpu
@@ -71,7 +80,10 @@ larger model, so the app offers to fetch a 1.5b **only** when the machine can ru
 it and no equivalent is already installed (it reuses models you already have via
 ollama or lm studio). without it, analysis degrades to the 0.5b rather than
 failing. only one model is resident at a time; the runtime swaps on demand to
-keep memory bounded, and falls back to cpu when no usable gpu is present.
+keep memory bounded, and falls back to cpu when no usable gpu is present. the
+installer also carries the sentence-transformer embedding weights and a tectonic
+tex engine with a warmed package cache, so ingestion and pdf compilation both
+work on a machine with nothing else installed.
 
 ## quick start
 
@@ -84,7 +96,8 @@ git clone <repo-url> && cd ThinkStack
 
 this installs system dependencies, rust, the python venv and packages, node
 modules, and a latex compiler. pass `--skip-system` or `--skip-rust` to skip
-steps you have already done.
+steps you have already done. for the paper writer from source, also run
+`./scripts/fetch-tex.sh` to fetch the same tex engine the installers bundle.
 
 ### 2. download a model
 
@@ -155,6 +168,9 @@ your setup.
 | `scripts/build.sh` | production build (frontend, pyinstaller, tauri) |
 | `scripts/promote.sh` | move work dev -> beta -> main and ship that channel's installers |
 | `scripts/release.sh` | bump the version and tag a release |
+| `scripts/fetch-tex.sh` | download the bundled tex engine and warm its package cache |
+| `scripts/validate_bundle.py` | exercise a built bundle end to end (ci runs it on all three os) |
+| `scripts/install-hooks.sh` | activate the shared git hooks (run once per clone) |
 | `scripts/compose-updater-manifest.sh` | build the auto-updater manifest (`latest.json`) |
 | `scripts/set-repo.sh` | retarget the project at a different github owner/repo |
 
@@ -166,14 +182,20 @@ see [scripts/README.md](scripts/README.md) for the branch model and the full run
 ./scripts/build.sh
 ```
 
-the pipeline has four steps:
+the pipeline:
 
+0. clear previous outputs, so a stale installer can never be validated by
+   mistake, and warn if the checkout is behind its remote.
 1. build the react frontend into `frontend/dist/`.
-2. freeze the python backend with pyinstaller (`--onedir`) into
-   `dist/thinkstack-api/`.
-3. verify the frozen backend. tauri bundles that directory as the `api/`
-   resource, so no separate sidecar copy is needed.
-4. compile the tauri app into `src-tauri/target/release/bundle/`.
+2. stage the payload (the models `release.config.json` declares, the embedding
+   weights, the tex engine) and freeze the python backend with pyinstaller
+   (`--onedir`) into `dist/thinkstack-api/`.
+3. boot the frozen backend and require a healthy http response, so a broken
+   freeze fails here rather than after the cargo build.
+4. compile the tauri app into `src-tauri/target/release/bundle/`. on linux the
+   appimage is packaged with appimagetool, because linuxdeploy cannot resolve
+   pyinstaller's vendored libraries.
+5. copy the finished installers into `local/`, replacing whatever was there.
 
 the installers land in `src-tauri/target/release/bundle/` (`.deb`, `.rpm`, and
 `.AppImage` on linux, `.dmg` on macos, `.msi` and `.exe` on windows).
@@ -188,15 +210,9 @@ runbook, and [docs/ADR.md](docs/ADR.md) for why the pipeline is shaped that way.
 - node.js 18 or newer
 - rust toolchain (`rustup`), for the desktop build only
 - at least one gguf model for llama.cpp (see quick start)
-- `pdflatex` on `PATH`, required by the paper writer:
-  ```bash
-  # fedora
-  sudo dnf install texlive-scheme-basic texlive-collection-latexrecommended
-  # ubuntu / debian
-  sudo apt install texlive-latex-recommended
-  # macos
-  brew install --cask mactex-no-gui
-  ```
+- a TeX engine for the paper writer. **Packaged installers ship one**, so this
+  applies to source checkouts only: run `./scripts/fetch-tex.sh` to download the
+  same Tectonic build the installers carry, or use a system `pdflatex`.
 
 ## configuration
 
@@ -226,7 +242,7 @@ on start.
 | embeddings | sentence-transformers |
 | vector store | file-based numpy cosine store (json) |
 | pdf processing | pymupdf and pdfplumber |
-| latex | system `pdflatex` with an auto-healing compiler |
+| latex | bundled tectonic engine (system `pdflatex` as fallback) with an auto-healing compiler |
 | live preview | katex (client-side math and structure rendering) |
 | encryption | password-based kdf plus an authenticated cipher |
 | updates | tauri updater with signed github releases, user-initiated only |

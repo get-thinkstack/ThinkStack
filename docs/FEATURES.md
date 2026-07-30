@@ -74,7 +74,9 @@ The most-loved feature: write ideas in plain language and get compilable LaTeX.
   `.ths` (ThinkStack) file and the local model translates them in place to LaTeX.
 - **Two-tab preview** — a client-side **Live Preview** (KaTeX renders sections,
   math, tables, and lists instantly as you type, no compile needed) alongside the
-  real **Compiled PDF** tab (`pdflatex` output).
+  **Compiled PDF** view, produced by the bundled TeX engine and refreshed
+  automatically a moment after you stop typing (an "Auto" toggle turns that off
+  and the Compile button drives it by hand).
 - **Auto-save** — saves incrementally ~2s after you stop typing; manual save too.
 - **Auto-healing compiler** — this is what makes it robust. When compilation would
   fail it:
@@ -84,7 +86,7 @@ The most-loved feature: write ideas in plain language and get compilable LaTeX.
   - isolates a single broken figure/table behind a placeholder so the rest of the
     paper still produces a PDF (Overleaf-style graceful degradation), and as a
     last resort neutralizes all figures rather than failing outright.
-- **Error surfacing** — when a compile fails, the parsed `pdflatex` diagnostics
+- **Error surfacing** — when a compile fails, the parsed engine diagnostics
   (and missing-TeX-package install hints) show directly in the UI.
 
 ## Paper encryption
@@ -192,8 +194,6 @@ Planned and in-progress work:
   foundation for this).
 - **Federated cloud fine-tuning** — train QLoRA adapters on cloud GPUs, then sync
   tiny `.gguf` adapters down to apply over the local base model.
-- **Bundled Tectonic** — ship a self-contained TeX engine so the paper writer
-  needs no system `pdflatex` install.
 - **Secure P2P sharing** — share papers/drafts/analysis directly with specific
   peers via libp2p + public-key signatures, no central server.
 - **Citation visualization** — a graph of how papers cite one another, surfacing
@@ -203,10 +203,9 @@ Planned and in-progress work:
 
 - **BM25 rebuild per query** — the keyword index is built from scratch each search.
   Fine for a small corpus; a bottleneck as the document count grows.
-- **LaTeX needs system `pdflatex`** — a full TeX install must be on `PATH` until
-  Tectonic is bundled. A missing `pdflatex` fails gracefully with a clear message.
-- **Live preview scope** — the instant client-side preview handles common paper
-  elements but not TikZ diagrams, complex tables, or custom macros; those render
-  only in the Compiled PDF tab.
+- **TeX cache covers the shipped preamble only** — the bundled package cache is
+  warmed against every package the paper writer's preamble loads. A document that
+  pulls in some other package needs a network connection the first time it is
+  compiled; everything the app itself generates works offline.
 - **Ollama JSON retries** — GBNF makes `llama.cpp` output reliable, but there's no
   extensive retry logic if the optional Ollama runtime returns malformed JSON.

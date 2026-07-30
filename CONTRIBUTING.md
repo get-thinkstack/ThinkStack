@@ -469,13 +469,17 @@ after we shipped a build whose flagship feature needed a package no user had.
 | `all-MiniLM-L6-v2` | embeddings (ingest + search) | yes |
 | `qwen2.5-1.5b-instruct-q4_k_m.gguf` | analysis, gap finder | no — offered on consent |
 
-**External binaries — the only things NOT shipped:**
+**External binaries:**
 
 | Binary | Used by | Status |
 |---|---|---|
-| **`pdflatex`** | paper writer, PDF tab | **NOT bundled.** The live KaTeX preview works without it; only PDF export fails. This is the single unbundled dependency in the product. Roadmap: bundle Tectonic. |
+| `tectonic` | paper writer, PDF compilation | **Bundled** (`scripts/fetch-tex.sh`), with a package cache warmed against the writer's whole preamble, so a clean machine compiles offline. A system `pdflatex`/`tectonic` is used only when the bundled one is absent, i.e. source checkouts. |
 | `nvidia-smi` | Rust hardware diagnosis | optional, timeout-guarded; absent simply means "no GPU" |
 | `taskkill` | Rust, Windows shutdown | ships with Windows |
+
+**Every runtime dependency is now shipped.** `nvidia-smi` and `taskkill` are the
+only externals left, and neither is required: one is an optional GPU probe, the
+other is part of Windows.
 
 **If you add a dependency, add it here.** A dependency that exists only in
 `requirements.txt` is invisible to whoever later asks why a fresh install

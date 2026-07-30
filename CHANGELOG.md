@@ -53,6 +53,19 @@ Work merged but not yet tagged.
   paths, and expected unsigned-build friction.
 
 ### Changed
+- **A TeX engine ships inside the installer.** The paper writer no longer needs
+  LaTeX installed on the machine — PDF compilation works out of the box, offline.
+  Costs ~25 MB compressed per installer.
+- **The compiled PDF is the only preview**, and it rebuilds itself shortly after
+  you stop typing. An "Auto" toggle turns that off; the Compile button remains.
+  The client-side KaTeX preview is gone: it was a second renderer that disagreed
+  with the real PDF.
+- **Select plain English and press Ctrl+Enter** to have the local model rewrite
+  it as LaTeX in place.
+- **The paper writer now uses the larger model when available.** It was routed to
+  two fine-tuned models that are never built, so it silently fell through to the
+  0.5B — which answered "plot y = x squared" with a reference to an image file
+  that does not exist.
 - **Updates are user-initiated only.** The check that ran on every launch is
   gone: an offline-first app should not contact the network unprompted. The
   sidebar button reports every outcome, including "Up to date".
