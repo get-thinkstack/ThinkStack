@@ -93,8 +93,15 @@ jobs:
             exit 0
           fi
 
+          # Match beta tags specifically, not "any prerelease". The nightly
+          # channel is also a prerelease and is republished daily, so it usually
+          # sorts newest -- picking the first prerelease served NIGHTLY builds
+          # from the beta page, which is the wrong channel and exactly the kind
+          # of mix-up that makes tester bug reports useless.
           TAG="$(gh api "repos/${GITHUB_REPOSITORY}/releases" \
-                  --jq '[.[] | select(.prerelease and (.draft | not))] | first | .tag_name' \
+                  --jq '[.[] | select(.prerelease and (.draft | not))
+                             | select(.tag_name | test("-beta\\."))]
+                        | first | .tag_name' \
                   2>/dev/null || true)"
 
           mkdir -p _site/beta
