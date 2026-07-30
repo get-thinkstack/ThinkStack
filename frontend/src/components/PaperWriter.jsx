@@ -55,6 +55,11 @@ export default function PaperWriter() {
   // impure clock in a render path is exactly what the react purity rule warns
   // about.
   const pdfVersion = useRef(0);
+  const editorRef = useRef(null);
+  // one-step undo for an AI edit. The textarea's own undo stack does not
+  // survive a programmatic value change, so replacing a selection would
+  // otherwise be unrecoverable -- and the model is not always right.
+  const [undoSrc, setUndoSrc] = useState(null);
 
   // Autocompile is on by default -- watching the paper build itself is the
   // point. It is a preference, not a policy: a real TeX run costs CPU, and on
@@ -216,20 +221,82 @@ export default function PaperWriter() {
     return () => clearTimeout(compileTimer.current);
   }, [source, activeId, autoCompile, compileNow]);
 
-  const handleGenerate = async () => {
-    if (!activeId || !prompt.trim()) return;
+  /**
+   * Turn a request into LaTeX.
+   *
+   * Two ways in, one backend call:
+   *
+   *   - select prose in the editor and press Ctrl/Cmd+Enter. Whatever you
+   *     selected IS the instruction, and the generated LaTeX replaces it in
+   *     place. Writing "the graph of equation 1 goes here" and getting a
+   *     pgfplots figure where those words were is the whole point.
+   *   - type in the prompt box, and the result is appended before
+   *     \end{document} as before.
+   *
+   * The model only ever sees the span plus the document for context and only
+   * ever rewrites that span, which matters on a 0.5B: handing it the whole
+   * paper to rewrite would mangle the LaTeX that already works.
+   */
+  const generateInto = useCallback(async (instruction, range) => {
+    if (!activeId || !instruction.trim()) return;
     setGenerating(true);
     setError('');
+    const before = source;
     try {
-      const d = await papersApi.generate(activeId, prompt.trim(), source, { docIds: groundDocs });
-      setSource((prev) => insertLatex(prev, d.generated_latex || ''));
+      const d = await papersApi.generate(activeId, instruction.trim(), source, { docIds: groundDocs });
+      const latex = d.generated_latex || '';
+      if (!latex.trim()) {
+        setError('The model returned nothing. Try describing it more concretely.');
+        setGenerating(false);
+        return;
+      }
+      setUndoSrc(before);
+      if (range) {
+        const [from, to] = range;
+        const next = before.slice(0, from) + latex + before.slice(to);
+        setSource(next);
+        // put the caret after what was just written, so typing continues
+        // where the author was looking rather than jumping to the top
+        requestAnimationFrame(() => {
+          const el = editorRef.current;
+          if (!el) return;
+          el.focus();
+          const caret = from + latex.length;
+          el.setSelectionRange(caret, caret);
+        });
+        flash('rewritten as LaTeX');
+      } else {
+        setSource(insertLatex(before, latex));
+        setPrompt('');
+        flash('AI draft inserted');
+      }
       setDirty(true);
-      setPrompt('');
-      flash('AI draft inserted');
     } catch (e) {
       setError(e.message);
     }
     setGenerating(false);
+  }, [activeId, source, groundDocs]);
+
+  const handleGenerate = () => generateInto(prompt, null);
+
+  /** Ctrl/Cmd+Enter in the editor: rewrite the selection as LaTeX. */
+  const handleEditorKeyDown = (e) => {
+    if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey)) return;
+    const el = editorRef.current;
+    if (!el) return;
+    const { selectionStart: from, selectionEnd: to } = el;
+    if (from === to) return; // nothing selected: let the newline through
+    e.preventDefault();
+    if (generating || llmBusy) return;
+    generateInto(source.slice(from, to), [from, to]);
+  };
+
+  const undoAiEdit = () => {
+    if (undoSrc === null) return;
+    setSource(undoSrc);
+    setUndoSrc(null);
+    setDirty(true);
+    flash('AI edit undone');
   };
 
   const handleDelete = async (id, e) => {
@@ -358,12 +425,22 @@ export default function PaperWriter() {
             </div>
 
             <textarea
+              ref={editorRef}
               className="pw-textarea"
               value={source}
               spellCheck={false}
               onChange={(e) => { setSource(e.target.value); setDirty(true); }}
-              placeholder="\\documentclass{article} ..."
+              onKeyDown={handleEditorKeyDown}
+              placeholder="Write plainly, select it, and press Ctrl+Enter to turn it into LaTeX."
             />
+            <div className="pw-editor-hint">
+              {generating
+                ? 'Writing LaTeX…'
+                : 'Select any plain-English line and press Ctrl+Enter to turn it into LaTeX.'}
+              {undoSrc !== null && !generating && (
+                <button type="button" className="pw-undo" onClick={undoAiEdit}>Undo AI edit</button>
+              )}
+            </div>
 
             <div className="pw-context">
               <button

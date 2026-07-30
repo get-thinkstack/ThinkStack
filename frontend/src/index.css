@@ -2248,3 +2248,24 @@ input::-webkit-credentials-auto-fill-button {
 }
 .pw-auto-toggle input { accent-color: var(--accent, #95ff00); cursor: pointer; }
 .pw-status-err { color: #ff8a80; }
+
+/* paper writer: the inline-AI affordance. Stated under the editor because a
+   keyboard shortcut nobody is told about does not exist. */
+.pw-editor-hint {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.35rem 0.6rem 0;
+  font-size: 0.7rem;
+  color: var(--text-muted, #63635f);
+}
+.pw-undo {
+  font: inherit;
+  font-size: 0.7rem;
+  color: var(--accent, #95ff00);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}

@@ -171,7 +171,21 @@ class OllamaClient:
     # produces unparseable / truncated json on them. only one model is
     # resident at a time - _get_llama swaps on demand to cap memory use.
     TASK_MODEL_MAP = {
-        "latex_writer": ["latex-writer.gguf", "latex_writer.gguf"],
+        # The heavier model FIRST. Writing LaTeX is a structured-output task --
+        # it has to emit compilable markup and honour instructions like "use
+        # pgfplots for charts, not \\includegraphics". Measured on the 0.5B:
+        # charts came back as \\includegraphics of a file that does not exist,
+        # and "state the equation for mean squared error" came back as prose
+        # with no math at all. The dedicated fine-tuned writer models below are
+        # aspirational -- neither is built or shipped -- so listing only those
+        # meant this task silently fell through to the base model while
+        # `analysis` got the better one. Falls back to base when the 1.5B is
+        # absent or does not fit the memory budget.
+        "latex_writer": [
+            settings.llm_analysis_model,
+            "latex-writer.gguf",
+            "latex_writer.gguf",
+        ],
         "analysis": [settings.llm_analysis_model],
         "gap_analysis": [settings.llm_analysis_model, "gap-analysis.gguf", "gap_analysis.gguf"],
         "general": [],  # always uses the base model
