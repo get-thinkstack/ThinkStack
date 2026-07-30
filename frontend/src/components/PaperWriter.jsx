@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  FilePlus2, Save, Play, Download, Trash2, Sparkles, FileText, Loader2, BookOpen, ChevronDown, Eye, FileOutput,
+  FilePlus2, Save, Play, Download, Trash2, Sparkles, FileText, Loader2, BookOpen, ChevronDown,
 } from 'lucide-react';
 import { papersApi, documentsApi, useLlmBusy } from '../utils/api';
 import PageHeader from './PageHeader';
-import LatexPreview from './LatexPreview';
+
+const AUTOCOMPILE_KEY = 'thinkstack.paperWriter.autoCompile';
 
 /** insert AI-generated body just before \end{document} (else append). */
 function insertLatex(src, gen) {
@@ -17,8 +18,17 @@ function insertLatex(src, gen) {
 }
 
 /**
- * AI LaTeX paper writer - create projects, edit source, generate LaTeX
- * with the local SLM, compile to PDF, and preview/download. All offline.
+ * AI LaTeX paper writer.
+ *
+ * The compiled PDF is the only preview, and it recompiles on its own a moment
+ * after you stop typing -- you write, you watch the paper update, you save when
+ * you are done. There used to be a second "live preview" that re-rendered the
+ * source with KaTeX in the browser; it was removed because it was a second,
+ * worse renderer that disagreed with the real PDF, so the thing you were
+ * looking at was never the thing you would publish.
+ *
+ * Compiling writes the source first, so an autocompile is also an autosave.
+ * Save stays as an explicit checkpoint.
  */
 export default function PaperWriter() {
   const [projects, setProjects] = useState([]);
@@ -34,7 +44,39 @@ export default function PaperWriter() {
   const [generating, setGenerating] = useState(false);
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
-  const [previewTab, setPreviewTab] = useState('preview'); // 'preview' | 'pdf'
+  const [autoStatus, setAutoStatus] = useState(''); // '', 'compiling', 'ok', 'error'
+  // source of the last successful compile, so idling does not recompile an
+  // unchanged document over and over on a slow CPU.
+  const compiledSrc = useRef(null);
+  const compileTimer = useRef(null);
+  const inFlight = useRef(false);
+  // bumped on every successful compile so the iframe src changes and reloads.
+  // a counter, not Date.now(): the value only has to differ, and calling an
+  // impure clock in a render path is exactly what the react purity rule warns
+  // about.
+  const pdfVersion = useRef(0);
+
+  // Autocompile is on by default -- watching the paper build itself is the
+  // point. It is a preference, not a policy: a real TeX run costs CPU, and on
+  // a slow machine or a large document someone may well want to drive it by
+  // hand. Remembered so the choice survives a restart.
+  const [autoCompile, setAutoCompile] = useState(() => {
+    try {
+      return localStorage.getItem(AUTOCOMPILE_KEY) !== 'off';
+    } catch {
+      return true;
+    }
+  });
+
+  const toggleAutoCompile = () =>
+    setAutoCompile((on) => {
+      try {
+        localStorage.setItem(AUTOCOMPILE_KEY, on ? 'off' : 'on');
+      } catch {
+        /* private mode: the preference just will not persist */
+      }
+      return !on;
+    });
 
   // single shared local model - block AI generate while it's busy elsewhere
   const { busy: llmBusy, label } = useLlmBusy();
@@ -59,7 +101,9 @@ export default function PaperWriter() {
   }, []);
 
   useEffect(() => {
-    loadProjects();
+    // fire-and-forget; setState happens in the promise callback, not
+    // synchronously inside the effect body
+    loadProjects().catch(() => {});
   }, [loadProjects]);
 
   useEffect(() => {
@@ -79,8 +123,15 @@ export default function PaperWriter() {
       setActiveId(id);
       setSource(d.source || '');
       setDirty(false);
+      // treat the stored source as already compiled: opening a paper should
+      // not immediately re-run TeX on something that has not changed.
+      compiledSrc.current = d.source || '';
+      setAutoStatus('');
       const proj = projects.find((p) => p.project_id === id);
-      if (proj?.has_pdf) setPdfUrl(`${papersApi.previewUrl(id)}?t=${Date.now()}`);
+      if (proj?.has_pdf) {
+        pdfVersion.current += 1;
+        setPdfUrl(`${papersApi.previewUrl(id)}?v=${pdfVersion.current}`);
+      }
     } catch (e) {
       setError(e.message);
     }
@@ -108,36 +159,62 @@ export default function PaperWriter() {
     setBusy(true);
     setError('');
     try {
+      clearTimeout(compileTimer.current);
       await papersApi.save(activeId, source);
       setDirty(false);
       flash('saved');
+      // with autocompile on, don't make the user wait out the idle timer.
+      // with it off, saving is just saving -- compiling is their call.
+      if (autoCompile) compileNow(source);
     } catch (e) {
       setError(e.message);
     }
     setBusy(false);
   };
 
-  const handleCompile = async () => {
-    if (!activeId) return;
-    setBusy(true);
+  /**
+   * Save + compile. Used by the idle autocompile and by an explicit save.
+   *
+   * Compiling is the expensive part (a real TeX run), so it is guarded three
+   * ways: never twice at once, never on unchanged source, and never sooner
+   * than the idle delay below.
+   */
+  const compileNow = useCallback(async (src) => {
+    if (!activeId || inFlight.current) return;
+    if (compiledSrc.current === src) return;
+    inFlight.current = true;
+    setAutoStatus('compiling');
     setError('');
-    setWarnings([]);
-    setStatus('compiling…');
     try {
-      await papersApi.save(activeId, source);
+      await papersApi.save(activeId, src);
       setDirty(false);
       const res = await papersApi.compile(activeId);
-      setPdfUrl(`${papersApi.previewUrl(activeId)}?t=${Date.now()}`);
-      const w = res?.warnings || [];
-      setWarnings(w);
-      flash(w.length ? `compiled with ${w.length} warning${w.length > 1 ? 's' : ''}` : 'compiled');
+      compiledSrc.current = src;
+      pdfVersion.current += 1;
+      setPdfUrl(`${papersApi.previewUrl(activeId)}?v=${pdfVersion.current}`);
+      setWarnings(res?.warnings || []);
+      setAutoStatus('ok');
       loadProjects();
     } catch (e) {
+      // A compile error is normal while typing -- half-written LaTeX does not
+      // build. Surface it without clearing the last good PDF, so the pane keeps
+      // showing the last version that worked instead of going blank.
       setError(e.message);
-      setStatus('');
+      setAutoStatus('error');
     }
-    setBusy(false);
-  };
+    inFlight.current = false;
+  }, [activeId, loadProjects]);
+
+  // Recompile a beat after typing stops. Long enough that a real TeX run does
+  // not fire on every keystroke, short enough that the PDF feels live.
+  useEffect(() => {
+    if (!autoCompile) return undefined;
+    if (!activeId || !source.trim()) return undefined;
+    if (compiledSrc.current === source) return undefined;
+    clearTimeout(compileTimer.current);
+    compileTimer.current = setTimeout(() => compileNow(source), 2500);
+    return () => clearTimeout(compileTimer.current);
+  }, [source, activeId, autoCompile, compileNow]);
 
   const handleGenerate = async () => {
     if (!activeId || !prompt.trim()) return;
@@ -239,11 +316,37 @@ export default function PaperWriter() {
               </span>
               <div className="pw-toolbar-actions">
                 {status && <span className="pw-status">{status}</span>}
+                {!status && autoStatus === 'compiling' && (
+                  <span className="pw-status"><Loader2 size={12} className="pw-spin" /> compiling…</span>
+                )}
+                {!status && autoStatus === 'ok' && autoCompile && (
+                  <span className="pw-status">PDF up to date</span>
+                )}
+                {!status && autoStatus === 'error' && (
+                  <span className="pw-status pw-status-err">LaTeX error - see below</span>
+                )}
+
+                <label className="pw-auto-toggle" title="Rebuild the PDF a moment after you stop typing">
+                  <input
+                    type="checkbox"
+                    checked={autoCompile}
+                    onChange={toggleAutoCompile}
+                  />
+                  <span>Auto</span>
+                </label>
+
                 <button className="btn btn-secondary btn-sm" onClick={handleSave} disabled={busy}>
                   <Save size={14} /> <span>Save</span>
                 </button>
-                <button className="btn btn-primary btn-sm" onClick={handleCompile} disabled={busy}>
-                  {busy ? <Loader2 size={14} className="pw-spin" /> : <Play size={14} />}
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => { clearTimeout(compileTimer.current); compileNow(source); }}
+                  disabled={busy || autoStatus === 'compiling'}
+                  title={autoCompile ? 'Compile now instead of waiting' : 'Compile'}
+                >
+                  {autoStatus === 'compiling'
+                    ? <Loader2 size={14} className="pw-spin" />
+                    : <Play size={14} />}
                   <span>Compile</span>
                 </button>
                 {pdfUrl && (
@@ -317,24 +420,15 @@ export default function PaperWriter() {
             </div>
           </motion.div>
 
-          {/* preview pane */}
+          {/* the compiled PDF is the only preview -- see the note at the top */}
           <div className="card pw-preview">
             <div className="pw-preview-tabs">
-              <button
-                className={`pw-preview-tab ${previewTab === 'preview' ? 'active' : ''}`}
-                onClick={() => setPreviewTab('preview')}
-              >
-                <Eye size={14} /> Live Preview
-              </button>
-              <button
-                className={`pw-preview-tab ${previewTab === 'pdf' ? 'active' : ''}`}
-                onClick={() => setPreviewTab('pdf')}
-              >
-                <FileOutput size={14} /> Compiled PDF
-              </button>
+              <span className="pw-preview-tab active">
+                <FileText size={14} /> Compiled PDF
+              </span>
             </div>
 
-            {warnings.length > 0 && previewTab === 'pdf' && (
+            {warnings.length > 0 && (
               <details className="pw-warn">
                 <summary>
                   ⚠ Compiled with {warnings.length} warning{warnings.length > 1 ? 's' : ''} - PDF may have missing figures
@@ -343,30 +437,26 @@ export default function PaperWriter() {
               </details>
             )}
 
-            {previewTab === 'preview' ? (
-              <div className="pw-live-preview">
-                <LatexPreview source={source} />
-              </div>
-            ) : (
-              <AnimatePresence mode="wait">
-                {pdfUrl ? (
-                  <motion.iframe
-                    key={pdfUrl}
-                    title="pdf preview"
-                    src={pdfUrl}
-                    className="pw-iframe"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ duration: 0.3 }}
-                  />
-                ) : (
-                  <div className="pw-empty">
-                    <FileText size={42} />
-                    <p>Click Compile to generate a PDF.</p>
-                  </div>
-                )}
-              </AnimatePresence>
-            )}
+            <AnimatePresence mode="wait">
+              {pdfUrl ? (
+                <motion.iframe
+                  key={pdfUrl}
+                  title="compiled pdf"
+                  src={pdfUrl}
+                  className="pw-iframe"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.3 }}
+                />
+              ) : (
+                <div className="pw-empty">
+                  <FileText size={42} />
+                  <p>{autoCompile
+                    ? 'Start typing - the PDF builds itself.'
+                    : 'Hit Compile to build the PDF.'}</p>
+                </div>
+              )}
+            </AnimatePresence>
           </div>
         </div>
       )}
