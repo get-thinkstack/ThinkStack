@@ -473,6 +473,63 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: '1'
           NO_STRIP: 'true'
 
+      # -- launch the real GUI and check it stays up (Linux) --
+      # validate_bundle.py drives the backend over HTTP; it cannot see the
+      # webview. The crash that made v1.0.0 unusable was in the webview:
+      # WebKitGTK's DMABUF renderer corrupted the heap about a second AFTER the
+      # window painted, so every backend check passed while the app died. A
+      # human caught it. This is that human, automated -- launch the packaged
+      # AppImage under a virtual display, wait past the point it used to die,
+      # and require the process to still be alive.
+      - name: GUI smoke test (Linux)
+        if: runner.os == 'Linux' && !inputs.skip_models
+        shell: bash
+        run: |
+          sudo apt-get install -y -qq xvfb
+          APP="$(find src-tauri/target/release/bundle/appimage -name '*.AppImage' | head -1)"
+          [ -n "$APP" ] || { echo "::error::no AppImage to test"; exit 1; }
+          chmod +x "$APP"
+
+          xvfb-run -a --server-args='-screen 0 1280x900x24' "$APP" > gui-smoke.log 2>&1 &
+          APP_PID=$!
+
+          UP=0
+          for _ in $(seq 1 180); do
+            if curl -fsS -m 3 http://127.0.0.1:8000/api/system/health >/dev/null 2>&1; then
+              UP=1; break
+            fi
+            kill -0 "$APP_PID" 2>/dev/null || break
+            sleep 1
+          done
+          if [ "$UP" -ne 1 ]; then
+            echo "::error::the packaged app never served a request"
+            tail -60 gui-smoke.log || true
+            exit 1
+          fi
+          echo "app answered; now checking it SURVIVES"
+
+          # the DMABUF crash hit ~1s after paint. 45s is well past it.
+          sleep 45
+          if ! curl -fsS -m 5 http://127.0.0.1:8000/api/system/health >/dev/null 2>&1; then
+            echo "::error::the app started and then DIED - a renderer/webview crash"
+            tail -60 gui-smoke.log || true
+            exit 1
+          fi
+
+          # and the whole product works through the packaged app, not a bare backend
+          python3 scripts/validate_bundle.py --url http://127.0.0.1:8000 --timeout 60
+          RC=$?
+          pkill -f "usr/bin/tauri-app" 2>/dev/null || true
+          exit $RC
+
+      - name: Upload GUI smoke log on failure
+        if: failure() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gui-smoke-${{ matrix.platform.id }}
+          path: gui-smoke.log
+          if-no-files-found: ignore
+
       # -- build tauri (macOS universal) --
       # apple code-signing is opt-in and must be all-or-nothing. tauri decides to
       # codesign based on whether APPLE_CERTIFICATE is PRESENT, not whether it has
