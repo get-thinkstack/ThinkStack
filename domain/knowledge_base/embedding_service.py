@@ -9,6 +9,7 @@ across embedding requests.
 from __future__ import annotations
 
 import logging
+import sys
 
 from config import settings
 
@@ -43,7 +44,24 @@ def get_model():
         from sentence_transformers import SentenceTransformer
 
         bundled = settings.bundled_embedding_dir
-        source = str(bundled) if bundled.is_dir() else settings.embedding_model
+        if bundled.is_dir():
+            source = str(bundled)
+        else:
+            # No bundled copy. From source this is fine -- the hub or the local
+            # HF cache resolves it. In a frozen build it is a packaging fault,
+            # and the symptom is the worst kind: sentence-transformers retries
+            # the hub with long timeouts, so an offline app appears to hang for
+            # minutes instead of reporting anything. Say so before we block.
+            source = settings.embedding_model
+            if getattr(sys, "frozen", False):
+                logger.error(
+                    "embedding model not bundled at %s -- falling back to a "
+                    "network download of %r, which cannot succeed offline. "
+                    "this is a packaging fault, not a user error.",
+                    bundled,
+                    source,
+                )
+
         logger.info("loading embedding model: %s (cpu)", source)
         _model = SentenceTransformer(source, device="cpu")
         logger.info("embedding model loaded")

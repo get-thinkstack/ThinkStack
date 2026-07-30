@@ -2182,3 +2182,54 @@ input::-webkit-credentials-auto-fill-button {
   align-items: center;
   gap: 0.4rem;
 }
+
+/* ── sidebar tools: model setup, update check, version ──────────────────────
+   Sits under the status light. The update button reports its result in place
+   ("Up to date") rather than staying silent -- a manual check that shows
+   nothing is indistinguishable from a button that does nothing. */
+.sidebar-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.6rem;
+}
+
+.sidebar-tool {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--text-secondary, #8b8b85);
+  background: transparent;
+  border: 1px solid var(--border-subtle, rgba(128, 128, 128, 0.18));
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.sidebar-tool:hover:not(:disabled) {
+  color: var(--text-primary, #e9e9e6);
+  border-color: var(--accent, #95ff00);
+  background: color-mix(in srgb, var(--accent, #95ff00) 8%, transparent);
+}
+
+.sidebar-tool:disabled { opacity: 0.6; cursor: default; }
+.sidebar-tool.is-ok { color: var(--accent, #95ff00); border-color: color-mix(in srgb, var(--accent, #95ff00) 40%, transparent); }
+.sidebar-tool.is-bad { color: #ff8a80; border-color: rgba(255, 138, 128, 0.4); }
+.sidebar-tool svg { flex: 0 0 auto; }
+
+.sidebar-version {
+  padding: 0.15rem 0.6rem 0;
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted, #63635f);
+  letter-spacing: 0.02em;
+}
+
+@keyframes ts-spin { to { transform: rotate(360deg); } }
+.spin { animation: ts-spin 0.9s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }

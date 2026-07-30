@@ -17,7 +17,7 @@ helps you write LaTeX — all running locally with no cloud dependency.
 - [Paper encryption](#paper-encryption)
 - [Hardware-aware model loading](#hardware-aware-model-loading)
 - [Fine-tuning data collection](#fine-tuning-data-collection)
-- [Auto-updates](#auto-updates)
+- [Updates](#updates)
 - [Roadmap](#roadmap)
 - [Known limitations](#known-limitations)
 
@@ -167,11 +167,21 @@ unreadable directory simply finds nothing, and never delays startup.
 - Separate datasets for `latex_generation` and `gap_analysis`. It's privacy-safe:
   the data stays on your device and never leaves it.
 
-## Auto-updates
+## Updates
 
-Installed apps check a signed manifest on launch and can update themselves in
-place — no manual re-download. Three channels exist: **stable** (everyone),
-**beta**, and **nightly** (opt-in testers). See [../scripts/README.md](../scripts/README.md).
+**Nothing is checked automatically.** ThinkStack never contacts the network
+unless you ask it to — an offline-first app that quietly phones home on every
+launch is not offline in any sense that matters, even though the check carries
+no personal data.
+
+Press **Update app** in the sidebar to check. If a newer build exists you are
+told the version and asked before anything downloads; the bundle is then
+verified against ThinkStack's public key, installed in place, and the app
+restarts. Your papers, projects and settings are kept. The sidebar also shows
+the version you are running, which is what a bug report should quote.
+
+Three channels exist: **stable** (everyone), **beta** (invited testers), and
+**nightly**. See [../scripts/README.md](../scripts/README.md).
 
 ## Roadmap
 

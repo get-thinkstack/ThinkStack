@@ -267,6 +267,30 @@ jobs:
           done
           ls -lh data/models/
 
+      # -- embedding model (ingestion + search) --
+      # NOT a gguf, so it is not in release.config.json's model list, and
+      # `--collect-all sentence_transformers` bundles the library WITHOUT the
+      # weights. Without this step the packaged app resolves the bare model name
+      # and reaches for HuggingFace on the first document ingested -- which an
+      # offline app cannot do, and which presents to the user as a hang rather
+      # than an error. Mirrors `scripts/build.sh --fetch-embeddings`.
+      - name: Download embedding model
+        if: ${{ !inputs.skip_models }}
+        shell: bash
+        run: |
+          python -c "
+          from pathlib import Path
+          target = Path('data/models/all-MiniLM-L6-v2')
+          if target.is_dir():
+              print(f'cached: {target}')
+          else:
+              from sentence_transformers import SentenceTransformer
+              target.parent.mkdir(parents=True, exist_ok=True)
+              SentenceTransformer('all-MiniLM-L6-v2', device='cpu').save(str(target))
+              print(f'saved: {target}')
+          "
+          ls -la data/models/all-MiniLM-L6-v2
+
       # -- freeze python backend --
       # --onedir (NOT --onefile): tauri.conf.json bundles dist/thinkstack-api/
       # as the "api/" resource dir, which lib.rs launches. onefile would

@@ -122,3 +122,6 @@ src-tauri/bin/
 # scratch design notes from AI tooling: kept locally, not part of the repo.
 # (docs/academic/ IS tracked - it is the project's coursework record.)
 docs/superpowers/
+
+# appimage extraction scratch (scripts/build.sh, --appimage-extract)
+squashfs-root/

@@ -223,7 +223,43 @@ commit, including one that never went through `main`. `release.sh` is what
 actually checks that the commit is green (see the guards below) — respect it, and
 don't reach for `git tag` by hand.
 
-### The two paths
+### Step 1 — validate the actual installer, locally, first
+
+**Required before any beta or stable release.** A green CI run says the code
+compiles and the unit tests pass. It does not say the app *starts*. We shipped a
+build whose startup screen spun for 200 seconds because nothing in the gate ever
+launched the packaged application.
+
+```bash
+./scripts/build.sh          # builds, then copies installers into local/
+```
+
+`build.sh` deletes the old installers from `local/` and puts the fresh ones
+there, so `local/` always holds exactly the build you are about to release. A
+validation pass against last week's binary tells you nothing.
+
+Now **install and run it from `local/`** — not `npm run tauri dev`, not the
+`dist/` backend on its own. The packaged artifact is the only thing that
+exercises the resource paths, the frozen imports and the startup handshake.
+
+Check, at minimum:
+
+- [ ] It launches, and the loading screen **names each step** as it happens.
+- [ ] It reaches the UI. Note how long it took **from a cold start** (first run
+      after install, not a second launch — the difference is minutes).
+- [ ] Ingest one PDF. This is the first thing to touch the embedding model, and
+      the first thing that would reveal a missing bundled model.
+- [ ] Ask one chat question and run one analysis.
+- [ ] If anything fails, the screen shows a **real error and a log path** —
+      never an endless spinner.
+
+If startup fails, the log is at the path shown on screen
+(`~/.local/share/com.thinkstack.app/logs/backend.log` on Linux). Backend stdout and
+stderr are captured there.
+
+### Step 2 — promote
+
+Only once the installer in `local/` has been validated:
 
 ```bash
 # a feature: soak it on beta first, users later
@@ -263,6 +299,121 @@ A bad **beta** is just another beta tag — bump the counter and re-promote.
 A bad **stable** is fixed forward: `scripts/promote.sh fix <next-patch>`. Don't
 delete the tag or the release; installed apps follow whatever `latest` points at,
 and yanking it strands anyone mid-update.
+
+---
+
+## Beta testing
+
+Beta exists to answer one question CI cannot: **does the packaged app actually
+run on a real machine that isn't a developer's?** Every bug that has reached a
+user so far was invisible to the test suite, because the suite tests source code
+and users run an installer.
+
+### The two landing pages
+
+There is one public site with two channel pages, both deployed by
+[`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml):
+
+| URL | Built from | Download buttons serve | Audience |
+|-----|------------|------------------------|----------|
+| `https://get-thinkstack.github.io/ThinkStack/` | `landing.html` on **main** | the newest **stable** release | the public |
+| `https://get-thinkstack.github.io/ThinkStack/beta/` | `landing.html` on **beta** | the newest **prerelease** | invited testers |
+
+`dev` has no page. It is ordinary development; nothing it produces is downloadable
+by anyone outside the team.
+
+Three things about this are worth understanding before you change it:
+
+- **A repository gets exactly one GitHub Pages site.** A separate site for beta
+  is not possible; a subpath is. The upside is that `/beta/` is *generated* from
+  the same `landing.html`, so the two channels cannot drift apart.
+- **The beta tag is substituted at deploy time.** GitHub resolves
+  `/releases/latest/` to the newest *stable* release on purpose and offers no
+  equivalent URL for prereleases, so the workflow looks up the newest prerelease
+  and rewrites the five download URLs. `/beta/` stays a static file — no
+  client-side API call, nothing to rate-limit, no way for the buttons to break in
+  a tester's browser.
+- **The stable checkout is pinned to the default branch.** A bare `checkout`
+  takes the triggering ref, so a push to `beta` would otherwise publish beta's
+  page as the *public* one, handing pre-release downloads to everybody.
+
+The deploy runs on: a push to `main` or `beta` touching `landing.html`, any
+published release (a new beta tag changes what `/beta/` must point at), or
+manually from the Actions tab. Both pages are rebuilt on every run, so a deploy
+triggered by one branch can never publish a stale copy of the other.
+
+If no prerelease exists yet, `/beta/` still deploys — its buttons point at the
+releases page and the banner says so, rather than 404ing.
+
+### Getting builds to testers
+
+```bash
+scripts/promote.sh feature <version>     # dev -> beta, tags vX.Y.Z-beta.N
+```
+
+That publishes installers for all three OSes as a **prerelease** and triggers a
+Pages deploy, so `/beta/` picks up the new tag automatically. `latest` does not
+move, so the public page and everyone's existing install are untouched.
+
+Send testers the **`/beta/` URL**. They should not use the public page — it
+serves stable builds, and a tester on the wrong build files bugs against code you
+are not shipping. The green banner at the top of `/beta/` names the exact tag so
+they can confirm what they are running.
+
+### What a tester must actually check
+
+Not "does it look fine" — these five, in order. Each one has caught a real bug.
+
+1. **It launches.** The loading screen names each step with timings. Note the
+   time **from a cold start** (first run after install, not a second launch).
+2. **The `spawn:` line names the bundled backend** — a path ending in
+   `api/thinkstack-api`. If it says *"falling back to a system python"*, stop:
+   the app cannot find its own backend on that platform. That exact bug shipped
+   in v1.0.0-beta and presented as a spinner that never ended.
+3. **Ingest one PDF.** This is the first thing to touch the embedding model, and
+   the only check that proves the weights actually shipped. It must not need a
+   network connection.
+4. **Ask one chat question.** Slow is fine — the bundled 0.5B on a CPU takes
+   ~20s. Wrong or empty is not.
+5. **Run one analysis.** With only the baseline model this degrades to the 0.5B
+   and will be rougher than a 1.5B. It must still produce something coherent.
+
+Also confirm the first-run model prompt appears **once**, states what it wants to
+download and why, and downloads **nothing** if you decline.
+
+### Reporting a failure
+
+Send the screenshot **and** the log. The loading screen shows the log path on
+failure; the file holds the full timestamped trace including backend output.
+
+| OS | Log path | Confirmed |
+|----|----------|-----------|
+| Linux | `~/.local/share/com.thinkstack.app/logs/backend.log` | yes |
+| macOS | `~/Library/Logs/com.thinkstack.app/backend.log` | **no — first tester please confirm** |
+| Windows | `%LOCALAPPDATA%\com.thinkstack.app\logs\backend.log` | **no — first tester please confirm** |
+
+Only the Linux path has been verified by running it. The other two follow
+Tauri's documented `app_log_dir()` layout; if the file isn't there, say so and
+we'll correct this table.
+
+### Not bugs — expected friction on unsigned builds
+
+Report these only if the workaround fails:
+
+- **macOS** — "ThinkStack can't be opened because it is from an unidentified
+  developer." Right-click the app → **Open** → Open. One time only.
+- **Windows** — SmartScreen blue box. **More info** → **Run anyway**. One time.
+- **Linux** — the AppImage needs `chmod +x` before it will run.
+
+We do not yet pay for Apple/Windows code-signing certificates, so every tester
+sees these.
+
+### Sign-off
+
+A beta is validated when **all three OSes** have completed the five checks above.
+Record who tested what where the team can see it. Until then, do not run
+`scripts/promote.sh release` — a stable tag moves `latest` and auto-updates every
+installed app, and cannot be un-shipped.
 
 ---
 
