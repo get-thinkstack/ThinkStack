@@ -291,6 +291,16 @@ jobs:
           "
           ls -la data/models/all-MiniLM-L6-v2
 
+      # -- TeX engine (all platforms) --
+      # The product assumes the user has nothing installed, so the paper writer
+      # cannot depend on a system LaTeX. Ships Tectonic plus a package cache
+      # warmed against the writer's whole preamble, so the first compile on a
+      # clean machine needs no network. Same script build.sh uses.
+      - name: Fetch TeX engine
+        if: ${{ !inputs.skip_models }}
+        shell: bash
+        run: bash scripts/fetch-tex.sh data/tex
+
       # -- freeze python backend --
       # --onedir (NOT --onefile): tauri.conf.json bundles dist/thinkstack-api/
       # as the "api/" resource dir, which lib.rs launches. onefile would
@@ -311,6 +321,9 @@ jobs:
           SEP=":"
           [ "$RUNNER_OS" = "Windows" ] && SEP=";"
           ADD_DATA=(--add-data "frontend/dist${SEP}frontend/dist")
+          if [ -d data/tex ]; then
+            ADD_DATA+=(--add-data "data/tex${SEP}data/tex")
+          fi
           if ls data/models/*.gguf 1>/dev/null 2>&1; then
             ADD_DATA+=(--add-data "data/models${SEP}data/models")
           fi

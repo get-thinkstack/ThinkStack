@@ -125,3 +125,6 @@ docs/superpowers/
 
 # appimage extraction scratch (scripts/build.sh, --appimage-extract)
 squashfs-root/
+
+# bundled TeX engine + warm package cache (fetched by scripts/fetch-tex.sh)
+data/tex/

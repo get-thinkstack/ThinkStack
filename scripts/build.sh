@@ -170,11 +170,24 @@ for u in json.load(open('release.config.json')).get('models', []):
         echo -e "  fetch it first: ${CYAN}scripts/build.sh --fetch-embeddings${NC}"
     fi
 
+    # The TeX engine. The product's premise is that the user has nothing
+    # installed, so the paper writer cannot depend on a system LaTeX.
+    if [ ! -x "data/tex/tectonic" ] && [ ! -x "data/tex/tectonic.exe" ]; then
+        bash scripts/fetch-tex.sh data/tex || \
+            echo -e "  ${YELLOW}TeX fetch failed - the PDF tab will need a system LaTeX${NC}"
+    fi
+    if [ -d "data/tex" ]; then
+        echo -e "  ${GREEN}bundling${NC} tectonic + warm package cache ($(du -sh data/tex | cut -f1))"
+    fi
+
     # build add-data flags. an array, not a string: an unquoted string expansion
     # relies on word splitting (SC2086) and breaks on any path containing a space.
     ADD_DATA_FLAGS=(--add-data "frontend/dist:frontend/dist")
     if [ -n "$(ls -A "$STAGE_DIR" 2>/dev/null)" ]; then
         ADD_DATA_FLAGS+=(--add-data "$STAGE_DIR:data/models")
+    fi
+    if [ -d "data/tex" ]; then
+        ADD_DATA_FLAGS+=(--add-data "data/tex:data/tex")
     fi
 
     # --onedir (NOT --onefile): the backend is shipped as a Tauri *resource*

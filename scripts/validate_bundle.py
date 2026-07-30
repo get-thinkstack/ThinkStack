@@ -181,7 +181,37 @@ def main() -> int:
         except Exception as e:  # noqa: BLE001
             record(FAIL, "inference failed", repr(e))
 
-    # 7. model setup / consent endpoint answers
+    # 7. the paper writer actually compiles a PDF.
+    #    This is the check that would have caught the flagship feature failing
+    #    on every machine without a system LaTeX. It asserts the SHIPPED TeX
+    #    engine works -- CI runners have no LaTeX installed, so a pass here
+    #    means a clean user machine compiles too.
+    try:
+        proj = post(f"{base}/api/papers/projects", {"name": "bundle-validation"})
+        pid = proj.get("project_id")
+        src = (
+            "\\documentclass[12pt,a4paper]{article}\n"
+            "\\usepackage[utf8]{inputenc}\\usepackage[T1]{fontenc}\n"
+            "\\usepackage{amsmath,amssymb}\\usepackage{booktabs}\n"
+            "\\usepackage{tikz}\\usepackage{pgfplots}\\pgfplotsset{compat=1.18}\n"
+            "\\begin{document}\n\\section{Validation}\n"
+            "\\begin{equation} E=mc^2 \\end{equation}\n"
+            "\\begin{tabular}{@{}ll@{}}\\toprule a & b \\\\\\midrule 1 & 2 "
+            "\\\\\\bottomrule\\end{tabular}\n"
+            "\\begin{tikzpicture}\\begin{axis}\\addplot {x^2};\\end{axis}"
+            "\\end{tikzpicture}\n\\end{document}\n"
+        )
+        post(f"{base}/api/papers/save", {"project_id": pid, "source": src})
+        t0 = time.time()
+        res = post(f"{base}/api/papers/compile", {"project_id": pid}, timeout=600)
+        warn = res.get("warnings") or []
+        record(PASS, f"paper writer compiled a PDF in {time.time() - t0:.1f}s "
+                     "(bundled TeX engine, equations + tables + pgfplots)",
+               f"{len(warn)} warning(s)" if warn else "")
+    except Exception as e:  # noqa: BLE001
+        record(FAIL, "paper writer could not compile a PDF", repr(e))
+
+    # 8. model setup / consent endpoint answers
     try:
         setup = get(f"{base}/api/models/setup")
         sug = (setup.get("suggested_upgrade") or {}).get("name", "none")
