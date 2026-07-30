@@ -401,7 +401,7 @@ jobs:
       # a backend the app could not find, a model path derived from the working
       # directory, and an embedding model that was never bundled and silently
       # reached for HuggingFace. Runs on all three runners, every build.
-      - name: Validate bundle (${{ matrix.platform.id }})
+      - name: Validate bundle (${{ matrix.label }})
         if: ${{ !inputs.skip_models }}
         shell: bash
         run: |
@@ -418,7 +418,7 @@ jobs:
           wait "$PID" 2>/dev/null || true
 
           if [ "$RC" -ne 0 ]; then
-            echo "::error::bundle validation failed on ${{ matrix.platform.id }}"
+            echo "::error::bundle validation failed on ${{ matrix.label }}"
             echo "---- backend log (last 80 lines) ----"
             tail -80 backend-validate.log || true
             exit 1
@@ -428,7 +428,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: validate-log-${{ matrix.platform.id }}
+          name: validate-log-${{ matrix.label }}
           path: backend-validate.log
           if-no-files-found: ignore
 
@@ -526,7 +526,7 @@ jobs:
         if: failure() && runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
-          name: gui-smoke-${{ matrix.platform.id }}
+          name: gui-smoke-${{ matrix.label }}
           path: gui-smoke.log
           if-no-files-found: ignore
 

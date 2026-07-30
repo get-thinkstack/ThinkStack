@@ -22,7 +22,7 @@ cd "$(dirname "$0")/.."
 
 TECTONIC_VERSION="0.17.0"
 DEST="${1:-data/tex}"
-GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
+GREEN='\033[0;32m'; CYAN='\033[0;36m'; RED='\033[0;31m'; NC='\033[0m'
 
 # ── which build do we need? ──
 OS="$(uname -s)"; ARCH="$(uname -m)"
@@ -113,13 +113,38 @@ $E=mc^2$\quad$\alpha\beta\gamma$\quad\textcolor{blue}{colour}
 \end{document}
 TEX
     mkdir -p "$CACHE"
-    if TECTONIC_CACHE_DIR="$(cd "$CACHE" && pwd)" \
-       "$DEST/$BIN" -X compile "$WARM/warm.tex" --outdir "$WARM" >/dev/null 2>&1 \
-       && [ -f "$WARM/warm.pdf" ]; then
-        echo -e "  ${GREEN}cache warm${NC} ($(du -sh "$CACHE" | cut -f1)) - compiles offline from here"
-    else
-        echo -e "  ${YELLOW}warm-up failed; the bundle will need network on first compile${NC}"
+    CACHE_ABS="$(cd "$CACHE" && pwd)"
+
+    # Do NOT hide the engine's output. An earlier version sent it to /dev/null
+    # and only printed "warm-up failed", so when this failed in CI the build
+    # shipped an installer with an empty cache and the PDF compilation in it
+    # simply did not work. The error has to be visible, and the failure has to
+    # stop the build.
+    # The capture file lives OUTSIDE the compile directory and is not named
+    # <jobname>.out. hyperref writes the PDF outline to warm.out for jobname
+    # "warm", so capturing stdout there made LaTeX read this log as TeX source
+    # and fail with "Missing $ inserted" on a download progress line.
+    ENGINE_OUT="$(mktemp)"
+    set +e
+    TECTONIC_CACHE_DIR="$CACHE_ABS" "$DEST/$BIN" -X compile "$WARM/warm.tex" \
+        --outdir "$WARM" > "$ENGINE_OUT" 2>&1
+    WARM_RC=$?
+    set -e
+
+    if [ "$WARM_RC" -ne 0 ] || [ ! -f "$WARM/warm.pdf" ]; then
+        echo -e "${RED}TeX cache warm-up FAILED (exit ${WARM_RC})${NC}"
+        echo "  the engine said:"
+        sed 's/^/    /' "$ENGINE_OUT" 2>/dev/null | tail -40
+        echo ""
+        echo -e "${RED}Refusing to continue.${NC} Shipping an installer whose TeX cache is"
+        echo "  empty means the paper writer cannot compile a PDF on a user's machine,"
+        echo "  which is the entire reason this engine is bundled."
+        rm -rf "$WARM" "$ENGINE_OUT"
+        exit 1
     fi
+
+    rm -f "$ENGINE_OUT"
+    echo -e "  ${GREEN}cache warm${NC} ($(du -sh "$CACHE" | cut -f1)) - compiles offline from here"
     rm -rf "$WARM"
 fi
 
