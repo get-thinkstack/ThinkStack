@@ -121,12 +121,20 @@ jobs:
             > all-artifacts/latest.json || echo "no signed artifacts -- skipping latest.json"
           if [ -s all-artifacts/latest.json ]; then cat all-artifacts/latest.json; else rm -f all-artifacts/latest.json; fi
 
-      # -- stable-named copies (stable channel only) --
-      # the landing page links to these fixed names via releases/latest/download/,
-      # so its download links never need a version bump. beta/nightly are opt-in
-      # channels reached from their own release page, so they skip this.
-      - name: Create stable-named copies
-        if: inputs.channel == 'stable'
+      # -- fixed-name copies (stable and beta) --
+      # Both landing pages link to these version-independent names, so their
+      # download buttons never need a version bump: / uses
+      # releases/latest/download/, and /beta/ uses releases/download/beta/
+      # (beta is a ROLLING tag, so that URL is permanent too).
+      #
+      # Beta was excluded when the only page was the public one. It is included
+      # now because /beta/ exists: without these, every button on the beta page
+      # 404s, since the release carries only versioned filenames.
+      #
+      # Nightly still skips this -- it has no page and is reached from its
+      # release listing directly.
+      - name: Create fixed-name copies
+        if: inputs.channel == 'stable' || inputs.channel == 'beta'
         run: |
           cd all-artifacts
           cp ThinkStack_*_amd64.AppImage   ThinkStack-linux-x86_64.AppImage   2>/dev/null || true

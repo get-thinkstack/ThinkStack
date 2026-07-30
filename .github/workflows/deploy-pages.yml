@@ -6,25 +6,25 @@ name: Deploy landing page
 #               use /releases/latest/download/, which GitHub always resolves to
 #               the newest STABLE release.
 #   /beta/   <- landing.html from the beta branch, rewritten to point at the
-#               newest PRERELEASE. For invited testers. Not linked from /.
+#               rolling `beta` release. For invited testers. Not linked from /.
 #
 # Why a subpath and not a second site: a repository gets exactly one GitHub Pages
 # site. A subpath is the only way to serve two channels from this repo, and it
 # has a real advantage -- the beta page is GENERATED from the same landing.html
 # rather than being a second copy, so the two channels cannot drift apart.
 #
-# Why the beta tag is baked in at deploy time: GitHub deliberately resolves
-# /releases/latest/ to the newest stable release and offers no equivalent URL for
-# prereleases. The tag therefore has to be substituted by something. Doing it
-# here keeps /beta/ a static file -- no client-side API call, no rate limit, no
-# way for the buttons to break in a tester's browser.
+# Why a plain string swap and not an API lookup: GitHub resolves
+# /releases/latest/ to the newest STABLE release and offers no prerelease
+# equivalent, but release.config.json publishes beta under a ROLLING tag named
+# `beta`, so /releases/download/beta/ is permanent. An earlier version queried
+# the API for "the newest prerelease" and picked up NIGHTLY -- also a
+# prerelease, republished daily -- and served nightly builds from the beta page.
 #
 # One-time setup: Settings -> Pages -> Build and deployment -> Source:
 # "GitHub Actions".
 #
-# Triggers: a push to main that touches landing.html (refreshes both pages), the
-# completion of a release publish (picks up a new beta tag), or by hand from the
-# Actions tab.
+# Triggers: a push to main or beta touching landing.html, a published release,
+# or by hand from the Actions tab. Both pages are rebuilt on every run.
 
 on:
   push:
@@ -84,8 +84,6 @@ jobs:
 
       - name: Assemble the beta page
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           SRC=.beta-src/landing.html
           if [ ! -f "$SRC" ]; then
@@ -93,42 +91,26 @@ jobs:
             exit 0
           fi
 
-          # Match beta tags specifically, not "any prerelease". The nightly
-          # channel is also a prerelease and is republished daily, so it usually
-          # sorts newest -- picking the first prerelease served NIGHTLY builds
-          # from the beta page, which is the wrong channel and exactly the kind
-          # of mix-up that makes tester bug reports useless.
-          TAG="$(gh api "repos/${GITHUB_REPOSITORY}/releases" \
-                  --jq '[.[] | select(.prerelease and (.draft | not))
-                             | select(.tag_name | test("-beta\\."))]
-                        | first | .tag_name' \
-                  2>/dev/null || true)"
-
           mkdir -p _site/beta
 
-          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
-            echo "no prerelease published yet; /beta/ links to the releases page"
-            SUBST="s#https://github.com/[^\"]*/releases/latest/download/[^\"]*#https://github.com/${GITHUB_REPOSITORY}/releases#g"
-            BANNER="No beta build has been published yet -- see the releases page."
-          else
-            echo "beta page will point at $TAG"
-            SUBST="s#/releases/latest/download/#/releases/download/${TAG}/#g"
-            BANNER="Beta channel - ${TAG}. Pre-release software for invited testers."
-          fi
-
-          sed -e "$SUBST" "$SRC" > _site/beta/index.html
+          # `beta` is a ROLLING tag (see release.config.json): every beta build
+          # republishes the same release, so this URL is permanent and needs no
+          # lookup. An earlier version queried the API for "the newest
+          # prerelease" and picked up NIGHTLY, which is also a prerelease and is
+          # republished daily -- serving nightly builds from the beta page.
+          sed -e "s#/releases/latest/download/#/releases/download/beta/#g" "$SRC" \
+            > _site/beta/index.html
 
           # Make the channel unmistakable. A tester who cannot tell beta from
           # stable will file bugs against the wrong build.
-          python3 - "$BANNER" <<'PY'
-          import html, pathlib, sys
-          text = html.escape(sys.argv[1])
+          python3 - <<'PY'
+          import pathlib
           banner = (
               '<div style="position:sticky;top:0;z-index:9999;background:#95ff00;'
               'color:#0a0a0a;padding:.6rem 1rem;text-align:center;'
               'font:600 14px/1.5 system-ui,-apple-system,sans-serif">'
-              + text
-              + ' <a href="../" style="color:#0a0a0a">Get the stable release instead</a></div>'
+              'Beta channel - pre-release software for invited testers. '
+              '<a href="../" style="color:#0a0a0a">Get the stable release instead</a></div>'
           )
           p = pathlib.Path("_site/beta/index.html")
           s = p.read_text(encoding="utf-8")
@@ -141,16 +123,13 @@ jobs:
           PY
 
           # Never hand testers a page whose download buttons serve stable.
-          #
-          # Checked on href targets only, not on any occurrence of the string:
-          # landing.html also mentions /releases/latest/download/ inside a JS
-          # comment, which is not a link and which the no-prerelease branch
-          # (that rewrites whole URLs) deliberately leaves alone. Grepping the
-          # raw file failed the deploy over a comment.
+          # Checked on href targets only: landing.html also mentions the string
+          # in a JS comment, which is not a link.
           if grep -qE 'href="[^"]*/releases/latest/download/' _site/beta/index.html; then
             echo "::error::/beta/ still has stable download links - the rewrite did not apply"
             exit 1
           fi
+          echo "beta links: $(grep -c '/releases/download/beta/' _site/beta/index.html)"
 
       - name: Keep the beta checkout out of the published site
         run: rm -rf .beta-src
