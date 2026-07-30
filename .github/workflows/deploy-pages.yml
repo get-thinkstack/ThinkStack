@@ -140,9 +140,15 @@ jobs:
           print("banner injected")
           PY
 
-          # Never hand testers a page whose download buttons 404.
-          if grep -q "/releases/latest/download/" _site/beta/index.html; then
-            echo "::error::/beta/ still contains stable download URLs - the rewrite did not apply"
+          # Never hand testers a page whose download buttons serve stable.
+          #
+          # Checked on href targets only, not on any occurrence of the string:
+          # landing.html also mentions /releases/latest/download/ inside a JS
+          # comment, which is not a link and which the no-prerelease branch
+          # (that rewrites whole URLs) deliberately leaves alone. Grepping the
+          # raw file failed the deploy over a comment.
+          if grep -qE 'href="[^"]*/releases/latest/download/' _site/beta/index.html; then
+            echo "::error::/beta/ still has stable download links - the rewrite did not apply"
             exit 1
           fi
 
