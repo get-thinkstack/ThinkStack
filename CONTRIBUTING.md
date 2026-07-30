@@ -400,8 +400,11 @@ we'll correct this table.
 
 Report these only if the workaround fails:
 
-- **macOS** — "ThinkStack can't be opened because it is from an unidentified
-  developer." Right-click the app → **Open** → Open. One time only.
+- **macOS** — "Apple could not verify ThinkStack is free of malware." The build
+  is not notarized (that needs a paid Apple Developer account). On **macOS 15+
+  the right-click → Open trick no longer works**: go **System Settings → Privacy
+  & Security → Open Anyway**. On macOS 14 and earlier, right-click → Open. One
+  time either way.
 - **Windows** — SmartScreen blue box. **More info** → **Run anyway**. One time.
 - **Linux** — the AppImage needs `chmod +x` before it will run.
 

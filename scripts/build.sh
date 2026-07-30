@@ -317,6 +317,92 @@ if [ -d "src-tauri/target/release/bundle" ]; then
     else
         echo -e "  ${GREEN}${COPIED} installer(s) in ${LOCAL_DIR}/${NC}"
     fi
+
+    # Ship the self-tests next to the installers. A tester on another OS should
+    # need one folder, not a repo checkout -- and "does it work?" answered by a
+    # script beats a screenshot of a spinner.
+    cp -f scripts/selftest.sh scripts/selftest.ps1 "$LOCAL_DIR/" 2>/dev/null || true
+    chmod +x "$LOCAL_DIR/selftest.sh" 2>/dev/null || true
+
+    cat > "$LOCAL_DIR/TESTING.md" <<'GUIDE'
+# Testing this build
+
+Everything here is one build. Install it, run it, then run the self-test.
+
+## 1. Install
+
+| OS | File | Notes |
+|----|------|-------|
+| Linux | `*.AppImage` | `chmod +x` then double-click. Or `sudo dnf install ./*.rpm` / `sudo apt install ./*.deb` |
+| macOS | `*.dmg` | Open, drag to Applications. **macOS will block the first launch** -- see below |
+| Windows | `*.msi` | Run it. SmartScreen: **More info** -> **Run anyway** |
+
+### macOS will refuse the first launch
+
+You will see *"Apple could not verify ThinkStack is free of malware."* The build
+is not notarized (that needs a paid Apple Developer account). The app is fine;
+macOS just has no Apple signature to check.
+
+**macOS 15 (Sequoia) and newer** -- the old right-click -> Open trick was removed:
+
+1. Try to open ThinkStack, let it fail.
+2. **System Settings -> Privacy & Security**
+3. Scroll to Security, click **Open Anyway**, confirm.
+
+**macOS 14 and earlier**: right-click the app -> **Open** -> **Open**.
+
+Terminal alternative: `xattr -d com.apple.quarantine /Applications/ThinkStack.app`
+
+## 2. Launch and watch the loading screen
+
+It names every startup step. Note two things:
+
+- how long a **cold** start takes (first run after install, not a second launch)
+- the `spawn: Backend:` line. It must name a path ending in `api/thinkstack-api`.
+  If it says *"falling back to a system python"*, stop and report it -- that is a
+  packaging bug and the app will not work.
+
+## 3. Run the self-test
+
+With the app open:
+
+```bash
+# macOS / Linux
+bash selftest.sh
+
+# Windows (PowerShell)
+powershell -ExecutionPolicy Bypass -File selftest.ps1
+```
+
+It checks the backend, which backend launched, hardware detection, the language
+model, the embedding model, and pdflatex. It prints a report to paste into the
+bug thread. Nothing is uploaded.
+
+## 4. Try it by hand
+
+- **Ingest a PDF.** The only thing that exercises the embedding model. Must work
+  with no internet.
+- **Ask one chat question.** Slow is fine (~20s on CPU); wrong or empty is not.
+- **Run one analysis.** Rougher than you might expect -- with only the bundled
+  0.5B model that is intended.
+- **Paper writer.** The live preview works everywhere. The **Compiled PDF** tab
+  needs a system TeX engine, which ThinkStack does not bundle yet:
+  macOS `brew install --cask mactex-no-gui`, Windows MiKTeX, Linux
+  `texlive-scheme-basic`. Missing TeX is a known gap, not a bug worth reporting.
+
+## 5. If something fails
+
+Send the self-test output **and** the log:
+
+| OS | Log |
+|----|-----|
+| Linux | `~/.local/share/com.thinkstack.app/logs/backend.log` |
+| macOS | `~/Library/Logs/com.thinkstack.app/backend.log` |
+| Windows | `%LOCALAPPDATA%\com.thinkstack.app\logs\backend.log` |
+
+The log holds the full startup trace and all backend output.
+GUIDE
+    echo -e "  ${GREEN}selftest.sh, selftest.ps1, TESTING.md${NC} -> ${LOCAL_DIR}/"
 fi
 
 # ── summary ──

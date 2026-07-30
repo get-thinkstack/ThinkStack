@@ -24,9 +24,36 @@ Download button, which auto-detects your OS).
 
 | OS | File | How to install |
 |----|------|----------------|
-| **macOS** | `ThinkStack_<v>_universal.dmg` | Open the `.dmg`, drag ThinkStack to Applications. On first launch, right-click the app → **Open** (a one-time Gatekeeper prompt on unsigned builds). |
+| **macOS** | `ThinkStack_<v>_universal.dmg` | Open the `.dmg`, drag ThinkStack to Applications. macOS will refuse the first launch (see below). |
 | **Windows** | `ThinkStack_<v>_x64-setup.exe` (or `.msi`) | Run it. If SmartScreen warns, click **More info → Run anyway** (one-time, unsigned build). |
 | **Linux** | `ThinkStack_<v>_amd64.AppImage` | `chmod +x` it and double-click. Or install the `.deb` / `.rpm` for a menu entry. |
+
+### macOS: "Apple could not verify ThinkStack is free of malware"
+
+ThinkStack is not yet **notarized** — that requires a paid Apple Developer
+account, which this project does not have. macOS therefore blocks the first
+launch. The app is unmodified; macOS simply has no Apple signature to check.
+
+On **macOS 15 (Sequoia) and newer**, the old right-click → Open trick no longer
+works. Do this instead:
+
+1. Try to open ThinkStack. Let macOS refuse.
+2. Open **System Settings → Privacy & Security**.
+3. Scroll to Security. You will see *"ThinkStack was blocked…"* — click
+   **Open Anyway**, then confirm.
+
+On **macOS 14 and earlier**, right-click the app → **Open** → **Open** works.
+
+Either way it is a one-time step. If you prefer the terminal:
+
+```bash
+xattr -d com.apple.quarantine /Applications/ThinkStack.app
+```
+
+### Windows: SmartScreen
+
+Same cause — the build is unsigned. Click **More info** → **Run anyway**. One
+time only.
 
 Everything the app needs to work — the backend, the interface, and an AI model —
 is in the installer, so it runs offline the moment it opens.
