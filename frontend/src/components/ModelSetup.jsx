@@ -8,37 +8,114 @@
  * It stays silent unless there is something genuinely worth asking about: the
  * backend returns needs_permission=false when the machine cannot run a bigger
  * model, or when an equivalent is already installed (including one the user
- * pulled through Ollama or LM Studio under a different name). Declining is
- * remembered, so this is asked once rather than on every launch.
+ * pulled through Ollama or LM Studio under a different name).
+ *
+ * What is remembered, and why it is not a boolean: the previous version stored
+ * `dismissed=true` for any exit path. That silenced the prompt permanently, for
+ * every future model, with no way back -- and the flag lives in the webview's
+ * localStorage, outside the app bundle, so reinstalling did not clear it. A
+ * tester who clicked "Not now" once could never be offered anything again and
+ * would reasonably report that the app never asked. We now record WHICH model
+ * was declined, so a different suggestion later still gets asked about, and the
+ * sidebar can reopen this at any time.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Download, X, Check, AlertCircle, HardDrive } from 'lucide-react';
 import { modelsApi } from '../utils/api';
 
-const DISMISSED_KEY = 'thinkstack.modelSetup.dismissed';
+const CHOICE_KEY = 'thinkstack.modelSetup.choice';
+const LEGACY_KEY = 'thinkstack.modelSetup.dismissed';
+
+/** Event any component can dispatch to reopen this dialog. */
+export const OPEN_MODEL_SETUP = 'thinkstack:open-model-setup';
+
+/** Read the remembered choice, migrating the legacy boolean if present. */
+function readChoice() {
+  try {
+    const raw = localStorage.getItem(CHOICE_KEY);
+    if (raw) return JSON.parse(raw);
+
+    // Legacy `dismissed=true` carried no record of what was declined, so it
+    // cannot be honoured for a specific model without silencing every future
+    // one. Drop it and ask once more -- most people holding this flag got it
+    // from the bug described above, not from an informed decision.
+    if (localStorage.getItem(LEGACY_KEY) === 'true') {
+      localStorage.removeItem(LEGACY_KEY);
+    }
+  } catch {
+    /* private mode or a corrupt value: behave as if nothing was remembered */
+  }
+  return null;
+}
+
+function rememberChoice(outcome, model) {
+  try {
+    localStorage.setItem(
+      CHOICE_KEY,
+      JSON.stringify({ outcome, model: model || null, at: new Date().toISOString() }),
+    );
+  } catch {
+    /* nothing to do; worst case we ask again next launch */
+  }
+}
 
 export default function ModelSetup() {
   const [info, setInfo] = useState(null);
   const [progress, setProgress] = useState(null);
   const [error, setError] = useState('');
-  const [dismissed, setDismissed] = useState(
-    () => localStorage.getItem(DISMISSED_KEY) === 'true',
-  );
+  const [open, setOpen] = useState(false);
+  // set when the user opens this deliberately from the sidebar, which must show
+  // the dialog even when there is nothing to upgrade -- otherwise the button
+  // looks broken.
+  const [forced, setForced] = useState(false);
 
-  // ask the backend once on mount. a failure here is not worth surfacing: the
-  // app works on the bundled model regardless, so it degrades to showing nothing.
+  /** Reopen deliberately (sidebar button): always show, whatever the state. */
+  const reload = useCallback(async () => {
+    try {
+      setInfo(await modelsApi.setup());
+    } catch {
+      setError('Could not read model information.');
+    }
+    setOpen(true);
+  }, []);
+
+  // Ask the backend once on mount. State is set inside the promise callback
+  // rather than by calling load() directly, which would set state synchronously
+  // during the effect.
   useEffect(() => {
-    if (dismissed) return;
     let alive = true;
     modelsApi
       .setup()
-      .then((d) => alive && d?.needs_permission && setInfo(d))
-      .catch(() => {});
+      .then((d) => {
+        if (!alive) return;
+        setInfo(d);
+        if (!d?.needs_permission || !d?.suggested_upgrade) return;
+        // Only stay quiet about the exact model already answered for.
+        const choice = readChoice();
+        if (choice && choice.model === d.suggested_upgrade.name) return;
+        setOpen(true);
+      })
+      .catch(() => {
+        // The app runs on the bundled model regardless, so a failure on launch
+        // is not worth surfacing. The sidebar button reports it if asked.
+      });
     return () => {
       alive = false;
     };
-  }, [dismissed]);
+  }, []);
+
+  // reopen on demand (sidebar button)
+  useEffect(() => {
+    const reopen = () => {
+      setForced(true);
+      setError('');
+      setProgress(null);
+      reload();
+    };
+    window.addEventListener(OPEN_MODEL_SETUP, reopen);
+    return () => window.removeEventListener(OPEN_MODEL_SETUP, reopen);
+  }, [reload]);
 
   // poll while a download runs so the bar actually moves
   useEffect(() => {
@@ -55,11 +132,17 @@ export default function ModelSetup() {
     return () => clearInterval(id);
   }, [progress?.status]);
 
-  const dismiss = useCallback(() => {
-    localStorage.setItem(DISMISSED_KEY, 'true');
-    setDismissed(true);
-    setInfo(null);
-  }, []);
+  const close = useCallback(
+    (outcome) => {
+      // Record declining and installing distinctly. They are different answers:
+      // one means "not this model", the other means "already have it", and a
+      // single flag could not tell them apart.
+      if (!forced) rememberChoice(outcome, info?.suggested_upgrade?.name);
+      setOpen(false);
+      setForced(false);
+    },
+    [forced, info],
+  );
 
   const start = useCallback(async () => {
     setError('');
@@ -80,9 +163,9 @@ export default function ModelSetup() {
     setProgress(null);
   }, []);
 
-  if (dismissed || !info?.suggested_upgrade) return null;
+  if (!open) return null;
 
-  const m = info.suggested_upgrade;
+  const m = info?.suggested_upgrade;
   const done = progress?.status === 'done';
   const busy = progress?.status === 'downloading';
 
@@ -101,20 +184,58 @@ export default function ModelSetup() {
           exit={{ opacity: 0, y: 16, scale: 0.98 }}
           transition={{ type: 'spring', stiffness: 260, damping: 24 }}
         >
-          <button className="model-setup-close" onClick={dismiss} aria-label="Not now">
+          <button
+            className="model-setup-close"
+            onClick={() => close('declined')}
+            aria-label="Close"
+          >
             <X size={18} />
           </button>
 
           {done ? (
             <>
               <div className="model-setup-icon success"><Check size={22} /></div>
-              <h3>{m.label} is ready</h3>
+              <h3>{m?.label} is ready</h3>
               <p>
-                Summaries and gap analysis will use it from the next run. Nothing
-                else to do.
+                It is already in use — summaries and gap analysis will pick it up
+                on your next request. No restart, nothing to configure.
               </p>
               <div className="model-setup-actions">
-                <button className="btn-primary" onClick={dismiss}>Done</button>
+                <button className="btn-primary" onClick={() => close('installed')}>
+                  Done
+                </button>
+              </div>
+            </>
+          ) : !m ? (
+            // Opened from the sidebar with nothing to offer. Report the state
+            // rather than showing an empty dialog.
+            <>
+              <div className="model-setup-icon success"><Check size={22} /></div>
+              <h3>Your models are set up</h3>
+              <p>
+                {error
+                  ? error
+                  : 'Nothing to add — you already have the best model this machine can run comfortably.'}
+              </p>
+              {info?.installed?.length > 0 && (
+                <div className="model-setup-meta">
+                  <span><strong>Installed</strong></span>
+                  {info.installed.map((i) => (
+                    <span key={i.name}>{i.name} ({i.size_gb} GB)</span>
+                  ))}
+                </div>
+              )}
+              {info?.hardware && (
+                <p className="model-setup-note">
+                  Detected {info.hardware.total_ram_gb} GB RAM,{' '}
+                  {info.hardware.budget_gb} GB usable for models, GPU:{' '}
+                  {info.hardware.gpu}.
+                </p>
+              )}
+              <div className="model-setup-actions">
+                <button className="btn-primary" onClick={() => close('declined')}>
+                  Close
+                </button>
               </div>
             </>
           ) : (
@@ -160,7 +281,9 @@ export default function ModelSetup() {
                   <button className="btn-secondary" onClick={cancel}>Cancel</button>
                 ) : (
                   <>
-                    <button className="btn-secondary" onClick={dismiss}>Not now</button>
+                    <button className="btn-secondary" onClick={() => close('declined')}>
+                      Not now
+                    </button>
                     <button className="btn-primary" onClick={start}>
                       <Download size={15} /> Download
                     </button>

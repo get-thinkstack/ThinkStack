@@ -36,8 +36,8 @@ runs locally through `llama.cpp`, and embeddings run locally too.
 - **[docs/ADR.md](docs/ADR.md)** — every architecture decision and *why* it was
   made, including the release pipeline.
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — setup, the branch model, what blocks
-  your push, how to merge and how to release (and who may), and how to add tests
-  or models.
+  your push, how to merge, how to release (and who may), what a **beta tester**
+  must check on each OS, and how to add tests or models.
 - **[CHANGELOG.md](CHANGELOG.md)** — what changed in each released version.
 
 Two genres, kept apart on purpose: `docs/ADR.md` records **why**, and
@@ -229,7 +229,7 @@ on start.
 | latex | system `pdflatex` with an auto-healing compiler |
 | live preview | katex (client-side math and structure rendering) |
 | encryption | password-based kdf plus an authenticated cipher |
-| auto-updates | tauri updater with signed github releases |
+| updates | tauri updater with signed github releases, user-initiated only |
 
 ## tests
 

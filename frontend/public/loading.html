@@ -11,68 +11,195 @@
       position: relative;
       display: flex; flex-direction: column;
       align-items: center; justify-content: center;
-      gap: 1.6rem;
+      gap: 1.1rem; padding: 2rem;
       background: #0a0a0a;
       color: #e9e9e6;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       -webkit-user-select: none; user-select: none;
       overflow: hidden;
     }
-    /* ambient acid-green glow — the one neon signature, kept faint */
     body::before {
       content: ""; position: absolute; inset: 0;
-      background:
-        radial-gradient(600px 340px at 50% 38%, rgba(149,255,0,0.10), transparent 70%);
+      background: radial-gradient(600px 340px at 50% 30%, rgba(149,255,0,0.10), transparent 70%);
       pointer-events: none;
     }
-    .brand {
-      position: relative;
-      font-size: 2.5rem; font-weight: 800; letter-spacing: -0.03em;
-    }
+    .brand { position: relative; font-size: 2.1rem; font-weight: 800; letter-spacing: -0.03em; }
     .brand .stack { color: #95ff00; text-shadow: 0 0 22px rgba(149,255,0,0.45); }
     .ring {
-      position: relative;
-      width: 46px; height: 46px; border-radius: 50%;
-      border: 3px solid rgba(149, 255, 0, 0.15);
-      border-top-color: #95ff00;
-      box-shadow: 0 0 18px rgba(149, 255, 0, 0.22);
+      position: relative; width: 38px; height: 38px; border-radius: 50%;
+      border: 3px solid rgba(149,255,0,0.15); border-top-color: #95ff00;
+      box-shadow: 0 0 18px rgba(149,255,0,0.22);
       animation: spin 0.9s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .msg { position: relative; font-size: 0.95rem; color: #9a9a95; min-height: 1.2em; }
-    .sub { position: relative; font-size: 0.78rem; color: #63635f; }
+    .ring.stopped { animation: none; border-top-color: #ff5f56; border-color: rgba(255,95,86,0.3); }
+    .msg { position: relative; font-size: 1rem; color: #d6d6d0; min-height: 1.2em; text-align: center; }
+    .sub { position: relative; font-size: 0.78rem; color: #63635f; font-variant-numeric: tabular-nums; }
+
+    /* the diagnostic trail -- what the app is actually doing, as it does it */
+    .log {
+      position: relative; width: min(760px, 100%); height: 190px;
+      margin-top: 0.4rem; padding: 0.7rem 0.85rem;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.07); border-radius: 8px;
+      overflow-y: auto; overscroll-behavior: contain;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.72rem; line-height: 1.55; color: #8b8b85;
+      -webkit-user-select: text; user-select: text;
+    }
+    .log .line { white-space: pre-wrap; word-break: break-word; }
+    .log .t { color: #4d4d49; }
+    .log .phase { color: #95ff00; }
+    .log .err { color: #ff8a80; }
+
+    .fail {
+      position: relative; display: none; width: min(760px, 100%);
+      padding: 0.8rem 0.95rem; border-radius: 8px;
+      background: rgba(255,95,86,0.07); border: 1px solid rgba(255,95,86,0.28);
+      font-size: 0.82rem; color: #ffb4ad; -webkit-user-select: text; user-select: text;
+    }
+    .fail code {
+      display: block; margin-top: 0.45rem; font-size: 0.7rem; color: #8b8b85;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      word-break: break-all;
+    }
+    .actions { position: relative; display: none; gap: 0.6rem; }
+    button {
+      font: inherit; font-size: 0.8rem; padding: 0.45rem 1rem; border-radius: 6px;
+      background: rgba(149,255,0,0.12); color: #95ff00;
+      border: 1px solid rgba(149,255,0,0.35); cursor: pointer;
+    }
+    button:hover { background: rgba(149,255,0,0.2); }
     @media (prefers-reduced-motion: reduce) { .ring { animation: none; } }
   </style>
 </head>
 <body>
   <div class="brand">Think<span class="stack">Stack</span></div>
-  <div class="ring"></div>
-  <div class="msg" id="msg">Starting the local engine…</div>
-  <div class="sub" id="sub">loading model &amp; index — this can take a moment on first launch</div>
+  <div class="ring" id="ring"></div>
+  <div class="msg" id="msg">Starting…</div>
+  <div class="sub" id="sub">0s elapsed</div>
+
+  <div class="log" id="log"></div>
+
+  <div class="fail" id="fail">
+    <div id="failMsg"></div>
+    <code id="failPath"></code>
+  </div>
+  <div class="actions" id="actions">
+    <button id="retry">Retry</button>
+  </div>
 
   <script>
-    var BACKEND = 'http://localhost:8000/';
-    var tries = 0;
+    // The backend binds 127.0.0.1 (IPv4). Do NOT use "localhost": it resolves to
+    // ::1 first on most modern Linux and macOS systems, and a webview that does
+    // not fall back to IPv4 gets connection-refused forever against a backend
+    // that is up and healthy.
+    var BACKEND = 'http://127.0.0.1:8000/';
+    var START = Date.now();
+    var done = false;
 
-    function go() { window.location.replace(BACKEND); }
+    var msgEl = document.getElementById('msg');
+    var subEl = document.getElementById('sub');
+    var logEl = document.getElementById('log');
+    var ringEl = document.getElementById('ring');
 
-    async function poll() {
-      tries++;
-      try {
-        // no-cors: resolves once the server responds, rejects while it's down
-        await fetch(BACKEND, { mode: 'no-cors', cache: 'no-store' });
-        document.getElementById('msg').textContent = 'Ready — opening ThinkStack';
-        go();
-      } catch (e) {
-        if (tries > 8) {
-          document.getElementById('msg').textContent = 'Still warming up…';
-          document.getElementById('sub').textContent =
-            'first launch loads the AI model; hang tight (' + tries + 's)';
-        }
-        setTimeout(poll, 900);
-      }
+    function secs() { return Math.round((Date.now() - START) / 1000); }
+
+    setInterval(function () {
+      if (!done) subEl.textContent = secs() + 's elapsed';
+    }, 1000);
+
+    function log(phase, text, cls) {
+      var line = document.createElement('div');
+      line.className = 'line';
+      line.innerHTML =
+        '<span class="t">' + String(secs()).padStart(3, ' ') + 's </span>' +
+        '<span class="' + (cls || 'phase') + '">' + phase + '</span> ' +
+        escapeHtml(text);
+      logEl.appendChild(line);
+      // keep the DOM bounded on a long or noisy startup
+      while (logEl.childNodes.length > 300) logEl.removeChild(logEl.firstChild);
+      logEl.scrollTop = logEl.scrollHeight;
     }
-    poll();
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>]/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c];
+      });
+    }
+
+    function go() {
+      done = true;
+      msgEl.textContent = 'Ready — opening ThinkStack';
+      window.location.replace(BACKEND);
+    }
+
+    function fail(error, logPath, tail) {
+      if (done) return;
+      done = true;
+      ringEl.className = 'ring stopped';
+      msgEl.textContent = 'ThinkStack could not start';
+      subEl.textContent = 'gave up after ' + secs() + 's';
+      (tail || []).forEach(function (l) { log('log', l, 'err'); });
+      document.getElementById('failMsg').textContent = error;
+      document.getElementById('failPath').textContent = logPath
+        ? 'Full log: ' + logPath
+        : '';
+      document.getElementById('fail').style.display = 'block';
+      document.getElementById('actions').style.display = 'flex';
+    }
+
+    document.getElementById('retry').onclick = function () { window.location.reload(); };
+
+    // ── primary path: the Rust shell narrates every step over Tauri events ──
+    var tauri = window.__TAURI__;
+    if (tauri && tauri.event) {
+      tauri.event.listen('startup:step', function (e) {
+        var p = e.payload || {};
+        if (p.phase === 'backend') log('backend', p.detail, '');
+        else {
+          log(p.phase, p.detail);
+          msgEl.textContent = p.detail;
+        }
+      });
+      tauri.event.listen('startup:ready', go);
+      tauri.event.listen('startup:failed', function (e) {
+        var p = e.payload || {};
+        fail(p.error || 'Unknown error', p.log_path, p.tail);
+      });
+
+      // Replay whatever happened before these listeners existed. Diagnosis
+      // finishes in ~50ms, well before the webview attaches, so without this
+      // the first and most useful lines never appear.
+      if (tauri.core && tauri.core.invoke) {
+        tauri.core.invoke('startup_log').then(function (steps) {
+          (steps || []).forEach(function (s) {
+            if (s.phase === 'backend') log('backend', s.detail, '');
+            else { log(s.phase, s.detail); msgEl.textContent = s.detail; }
+          });
+        }).catch(function () {});
+      }
+    } else {
+      // ── fallback: browser mode, no Tauri bridge. Poll, but with a real bound. ──
+      log('init', 'No desktop bridge; polling ' + BACKEND);
+      var MAX_MS = 180000;
+      (function poll() {
+        if (done) return;
+        if (Date.now() - START > MAX_MS) {
+          fail('The backend did not respond within 180s.', '', []);
+          return;
+        }
+        fetch(BACKEND, { mode: 'no-cors', cache: 'no-store' })
+          .then(go)
+          .catch(function () {
+            msgEl.textContent = 'Waiting for the local engine…';
+            setTimeout(poll, 900);
+          });
+      })();
+    }
+
+    // If a backend is already up (e.g. after a Retry), skip straight to it.
+    fetch(BACKEND, { mode: 'no-cors', cache: 'no-store' }).then(go).catch(function () {});
   </script>
 </body>
 </html>
