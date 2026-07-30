@@ -8,6 +8,7 @@ the working directory for latex projects on disk.
 import logging
 import re
 import shutil
+import sys
 import subprocess
 import uuid
 from pathlib import Path
@@ -215,6 +216,21 @@ def save_source(project_id: str, source: str) -> dict:
     return {"project_id": project_id, "status": "saved"}
 
 
+def _tex_install_hint() -> str:
+    """The install command for THIS machine's OS.
+
+    We printed `sudo dnf install texlive-...` to every user on every platform,
+    so a macOS tester chasing a missing package was handed a Fedora command.
+    Advice written by a Linux developer must not be shown to everyone.
+    """
+    if sys.platform == "darwin":
+        return "brew install --cask mactex-no-gui"
+    if sys.platform.startswith("win"):
+        return "install MiKTeX from https://miktex.org"
+    return ("sudo dnf install texlive-scheme-basic  (fedora) or "
+            "sudo apt install texlive-latex-recommended  (debian/ubuntu)")
+
+
 def _extract_errors(log_text: str) -> list[str]:
     """pull the meaningful ``! ...`` error blocks out of a pdflatex log.
 
@@ -249,9 +265,8 @@ def _detect_missing_packages(log_text: str) -> list[str]:
     for sty in dict.fromkeys(missing):  # deduplicate
         pkg = sty.replace(".sty", "")
         hints.append(
-            f"missing TeX package: {sty} - install with: "
-            f"sudo dnf install texlive-{pkg}  (fedora) or "
-            f"sudo apt install texlive-latex-extra  (debian/ubuntu)"
+            f"missing TeX package: {sty} ({pkg}) - "
+            f"install a fuller TeX distribution: {_tex_install_hint()}"
         )
     return hints
 
@@ -402,7 +417,9 @@ def compile_pdf(project_id: str) -> tuple[Path, list[str]]:
     pdflatex = shutil.which("pdflatex")
     if not pdflatex:
         raise RuntimeError(
-            "pdflatex is not installed. install texlive-latex-base or equivalent."
+            "No TeX engine found, so the PDF tab cannot compile. The live "
+            "preview still works. ThinkStack does not bundle a TeX engine yet; "
+            f"to enable PDF export: {_tex_install_hint()}"
         )
 
     # remove any stale pdf so "pdf exists" reliably means "this run produced one"
