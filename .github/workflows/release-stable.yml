@@ -24,6 +24,14 @@ permissions:
   id-token: write
   attestations: write
 
+# Never let two publishes to the same channel overlap. _publish-release.yml
+# DELETES the rolling release before re-uploading a clean asset set, so two
+# concurrent runs can leave a release holding half of each build. Queue instead
+# of cancelling: cancelling mid-upload is what produces a partial release.
+concurrency:
+  group: release-stable
+  cancel-in-progress: false
+
 jobs:
   setup:
     runs-on: ubuntu-latest

@@ -33,8 +33,10 @@ permissions:
   id-token: write
   attestations: write
 
+# Shares the queue with release-stable.yml: both publish the STABLE channel to
+# the same release, so a separate group would let them run at once.
 concurrency:
-  group: release-main
+  group: release-stable
   cancel-in-progress: false
 
 jobs:
