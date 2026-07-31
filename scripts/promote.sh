@@ -109,17 +109,24 @@ merge_into() {
     local src="$1" dst="$2"
     echo ""
     echo -e "${CYAN}[merge]${NC} ${src} -> ${dst}"
-    run git checkout --quiet "$dst"
-    run git pull --quiet --ff-only origin "$dst" || fail "could not fast-forward $dst from origin"
+    # Fully-qualified refs, always. The beta CHANNEL publishes under a rolling
+    # git tag also named "beta", so a bare `git checkout beta` is ambiguous and
+    # git resolves the tag, which then cannot be fast-forwarded. That failure
+    # reads as "could not fast-forward beta from origin" and has nothing to do
+    # with the branch being behind.
+    run git fetch --quiet origin "+refs/heads/${dst}:refs/remotes/origin/${dst}" \
+        || fail "could not fetch ${dst} from origin"
+    run git checkout --quiet -B "$dst" "refs/remotes/origin/${dst}" \
+        || fail "could not check out ${dst}"
     if ! $DRY_RUN; then
-        if ! git merge --no-edit "origin/${src}"; then
+        if ! git merge --no-edit "refs/remotes/origin/${src}"; then
             git merge --abort 2>/dev/null || true
             fail "merge conflict ${src} -> ${dst}. resolve it manually, then re-run."
         fi
     else
-        echo -e "  ${CYAN}\$${NC} git merge --no-edit origin/${src}"
+        echo -e "  ${CYAN}\$${NC} git merge --no-edit refs/remotes/origin/${src}"
     fi
-    run git push origin "$dst"
+    run git push origin "refs/heads/${dst}:refs/heads/${dst}"
 }
 
 # cut the tag that rebuilds + republishes that channel's installers
