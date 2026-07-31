@@ -206,20 +206,30 @@ export default function App() {
                 </button>
 
                 <button
-                  className={`sidebar-tool ${updateState === 'current' ? 'is-ok' : ''} ${
-                    updateState === 'error' ? 'is-bad' : ''
+                  className={`sidebar-tool ${
+                    ['current', 'offline', 'restart-needed'].includes(updateState) ? 'is-ok' : ''
+                  } ${
+                    ['error', 'install-failed', 'blocked'].includes(updateState) ? 'is-bad' : ''
                   }`}
                   onClick={runUpdateCheck}
                   disabled={updateState === 'checking'}
                   title={
                     updateState === 'current'
                       ? `You are on the latest version (v${APP_VERSION}). Click to check again.`
+                      : updateState === 'offline'
+                      ? 'Could not reach the release server. Nothing was changed.'
+                      : updateState === 'install-failed'
+                      ? 'The download failed verification or could not be written. '
+                        + 'Your installed version is untouched.'
+                      : updateState === 'restart-needed'
+                      ? 'Installed. Restart ThinkStack to use the new version.'
                       : 'Check for a new version of ThinkStack'
                   }
                 >
-                  {updateState === 'current' ? (
+                  {updateState === 'current' || updateState === 'restart-needed' ? (
                     <Check size={15} />
-                  ) : updateState === 'error' ? (
+                  ) : updateState === 'error' || updateState === 'install-failed'
+                      || updateState === 'blocked' ? (
                     <AlertCircle size={15} />
                   ) : (
                     <RefreshCw size={15} className={updateState === 'checking' ? 'spin' : ''} />
@@ -227,8 +237,12 @@ export default function App() {
                   <span>
                     {updateState === 'checking' ? 'Checking…'
                       : updateState === 'current' ? 'Up to date'
+                      : updateState === 'offline' ? 'Up to date (offline)'
+                      : updateState === 'restart-needed' ? 'Restart to finish'
+                      : updateState === 'install-failed' ? 'Update failed, kept current'
+                      : updateState === 'blocked' ? 'Update blocked'
                       : updateState === 'unsupported' ? 'Desktop app only'
-                      : updateState === 'error' ? 'Check failed — retry'
+                      : updateState === 'error' ? 'Check failed, retry'
                       : 'Update app'}
                   </span>
                 </button>

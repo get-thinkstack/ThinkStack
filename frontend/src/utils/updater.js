@@ -46,25 +46,69 @@ export const APP_VERSION = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__
  * indistinguishable from a broken button, so 'current' is a result the caller
  * is expected to show, not a no-op.
  *
- * @returns {Promise<'updating' | 'current' | 'unsupported' | 'error'>}
+ * @returns {Promise<'updating' | 'current' | 'offline' | 'blocked'
+ *                   | 'install-failed' | 'restart-needed' | 'unsupported'
+ *                   | 'error'>}
  */
 export async function checkForUpdatesInteractive() {
   if (!inTauri()) return 'unsupported';
 
+  let update;
   try {
     const { check } = await import('@tauri-apps/plugin-updater');
-    const update = await check();
-    if (!update) return 'current';
-
-    const accepted = await defaultConfirm({ version: update.version });
-    if (!accepted) return 'current';
-
-    await update.downloadAndInstall();
-    const { relaunch } = await import('@tauri-apps/plugin-process');
-    await relaunch();
-    return 'updating';
+    update = await check();
   } catch (err) {
-    console.warn('[updater] manual update check failed:', err);
+    // Distinguish the reasons, because "error" told the user nothing and was
+    // shown for the most common case of all: being on the newest version but
+    // temporarily offline.
+    const msg = String(err?.message ?? err);
+    console.warn('[updater] check failed:', msg);
+
+    // No manifest published for this channel yet. There is genuinely nothing
+    // to update to, which is "up to date" from where the user is standing.
+    if (/404|not found/i.test(msg)) return 'current';
+
+    // Offline, or the release host is unreachable. Not an application fault,
+    // and an offline-first app being offline is not an error worth alarming
+    // anyone about.
+    if (/network|fetch|dns|timed? ?out|connect|unreachable|tls|certificate/i.test(msg)) {
+      return 'offline';
+    }
+
+    // A denied plugin call means the capability does not cover this origin.
+    // That was a real bug: the UI is served from http://127.0.0.1:8000, which
+    // Tauri treats as remote content, and the capability only covered
+    // tauri://localhost, so every press of the button threw.
+    if (/not allowed|forbidden|permission|capabilit/i.test(msg)) return 'blocked';
+
     return 'error';
   }
+
+  if (!update) return 'current';
+
+  const accepted = await defaultConfirm({ version: update.version });
+  if (!accepted) return 'current';
+
+  try {
+    // The bundle's signature is verified against the public key in
+    // tauri.conf.json before anything is written. A tampered or truncated
+    // download fails here, leaving the installed version untouched.
+    await update.downloadAndInstall();
+  } catch (err) {
+    console.warn('[updater] install failed:', err);
+    // Deliberately NOT relaunching. The installed version is still the working
+    // one, so staying on it is the safe outcome; relaunching after a failed
+    // install is how you turn a failed update into a broken application.
+    return 'install-failed';
+  }
+
+  try {
+    const { relaunch } = await import('@tauri-apps/plugin-process');
+    await relaunch();
+  } catch {
+    // Installed but could not restart automatically. Nothing is broken; the
+    // new version is live on the next manual start.
+    return 'restart-needed';
+  }
+  return 'updating';
 }
