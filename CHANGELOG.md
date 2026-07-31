@@ -34,10 +34,23 @@ Work merged but not yet tagged.
   was committed it saw zero changed files, skipped every toolchain, and printed
   "CI should be green" without running ruff, pytest or shellcheck. That is every
   `feat/` and `fix/` branch on its first run. It now compares against `origin/dev`.
-- **`beta` and `nightly` name both a branch and a rolling release tag**, and git
-  resolves tags first, so `git checkout beta` detached onto a release and
-  `git pull` reported a divergence that did not exist. `install-hooks.sh` now
-  keeps those two tags out of the clone; version tags are unaffected.
+- **`beta` and `nightly` named both a branch and a rolling release tag**, and
+  git resolves tags first, so `git checkout beta` detached onto a release and
+  `git pull` reported a divergence that did not exist. The rolling tags are now
+  `beta-latest` / `nightly-latest`, so ordinary git commands mean the branch
+  again. Beta testers on `v1.6.7-beta.1` re-download once; stable is unaffected.
+- **`promote.sh release` would have promoted the wrong version.** `$REPO` was
+  read but never assigned, so under `set -u` the lookup of what beta had been
+  testing failed silently and the script fell back to inferring from commit
+  subjects: it derived **1.1.0** while beta was validating **1.6.7**. It now
+  reads the repo from `release.config.json` and fails loudly if it cannot.
+- **`promote.sh release` reported failure for a release that published fine.**
+  It merged into `main` *and* tagged, but a push to `main` already triggers
+  `release-on-main.yml`, which derives the version and creates the tag itself.
+  `release.sh` then hit either "no CI results found" (CI on the new commit had
+  not finished) or "tag already exists", and `promote.sh` printed "the tag was
+  refused, so nothing was released" while CI was building and publishing it.
+  Tagging `main` is now CI's job alone.
 - **The packaged app never started.** v1.0.0's installer showed a loading spinner
   indefinitely. The backend lookup missed the AppImage/deb layout (binary in
   `usr/bin`, resources in `usr/lib/ThinkStack`), so the app silently fell back to

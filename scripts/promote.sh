@@ -29,6 +29,21 @@ DEV_BRANCH="dev"
 BETA_BRANCH="beta"
 MAIN_BRANCH="main"
 
+# Read from release.config.json, the same file CI reads, so the two cannot drift.
+#
+# REPO was referenced below but never assigned. Under `set -u` that made the
+# whole `gh release view` substitution fail, so `promote.sh release` silently
+# fell back to inferring a version from commit subjects -- it would have
+# promoted 1.1.0 while beta was testing 1.6.7, shipping users a version number
+# that had never been built.
+REPO="$(jq -r '.repo // empty' release.config.json 2>/dev/null)"
+[ -n "$REPO" ] || { echo "cannot read .repo from release.config.json" >&2; exit 1; }
+
+# The rolling tag the beta channel publishes under. It used to be the literal
+# "beta", which is also the branch name above, and git resolves tags first.
+BETA_ROLLING_TAG="$(jq -r '.channels.beta.rolling_tag // empty' release.config.json 2>/dev/null)"
+: "${BETA_ROLLING_TAG:=beta-latest}"
+
 KIND=""
 VERSION=""
 DRY_RUN=false
@@ -66,7 +81,7 @@ if [ -z "$VERSION" ]; then
         release)
             # Promote exactly what beta has been testing. Choosing a different
             # number here would ship a version nobody validated.
-            VERSION="$(gh release view beta --repo "$REPO" --json name \
+            VERSION="$(gh release view "$BETA_ROLLING_TAG" --repo "$REPO" --json name \
                         --jq '.name' 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
             if [ -z "$VERSION" ]; then
                 VERSION="$(python3 scripts/next_version.py --infer)"
@@ -130,6 +145,25 @@ merge_into() {
 }
 
 # cut the tag that rebuilds + republishes that channel's installers
+# A push to main is released by .github/workflows/release-on-main.yml, which
+# derives the version, creates the tag and builds all three installers. This
+# script must NOT also tag: it is a race it always loses, and it loses it
+# loudly.
+#
+# release.sh refuses to tag a commit whose CI is not green, and CI on the
+# just-pushed main commit has not finished yet -- so it exits with "no CI
+# results found". Wait for CI and the workflow has meanwhile created the tag,
+# so it exits with "tag already exists". Either way promote.sh printed
+#   "the tag was refused, so nothing was released"
+# for a release that was building and publishing perfectly well.
+main_is_released_by_ci() {
+    echo ""
+    echo -e "${CYAN}[release]${NC} main -> v${VERSION}, tagged by CI"
+    echo -e "  release-on-main.yml owns this tag. It reads the version beta"
+    echo -e "  validated, creates v${VERSION}, and builds the installers."
+    echo -e "  This script does not tag main -- see the note above it."
+}
+
 tag_channel() {
     local channel="$1"
     if [ "$channel" = "beta" ]; then
@@ -189,13 +223,13 @@ case "$KIND" in
         ;;
     release)
         merge_into "$BETA_BRANCH" "$MAIN_BRANCH"
-        tag_channel stable
+        main_is_released_by_ci
         ;;
     fix)
         merge_into "$DEV_BRANCH" "$BETA_BRANCH"
         tag_channel beta
         merge_into "$DEV_BRANCH" "$MAIN_BRANCH"
-        tag_channel stable
+        main_is_released_by_ci
         ;;
     major)
         merge_into "$DEV_BRANCH" "$BETA_BRANCH"

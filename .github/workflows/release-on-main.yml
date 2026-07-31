@@ -58,8 +58,11 @@ jobs:
             V="$OVERRIDE"
             echo "version overridden: $V"
           else
-            # what beta has been testing, e.g. release name "beta 1.6.7-beta.2"
-            V="$(gh release view beta --repo "$GITHUB_REPOSITORY" --json name \
+            # what beta has been testing, e.g. release name "beta 1.6.7-beta.2".
+            # The tag comes from release.config.json: it must not be hardcoded
+            # as "beta", which is also a branch name.
+            ROLLING="$(jq -r '.channels.beta.rolling_tag // empty' release.config.json)"
+            V="$(gh release view "$ROLLING" --repo "$GITHUB_REPOSITORY" --json name \
                   --jq '.name' 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
             if [ -n "$V" ]; then
               echo "promoting the version beta validated: $V"
