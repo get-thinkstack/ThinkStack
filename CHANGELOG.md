@@ -29,6 +29,11 @@ Work merged but not yet tagged.
 - **The Analysis page had two buttons for one action.** "Summarize" only
   *selected* a mode; a second, identically styled "Run summarize" underneath did
   the work. The three analysis buttons now run the analysis they name.
+- **`preflight.sh` checked nothing on a branch that had never been pushed.**
+  With no upstream it fell back to diffing the working tree, so once the work
+  was committed it saw zero changed files, skipped every toolchain, and printed
+  "CI should be green" without running ruff, pytest or shellcheck. That is every
+  `feat/` and `fix/` branch on its first run. It now compares against `origin/dev`.
 - **`beta` and `nightly` name both a branch and a rolling release tag**, and git
   resolves tags first, so `git checkout beta` detached onto a release and
   `git pull` reported a divergence that did not exist. `install-hooks.sh` now

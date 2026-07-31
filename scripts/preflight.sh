@@ -95,6 +95,22 @@ fi
 # compare against the upstream when there is one, else the working tree. this is
 # what lets us skip whole toolchains that the change cannot possibly affect.
 BASE="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || echo "")"
+if [ -z "$BASE" ]; then
+    # A branch that has never been pushed has no upstream, which is every
+    # feat/ and fix/ branch on its first run -- the workflow CONTRIBUTING
+    # tells people to use. Falling through to the working-tree diff meant
+    # that once the work was COMMITTED there was nothing left to see, so
+    # "0 changed files" skipped every toolchain and preflight reported
+    # "CI should be green" without having run anything at all.
+    #
+    # Compare against the branch this one merges back into instead.
+    for cand in refs/remotes/origin/dev refs/remotes/origin/main; do
+        if git rev-parse --verify --quiet "$cand" >/dev/null; then
+            BASE="$cand"
+            break
+        fi
+    done
+fi
 if [ -n "$BASE" ] && git rev-parse --verify --quiet "$BASE" >/dev/null; then
     CHANGED="$(git diff --name-only "$BASE"...HEAD 2>/dev/null; git diff --name-only HEAD 2>/dev/null; git diff --cached --name-only 2>/dev/null)"
 else
