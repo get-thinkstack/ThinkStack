@@ -17,6 +17,25 @@ See [scripts/README.md](scripts/README.md) for how releases are cut.
 
 Work merged but not yet tagged.
 
+### Changed
+- **One release workflow instead of five.** `release-stable`, `release-beta`,
+  `release-on-main`, `release-on-beta` and `nightly` differed only in what
+  started them and how the version was worked out; their build and publish
+  halves were identical, and two even shared a concurrency group. They are now
+  `release.yml`: merge into `beta` cuts a beta, merge into `main` releases what
+  beta validated, the cron cuts a nightly. Ten workflows became seven.
+- **A merge is the release; a tag is the record.** Tags no longer trigger
+  builds. While they did, `git push origin v1.2.3` published a stable release to
+  every user without the merge being reviewed. The `v*` ruleset still forbids
+  moving or deleting a published tag.
+- **The version can no longer go backwards.** It is derived from the newest tag
+  on *any* channel, not the newest stable one: beta was testing 1.6.7 while
+  stable was 1.0.0, so a patch bump computed from stable gave 1.0.1 -- below
+  what testers already ran. Each `feat/` and `fix/` branch merged since is
+  replayed in landing order, one bump each. `chore/` and `docs/` branches and
+  direct commits do not move it. Merges must be `--no-ff`, or the branch name
+  never enters the history and the landing is invisible.
+
 ### Fixed
 - **Summarizing a paper could return a parser error as the summary.** The token
   limit (640) was too small to hold the summary, key points, methodology *and*
