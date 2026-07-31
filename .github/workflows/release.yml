@@ -1,0 +1,178 @@
+name: Release
+
+# ONE pipeline for every channel. It used to be four near-identical files
+# (release-stable, release-beta, release-on-main, release-on-beta, nightly) that
+# differed only in what started them and how the version was worked out -- the
+# build and publish halves were byte-identical, and two of them even shared a
+# concurrency group, which is what gave the duplication away.
+#
+# What starts a release:
+#
+#     merge into beta  ->  beta channel,    vX.Y.Z-beta.N
+#     merge into main  ->  stable channel,  vX.Y.Z   (what beta validated)
+#     the 05:00 cron   ->  nightly channel, rolling, untagged
+#
+# A MERGE is the decision to release; a tag is the RECORD of what was built.
+# Tags deliberately trigger nothing: when they did, a stray `git push origin
+# v1.2.3` published a stable release to every user without the merge ever being
+# reviewed. The `v*` ruleset still forbids moving or deleting a published tag.
+
+on:
+  push:
+    branches: [beta, main]
+  schedule:
+    - cron: '0 5 * * *'   # 05:00 UTC daily, nightly channel
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'which channel to build'
+        required: true
+        default: 'beta'
+        type: choice
+        options: [beta, stable, nightly]
+      version:
+        description: 'override the derived version, e.g. 1.6.8'
+        required: false
+        type: string
+      force:
+        description: 'nightly only: build even with no commits today'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+# One publish per channel at a time. _publish-release.yml DELETES the rolling
+# release before re-uploading a clean asset set, so overlapping runs on the same
+# channel can leave a release holding half of each build. Queue rather than
+# cancel: cancelling mid-upload is what produces a partial release.
+concurrency:
+  group: >-
+    release-${{ github.event_name == 'schedule' && 'nightly'
+      || (github.event_name == 'workflow_dispatch' && inputs.channel)
+      || (github.ref_name == 'main' && 'stable')
+      || 'beta' }}
+  cancel-in-progress: false
+
+jobs:
+  decide:
+    runs-on: ubuntu-latest
+    # sync-docs.yml pushes back to dev/beta. That push uses GITHUB_TOKEN and so
+    # cannot trigger this workflow, but the guard states the intent and survives
+    # anyone swapping that token for a PAT later.
+    if: github.actor != 'github-actions[bot]'
+    outputs:
+      channel: ${{ steps.v.outputs.channel }}
+      version: ${{ steps.v.outputs.version }}
+      release: ${{ steps.v.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # next_version.py replays merges and reads tags
+
+      - id: v
+        env:
+          OVERRIDE: ${{ inputs.version }}
+          FORCE: ${{ inputs.force }}
+          DISPATCH_CHANNEL: ${{ inputs.channel }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # -- which channel? --
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            CH=nightly
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            CH="$DISPATCH_CHANNEL"
+          elif [ "${{ github.ref_name }}" = "main" ]; then
+            CH=stable
+          else
+            CH=beta
+          fi
+          echo "channel=$CH" >> "$GITHUB_OUTPUT"
+          echo "channel: $CH"
+
+          RELEASE=true
+
+          case "$CH" in
+            stable)
+              # Ship exactly the number beta validated. Choosing a different one
+              # here would release a version nobody tested. Read from the beta
+              # VERSION TAGS, not from the rolling release's name: that lookup
+              # returns nothing the moment the rolling tag is renamed.
+              if [ -n "$OVERRIDE" ]; then
+                V="$OVERRIDE"
+              else
+                V="$(git tag -l 'v*-beta.*' | sed 's/^v//; s/-beta\..*//' \
+                      | sort -V | tail -1 || true)"
+                [ -n "$V" ] || V="$(python3 scripts/next_version.py --next)"
+              fi
+              # Already released? Then this push carried no new release.
+              # Re-tagging would change what a published version means.
+              if git rev-parse "v$V" >/dev/null 2>&1; then
+                echo "v$V already exists; nothing to release"
+                RELEASE=false
+              fi
+              ;;
+
+            beta)
+              # Replay the feat/ and fix/ branches merged since the newest tag.
+              BASE="${OVERRIDE:-$(python3 scripts/next_version.py --next --explain)}"
+              # Next free beta counter for this X.Y.Z. Resets on a new version
+              # automatically, because the search is scoped to it.
+              LAST="$(git tag -l "v${BASE}-beta.*" \
+                       | sed "s/^v${BASE}-beta\.//" | sort -n | tail -1)"
+              V="${BASE}-beta.$(( ${LAST:-0} + 1 ))"
+              ;;
+
+            nightly)
+              # No point rebuilding an identical tree.
+              if [ "$FORCE" != "true" ] \
+                 && [ -z "$(git log --since='24 hours ago' --oneline)" ]; then
+                echo "no commits in the last 24h -- skipping nightly"
+                RELEASE=false
+              fi
+              BASE="$(jq -r '.version' src-tauri/tauri.conf.json)"
+              V="${BASE}-nightly.$(date -u +%Y%m%d).$(git rev-parse --short HEAD)"
+              ;;
+          esac
+
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "release=$RELEASE" >> "$GITHUB_OUTPUT"
+          echo "version: $V (release=$RELEASE)"
+
+      # Nightly is rolling and deliberately untagged: it republishes the same
+      # release every day, so a version tag per night would be noise.
+      - name: Record the build as a tag
+        if: steps.v.outputs.release == 'true' && steps.v.outputs.channel != 'nightly'
+        shell: bash
+        run: |
+          V='${{ steps.v.outputs.version }}'
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$V" -m "ThinkStack v$V"
+          git push origin "v$V"
+          echo "tagged v$V"
+
+  build:
+    needs: decide
+    if: needs.decide.outputs.release == 'true'
+    uses: ./.github/workflows/_build-desktop.yml
+    with:
+      channel: ${{ needs.decide.outputs.channel }}
+      version: ${{ needs.decide.outputs.version }}
+    # inherit passes every repo secret through, so adding a new signing/notary
+    # secret later needs no edit here.
+    secrets: inherit
+
+  publish:
+    needs: [decide, build]
+    if: needs.decide.outputs.release == 'true'
+    uses: ./.github/workflows/_publish-release.yml
+    with:
+      channel: ${{ needs.decide.outputs.channel }}
+      version: ${{ needs.decide.outputs.version }}
+    secrets: inherit

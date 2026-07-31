@@ -121,7 +121,7 @@ infrastructure/    llm client · vector store · hardware profiler · file manag
 frontend/          react 19 + vite spa
 src-tauri/         tauri 2 desktop shell (rust): diagnosis, supervision, updates
 scripts/           devops: setup, dev, preflight, build, promote, release
-tests/             <!-- autodoc:tests -->308 tests across 23 modules<!-- /autodoc -->
+tests/             <!-- autodoc:tests -->336 tests across 24 modules<!-- /autodoc -->
 ```
 
 The desktop shell diagnoses the machine, launches the backend as a supervised
@@ -136,7 +136,7 @@ users run an installer.
 
 | Tier | Runs on | Establishes |
 |---|---|---|
-| `preflight.sh` | your machine, every push | lint, <!-- autodoc:test_count -->308<!-- /autodoc --> tests, shellcheck, actionlint, cargo |
+| `preflight.sh` | your machine, every push | lint, <!-- autodoc:test_count -->336<!-- /autodoc --> tests, shellcheck, actionlint, cargo |
 | CI | every push | the same on a clean machine |
 | `validate_bundle.py` | **Linux, macOS, Windows**, every build | the packaged app starts, resolves models, ingests a PDF, searches, infers, compiles a PDF |
 | GUI smoke test | Linux, every build | the launched application is still alive 45 seconds later |

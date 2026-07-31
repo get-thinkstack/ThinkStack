@@ -1,10 +1,13 @@
 #!/bin/bash
 # thinkstack: cut a release
 #
-# creates the annotated git tag that triggers the matching channel workflow:
-#   stable  → tag v<X.Y.Z>        → .github/workflows/release-stable.yml
-#   beta    → tag v<X.Y.Z>-beta.N → .github/workflows/release-beta.yml
-# (nightly needs no tag — it runs on a schedule; see nightly.yml.)
+# NOTE: a tag NO LONGER TRIGGERS A BUILD. Merging into beta or main is what
+# releases now, and .github/workflows/release.yml records the tag itself. Do not
+# use this to cut a release -- use scripts/promote.sh, which merges.
+#
+# What this is still for: bumping the hard-coded versions and promoting the
+# CHANGELOG [Unreleased] section for a stable release. Run it on beta BEFORE
+# promoting, so the promoted changelog travels into main with the merge.
 #
 # for a stable release it also bumps the version everywhere it is hard-coded and
 # commits that bump. a beta tag is cut at the current HEAD without a version-file
@@ -15,10 +18,8 @@
 #   scripts/release.sh <version> [--beta N] [--push]
 #
 # examples:
-#   scripts/release.sh 0.2.0              # bump + commit + tag v0.2.0 (stable)
-#   scripts/release.sh 0.2.0 --push       # ... and push (triggers stable ci)
-#   scripts/release.sh 0.2.0 --beta 1     # tag v0.2.0-beta.1 (beta channel)
-#   scripts/release.sh 0.2.0 --beta 2 --push
+#   scripts/release.sh 0.2.0              # bump the version files + changelog
+#   scripts/release.sh 0.2.0 --push       # ... and push the branch
 #
 # see scripts/README.md for the release runbook and docs/ADR.md for why the
 # pipeline is shaped this way.

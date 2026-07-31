@@ -17,7 +17,59 @@ See [scripts/README.md](scripts/README.md) for how releases are cut.
 
 Work merged but not yet tagged.
 
+### Changed
+- **One release workflow instead of five.** `release-stable`, `release-beta`,
+  `release-on-main`, `release-on-beta` and `nightly` differed only in what
+  started them and how the version was worked out; their build and publish
+  halves were identical, and two even shared a concurrency group. They are now
+  `release.yml`: merge into `beta` cuts a beta, merge into `main` releases what
+  beta validated, the cron cuts a nightly. Ten workflows became seven.
+- **A merge is the release; a tag is the record.** Tags no longer trigger
+  builds. While they did, `git push origin v1.2.3` published a stable release to
+  every user without the merge being reviewed. The `v*` ruleset still forbids
+  moving or deleting a published tag.
+- **The version can no longer go backwards.** It is derived from the newest tag
+  on *any* channel, not the newest stable one: beta was testing 1.6.7 while
+  stable was 1.0.0, so a patch bump computed from stable gave 1.0.1 -- below
+  what testers already ran. Each `feat/` and `fix/` branch merged since is
+  replayed in landing order, one bump each. `chore/` and `docs/` branches and
+  direct commits do not move it. Merges must be `--no-ff`, or the branch name
+  never enters the history and the landing is invisible.
+
 ### Fixed
+- **Summarizing a paper could return a parser error as the summary.** The token
+  limit (640) was too small to hold the summary, key points, methodology *and*
+  limitations the prompt asks for, so generation stopped mid-sentence and the
+  JSON never closed. The reader saw `summarization failed: Unterminated string
+  starting at: line 9 column 5`. The limit is now 1024 (1280 comparative),
+  incomplete responses are repaired rather than discarded — a truncated summary
+  is kept, a half-written bullet is dropped — and if it still cannot be read the
+  message explains what to do instead of quoting the exception.
+- **The Analysis page had two buttons for one action.** "Summarize" only
+  *selected* a mode; a second, identically styled "Run summarize" underneath did
+  the work. The three analysis buttons now run the analysis they name.
+- **`preflight.sh` checked nothing on a branch that had never been pushed.**
+  With no upstream it fell back to diffing the working tree, so once the work
+  was committed it saw zero changed files, skipped every toolchain, and printed
+  "CI should be green" without running ruff, pytest or shellcheck. That is every
+  `feat/` and `fix/` branch on its first run. It now compares against `origin/dev`.
+- **`beta` and `nightly` named both a branch and a rolling release tag**, and
+  git resolves tags first, so `git checkout beta` detached onto a release and
+  `git pull` reported a divergence that did not exist. The rolling tags are now
+  `beta-latest` / `nightly-latest`, so ordinary git commands mean the branch
+  again. Beta testers on `v1.6.7-beta.1` re-download once; stable is unaffected.
+- **`promote.sh release` would have promoted the wrong version.** `$REPO` was
+  read but never assigned, so under `set -u` the lookup of what beta had been
+  testing failed silently and the script fell back to inferring from commit
+  subjects: it derived **1.1.0** while beta was validating **1.6.7**. It now
+  reads the repo from `release.config.json` and fails loudly if it cannot.
+- **`promote.sh release` reported failure for a release that published fine.**
+  It merged into `main` *and* tagged, but a push to `main` already triggers
+  `release-on-main.yml`, which derives the version and creates the tag itself.
+  `release.sh` then hit either "no CI results found" (CI on the new commit had
+  not finished) or "tag already exists", and `promote.sh` printed "the tag was
+  refused, so nothing was released" while CI was building and publishing it.
+  Tagging `main` is now CI's job alone.
 - **The packaged app never started.** v1.0.0's installer showed a loading spinner
   indefinitely. The backend lookup missed the AppImage/deb layout (binary in
   `usr/bin`, resources in `usr/lib/ThinkStack`), so the app silently fell back to

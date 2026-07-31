@@ -12,15 +12,15 @@
     },
     "beta": {
       "prerelease": true,
-      "rolling_tag": "beta",
+      "rolling_tag": "beta-latest",
       "manifest": "latest.json",
-      "endpoint": "releases/download/beta/latest.json"
+      "endpoint": "releases/download/beta-latest/latest.json"
     },
     "nightly": {
       "prerelease": true,
-      "rolling_tag": "nightly",
+      "rolling_tag": "nightly-latest",
       "manifest": "latest.json",
-      "endpoint": "releases/download/nightly/latest.json"
+      "endpoint": "releases/download/nightly-latest/latest.json"
     }
   },
   "platforms": [
@@ -51,5 +51,6 @@
     "sbom": true,
     "provenance": true
   },
-  "$comment_models": "Only the BASELINE model ships inside the installer, so a fresh install works offline immediately without a download. Heavier models are optional: the app detects what the machine can run, checks whether an equivalent is already present (ThinkStack, Ollama or LM Studio), and only then asks permission to fetch one. Adding a model here puts it back in the installer - keep in step with domain/model_manager/catalog.py, and mind GitHub's 2 GiB asset limit."
+  "$comment_models": "Only the BASELINE model ships inside the installer, so a fresh install works offline immediately without a download. Heavier models are optional: the app detects what the machine can run, checks whether an equivalent is already present (ThinkStack, Ollama or LM Studio), and only then asks permission to fetch one. Adding a model here puts it back in the installer - keep in step with domain/model_manager/catalog.py, and mind GitHub's 2 GiB asset limit.",
+  "$comment_rolling": "Rolling tags are suffixed '-latest' so they cannot collide with the BRANCHES named beta and nightly. Git resolves refs/tags/ before refs/heads/, so when a tag and a branch shared a name, a bare `beta` meant the release: `git checkout beta` detached onto it and `git pull` reported a divergence that did not exist. Never name a rolling tag after a branch."
 }

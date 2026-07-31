@@ -29,6 +29,21 @@ DEV_BRANCH="dev"
 BETA_BRANCH="beta"
 MAIN_BRANCH="main"
 
+# Read from release.config.json, the same file CI reads, so the two cannot drift.
+#
+# REPO was referenced below but never assigned. Under `set -u` that made the
+# whole `gh release view` substitution fail, so `promote.sh release` silently
+# fell back to inferring a version from commit subjects -- it would have
+# promoted 1.1.0 while beta was testing 1.6.7, shipping users a version number
+# that had never been built.
+REPO="$(jq -r '.repo // empty' release.config.json 2>/dev/null)"
+[ -n "$REPO" ] || { echo "cannot read .repo from release.config.json" >&2; exit 1; }
+
+# The rolling tag the beta channel publishes under. It used to be the literal
+# "beta", which is also the branch name above, and git resolves tags first.
+BETA_ROLLING_TAG="$(jq -r '.channels.beta.rolling_tag // empty' release.config.json 2>/dev/null)"
+: "${BETA_ROLLING_TAG:=beta-latest}"
+
 KIND=""
 VERSION=""
 DRY_RUN=false
@@ -47,7 +62,7 @@ done
 if [ -z "$KIND" ]; then
     echo -e "${RED}usage: scripts/promote.sh {feature|fix|major|release} [version] [--dry-run] [--yes]${NC}"
     echo "  feature   next MINOR   X.Y.Z -> X.(Y+1).0     dev  -> beta"
-    echo "  fix       next PATCH   X.Y.Z -> X.Y.(Z+1)     dev  -> beta and main"
+    echo "  fix       next PATCH   X.Y.Z -> X.Y.(Z+1)     dev  -> beta"
     echo "  major     next MAJOR   X.Y.Z -> (X+1).0.0     dev  -> beta"
     echo "  release   promote what beta is testing        beta -> main"
     echo ""
@@ -60,17 +75,31 @@ fi
 # bumped while cutting a release and is therefore behind between them.
 if [ -z "$VERSION" ]; then
     case "$KIND" in
+        # An explicit kind forces that bump; otherwise the replay decides.
         fix)     VERSION="$(python3 scripts/next_version.py --bump patch)" ;;
         feature) VERSION="$(python3 scripts/next_version.py --bump minor)" ;;
         major)   VERSION="$(python3 scripts/next_version.py --bump major)" ;;
         release)
             # Promote exactly what beta has been testing. Choosing a different
             # number here would ship a version nobody validated.
-            VERSION="$(gh release view beta --repo "$REPO" --json name \
-                        --jq '.name' 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+            #
+            # Read from the beta VERSION TAGS, not from the rolling release's
+            # name. The tags are the record of what was actually built, they
+            # need no API call, and they do not depend on what the rolling tag
+            # is called -- a lookup by rolling-tag name returned nothing the
+            # moment that tag was renamed, and the fallback below then inferred
+            # 1.1.0 while beta was testing 1.6.7.
+            VERSION="$(git tag -l 'v*-beta.*' \
+                        | sed 's/^v//; s/-beta\..*//' | sort -V | tail -1)"
             if [ -z "$VERSION" ]; then
-                VERSION="$(python3 scripts/next_version.py --infer)"
-                echo -e "  ${YELLOW}no beta release found; inferred ${VERSION} from the commits${NC}"
+                VERSION="$(gh release view "$BETA_ROLLING_TAG" --repo "$REPO" --json name \
+                            --jq '.name' 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+            fi
+            if [ -z "$VERSION" ]; then
+                VERSION="$(python3 scripts/next_version.py --next)"
+                echo -e "  ${YELLOW}no beta tag found; replayed ${VERSION} from the merges${NC}"
+            else
+                echo -e "  ${GREEN}promoting what beta validated: ${VERSION}${NC}"
             fi
             ;;
     esac
@@ -97,55 +126,58 @@ START_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 restore_branch() { git checkout --quiet "$START_BRANCH" 2>/dev/null || true; }
 trap restore_branch EXIT
 
-# next beta counter for this version: v1.2.3-beta.1, .2, ...
-next_beta() {
-    local v="$1" last
-    last="$(git tag -l "v${v}-beta.*" | sed "s/^v${v}-beta\.//" | sort -n | tail -1)"
-    echo $(( ${last:-0} + 1 ))
-}
-
 # merge $1 into $2, refusing to leave a conflicted tree behind
 merge_into() {
     local src="$1" dst="$2"
     echo ""
     echo -e "${CYAN}[merge]${NC} ${src} -> ${dst}"
-    # Fully-qualified refs, always. The beta CHANNEL publishes under a rolling
-    # git tag also named "beta", so a bare `git checkout beta` is ambiguous and
-    # git resolves the tag, which then cannot be fast-forwarded. That failure
-    # reads as "could not fast-forward beta from origin" and has nothing to do
-    # with the branch being behind.
+    # Fully-qualified refs, always. The beta CHANNEL used to publish under a
+    # rolling git tag also named "beta", so a bare `git checkout beta` was
+    # ambiguous and git resolved the TAG, which then could not be
+    # fast-forwarded. That failure read as "could not fast-forward beta from
+    # origin" and had nothing to do with the branch being behind. The rolling
+    # tags are suffixed now, but naming the refs in full costs nothing.
     run git fetch --quiet origin "+refs/heads/${dst}:refs/remotes/origin/${dst}" \
         || fail "could not fetch ${dst} from origin"
     run git checkout --quiet -B "$dst" "refs/remotes/origin/${dst}" \
         || fail "could not check out ${dst}"
     if ! $DRY_RUN; then
-        if ! git merge --no-edit "refs/remotes/origin/${src}"; then
+        # --no-ff is REQUIRED, not a preference.
+        #
+        # The version is derived by replaying the feat/ and fix/ branches
+        # merged since the newest tag (scripts/next_version.py --next). A
+        # fast-forward creates no merge commit, so the branch name never
+        # enters the history and the landing is invisible to that replay --
+        # the release number would then depend on whether a merge happened to
+        # be fast-forwardable, which is not a property of the work.
+        if ! git merge --no-ff --no-edit "refs/remotes/origin/${src}"; then
             git merge --abort 2>/dev/null || true
             fail "merge conflict ${src} -> ${dst}. resolve it manually, then re-run."
         fi
     else
-        echo -e "  ${CYAN}\$${NC} git merge --no-edit refs/remotes/origin/${src}"
+        echo -e "  ${CYAN}\$${NC} git merge --no-ff --no-edit refs/remotes/origin/${src}"
     fi
     run git push origin "refs/heads/${dst}:refs/heads/${dst}"
 }
 
 # cut the tag that rebuilds + republishes that channel's installers
-tag_channel() {
-    local channel="$1"
-    if [ "$channel" = "beta" ]; then
-        local n; n="$(next_beta "$VERSION")"
-        echo ""
-        echo -e "${CYAN}[tag]${NC} beta -> v${VERSION}-beta.${n}"
-        run ./scripts/release.sh "$VERSION" --beta "$n" --push \
-            || fail "the tag was refused, so nothing was released. The branch
-  merge above DID happen. Fix what release.sh reported, then re-run this."
-    else
-        echo ""
-        echo -e "${CYAN}[tag]${NC} stable -> v${VERSION}"
-        run ./scripts/release.sh "$VERSION" --push \
-            || fail "the tag was refused, so nothing was released. The branch
-  merge above DID happen. Fix what release.sh reported, then re-run this."
-    fi
+# Merging is the release. .github/workflows/release.yml watches beta and main:
+# it works out the version, records the tag and builds the installers.
+#
+# This script must NOT tag. It is a race it always loses, and it loses it
+# loudly: release.sh refuses to tag a commit whose CI is not green, and CI on
+# the commit just pushed has not finished, so it exits "no CI results found".
+# Wait for CI instead and the workflow has meanwhile created the tag, so it
+# exits "tag already exists". Either way promote.sh printed
+#   "the tag was refused, so nothing was released"
+# over a release that was building and publishing perfectly well.
+released_by_ci() {
+    local branch="$1" channel="$2"
+    echo ""
+    echo -e "${CYAN}[release]${NC} ${branch} -> ${channel}, tagged by CI"
+    echo -e "  release.yml owns this. It derives the version, records the tag"
+    echo -e "  and builds the installers. This script does not tag."
+    echo -e "  watch: ${CYAN}gh run list -w release.yml --limit 3${NC}"
 }
 
 # ── plan ────────────────────────────────────────────────────
@@ -185,21 +217,19 @@ fi
 case "$KIND" in
     feature)
         merge_into "$DEV_BRANCH" "$BETA_BRANCH"
-        tag_channel beta
+        released_by_ci "$BETA_BRANCH" beta
         ;;
     release)
         merge_into "$BETA_BRANCH" "$MAIN_BRANCH"
-        tag_channel stable
+        released_by_ci "$MAIN_BRANCH" stable
         ;;
     fix)
         merge_into "$DEV_BRANCH" "$BETA_BRANCH"
-        tag_channel beta
-        merge_into "$DEV_BRANCH" "$MAIN_BRANCH"
-        tag_channel stable
+        released_by_ci "$BETA_BRANCH" beta
         ;;
     major)
         merge_into "$DEV_BRANCH" "$BETA_BRANCH"
-        tag_channel beta
+        released_by_ci "$BETA_BRANCH" beta
         ;;
 esac
 

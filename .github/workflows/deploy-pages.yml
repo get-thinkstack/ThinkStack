@@ -15,8 +15,8 @@ name: Deploy landing page
 #
 # Why a plain string swap and not an API lookup: GitHub resolves
 # /releases/latest/ to the newest STABLE release and offers no prerelease
-# equivalent, but release.config.json publishes beta under a ROLLING tag named
-# `beta`, so /releases/download/beta/ is permanent. An earlier version queried
+# equivalent, but release.config.json publishes beta under a ROLLING tag, so
+# /releases/download/<rolling_tag>/ is permanent. An earlier version queried
 # the API for "the newest prerelease" and picked up NIGHTLY -- also a
 # prerelease, republished daily -- and served nightly builds from the beta page.
 #
@@ -93,12 +93,22 @@ jobs:
 
           mkdir -p _site/beta
 
-          # `beta` is a ROLLING tag (see release.config.json): every beta build
+          # The beta channel publishes to a ROLLING tag: every beta build
           # republishes the same release, so this URL is permanent and needs no
           # lookup. An earlier version queried the API for "the newest
           # prerelease" and picked up NIGHTLY, which is also a prerelease and is
           # republished daily -- serving nightly builds from the beta page.
-          sed -e "s#/releases/latest/download/#/releases/download/beta/#g" "$SRC" \
+          #
+          # The tag name is read from release.config.json rather than written
+          # here, so renaming a channel stays a one-line config edit. It was
+          # hardcoded as "beta", which is also a branch name; see the
+          # $comment_rolling note in that file for why it no longer is.
+          ROLLING="$(jq -r '.channels.beta.rolling_tag // empty' release.config.json)"
+          if [ -z "$ROLLING" ]; then
+            echo "::error::no rolling_tag for the beta channel in release.config.json"
+            exit 1
+          fi
+          sed -e "s#/releases/latest/download/#/releases/download/${ROLLING}/#g" "$SRC" \
             > _site/beta/index.html
 
           # Make the channel unmistakable. A tester who cannot tell beta from
@@ -129,7 +139,7 @@ jobs:
             echo "::error::/beta/ still has stable download links - the rewrite did not apply"
             exit 1
           fi
-          echo "beta links: $(grep -c '/releases/download/beta/' _site/beta/index.html)"
+          echo "beta links: $(grep -c "/releases/download/${ROLLING}/" _site/beta/index.html)"
 
       - name: Keep the beta checkout out of the published site
         run: rm -rf .beta-src

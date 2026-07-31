@@ -67,6 +67,22 @@ gh workflow run dev-build.yml -f platform=all -f skip_models=true
 
 That produces downloadable artifacts and publishes nothing.
 
+### Rolling release tags are suffixed on purpose
+
+The beta and nightly channels publish to *rolling* tags, named `beta-latest`
+and `nightly-latest` in [`release.config.json`](release.config.json). The suffix
+is not decoration: git resolves `refs/tags/` before `refs/heads/`, so when the
+tag was called plain `beta` a bare `beta` meant the **release**, not the branch,
+and `git checkout beta` detached onto a published build while `git pull`
+reported a divergence that did not exist.
+
+Nothing special is needed now. `git checkout beta`, `git pull`, and
+`git pull origin beta` all mean the branch. **Never name a rolling tag after a
+branch.**
+
+If you cloned before this change, `./scripts/install-hooks.sh` deletes the two
+stale tags.
+
 ---
 
 ## Before you push
@@ -106,7 +122,7 @@ the gate is wrong — fix the gate.
 ## Tests
 
 ```bash
-pytest                    # the whole suite (<!-- autodoc:test_count -->308<!-- /autodoc --> tests, a few seconds)
+pytest                    # the whole suite (<!-- autodoc:test_count -->336<!-- /autodoc --> tests, a few seconds)
 pytest tests/test_x.py    # one file
 pytest -m heavy           # tests that load real models / hit the network
 ```
@@ -282,29 +298,42 @@ tag, so nobody has to remember the rule or look it up:
 
 Name your branch for what it is, and the number follows:
 
-| Branch | Counts as | Component |
-|--------|-----------|-----------|
-| `feat/short-description` | a feature | **Y** in `X.Y.Z` |
-| `fix/short-description` | a fix | **Z** in `X.Y.Z` |
-| merging `beta` into `main` | a release | **X**, with Y and Z reset |
+| Branch | Counts as | Effect on `X.Y.Z` |
+|--------|-----------|-------------------|
+| `feat/short-description` | a feature | **Y+1**, and Z resets to 0 |
+| `fix/short-description` | a fix | **Z+1** |
+| `chore/...`, `docs/...` | neither | nothing |
+| merging `beta` into `main` | a release | **nothing** — main publishes the number beta validated |
 
 ```bash
-scripts/next_version.py --counted --explain   # X.Y.Z from what has landed
-scripts/next_version.py --release             # what the next release will be
+scripts/next_version.py --next --explain   # replay the merges, show each one
+scripts/next_version.py --current          # the newest version, any channel
 ```
 
-Counting walks the **first-parent** history, so each landing is counted once:
-a merge is classified by its branch name, and a direct push by its commit
-prefix. A feature that lands inside a branch named `fix/...` therefore counts
-as a fix, which is a reason to name branches honestly.
+The base is the **newest tag across every channel**, stable or beta. It is not
+the newest *stable* tag: beta was testing 1.6.7 while stable was 1.0.0, so a
+patch bump computed from stable gave 1.0.1 — below what testers already had
+installed. `release.sh` refuses to publish below what is out, and the updater
+would have shown installed apps an "update" that moved them backwards.
 
-`release` deliberately reuses beta's version rather than choosing a new one:
-promoting a number nobody validated would defeat the point of the beta channel.
+From that base, every `feat/` and `fix/` branch merged since is replayed **in
+the order it landed**, one bump each. Order matters and is not cosmetic: a fix
+then a feature gives `X.(Y+1).0`, while a feature then a fix gives `X.(Y+1).1`.
+
+> **Merges into `dev`, `beta` and `main` must be `--no-ff`.** A fast-forward
+> creates no merge commit, so the branch name never enters the history and the
+> landing is invisible to the replay. The release number would then depend on
+> whether a merge happened to be fast-forwardable, which is not a property of
+> the work. `promote.sh` passes `--no-ff` for you; pass it yourself when you
+> merge by hand, and prefer a merge commit when merging a PR on GitHub.
+
+**Direct commits do not move the version**, whatever their prefix. A merge is
+what "landing" means; counting the commits inside one as well would bump the
+number several times for a single piece of work. If you push `fix: typo`
+straight to `dev`, the version does not change — put it on a `fix/` branch if
+it should.
 
 Pass a version explicitly to override, e.g. `scripts/promote.sh feature 1.6.7`.
-
-`scripts/next_version.py --infer --explain` shows what the commit history
-implies and why, without changing anything.
 
 `--dry-run` prints every git command without running one. Use it the first time.
 
@@ -487,7 +516,7 @@ tools/             developer utilities
 tests/             the pytest suite
 ```
 
-<!-- autodoc:python_loc -->7,176 lines across 51 modules<!-- /autodoc -->. Small enough to read; do that before guessing.
+<!-- autodoc:python_loc -->7,334 lines across 51 modules<!-- /autodoc -->. Small enough to read; do that before guessing.
 
 ### Every runtime dependency
 
