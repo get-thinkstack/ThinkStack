@@ -58,8 +58,12 @@ async def summarize_single(doc_id: str, text: str) -> Summary:
     )
 
     try:
+        # 1024, not 640. The prompt asks for a summary, key points, methodology
+        # AND limitations; 640 tokens could not hold all four for a real paper,
+        # so generation stopped mid-string and the JSON never closed. That
+        # surfaced to users as "Unterminated string starting at: line 9".
         response = await ollama_client.generate_json(
-            prompt, system=system, max_tokens=640, task_type="analysis"
+            prompt, system=system, max_tokens=1024, task_type="analysis"
         )
         data = json.loads(response)
         return Summary(
@@ -69,10 +73,17 @@ async def summarize_single(doc_id: str, text: str) -> Summary:
             summary_type="single",
         )
     except Exception as e:
-        logger.error("summarization failed for %s: %s", doc_id, e)
+        # The exception text is for the log, not the reader. Putting str(e) in
+        # summary_text meant a parser error was rendered in the UI as though it
+        # were the summary of the paper.
+        logger.error("summarization failed for %s: %s", doc_id, e, exc_info=True)
         return Summary(
             doc_ids=[doc_id],
-            summary_text=f"summarization failed: {str(e)}",
+            summary_text=(
+                "This paper could not be summarized. The local model returned a "
+                "response that could not be read. Try running it again, or select "
+                "fewer papers so each one gets more of the model's attention."
+            ),
             summary_type="single",
         )
 
@@ -104,8 +115,10 @@ async def summarize_multiple(doc_ids: list[str], texts: dict[str, str]) -> Summa
     )
 
     try:
+        # A comparative summary grows with the number of papers, so it needs
+        # more room than the single-paper case, not less. See the note there.
         response = await ollama_client.generate_json(
-            prompt, system=system, max_tokens=768, task_type="analysis"
+            prompt, system=system, max_tokens=1280, task_type="analysis"
         )
         data = json.loads(response)
         return Summary(
@@ -115,9 +128,13 @@ async def summarize_multiple(doc_ids: list[str], texts: dict[str, str]) -> Summa
             summary_type="comparative",
         )
     except Exception as e:
-        logger.error("multi-paper summarization failed: %s", e)
+        logger.error("multi-paper summarization failed: %s", e, exc_info=True)
         return Summary(
             doc_ids=doc_ids,
-            summary_text=f"comparative summarization failed: {str(e)}",
+            summary_text=(
+                "These papers could not be compared. The local model returned a "
+                "response that could not be read. Try again with fewer papers "
+                "selected."
+            ),
             summary_type="comparative",
         )

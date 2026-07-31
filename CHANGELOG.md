@@ -18,6 +18,21 @@ See [scripts/README.md](scripts/README.md) for how releases are cut.
 Work merged but not yet tagged.
 
 ### Fixed
+- **Summarizing a paper could return a parser error as the summary.** The token
+  limit (640) was too small to hold the summary, key points, methodology *and*
+  limitations the prompt asks for, so generation stopped mid-sentence and the
+  JSON never closed. The reader saw `summarization failed: Unterminated string
+  starting at: line 9 column 5`. The limit is now 1024 (1280 comparative),
+  incomplete responses are repaired rather than discarded — a truncated summary
+  is kept, a half-written bullet is dropped — and if it still cannot be read the
+  message explains what to do instead of quoting the exception.
+- **The Analysis page had two buttons for one action.** "Summarize" only
+  *selected* a mode; a second, identically styled "Run summarize" underneath did
+  the work. The three analysis buttons now run the analysis they name.
+- **`beta` and `nightly` name both a branch and a rolling release tag**, and git
+  resolves tags first, so `git checkout beta` detached onto a release and
+  `git pull` reported a divergence that did not exist. `install-hooks.sh` now
+  keeps those two tags out of the clone; version tags are unaffected.
 - **The packaged app never started.** v1.0.0's installer showed a loading spinner
   indefinitely. The backend lookup missed the AppImage/deb layout (binary in
   `usr/bin`, resources in `usr/lib/ThinkStack`), so the app silently fell back to

@@ -67,6 +67,31 @@ gh workflow run dev-build.yml -f platform=all -f skip_models=true
 
 That produces downloadable artifacts and publishes nothing.
 
+### `beta` and `nightly` are also tag names — use `git pull`, not `git pull origin beta`
+
+The beta and nightly *channels* publish under rolling git tags named `beta` and
+`nightly`, which collide with the branches of the same name. Git resolves
+`refs/tags/` before `refs/heads/`, so when both exist a bare `beta` means the
+**tag**, and ordinary commands quietly act on a release instead of your branch:
+
+```
+git checkout beta     # detached HEAD on a published release
+git pull origin beta  # "divergent branches" that do not exist
+```
+
+`scripts/install-hooks.sh` blocks those two tags from entering your clone, which
+fixes every *local* command. But `git pull origin beta` is resolved by the
+**server**, which still prefers the tag. So:
+
+```bash
+git pull                             # correct -- uses the tracking branch
+git pull origin refs/heads/beta      # correct -- when you must name it
+git pull origin beta                 # WRONG -- pulls the release tag
+```
+
+If you already have the tags locally, `./scripts/install-hooks.sh` removes them.
+Version tags (`v1.6.7`, `v1.6.7-beta.1`) are unaffected — `promote.sh` needs them.
+
 ---
 
 ## Before you push

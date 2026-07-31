@@ -118,16 +118,25 @@ export default function Analysis() {
     }
   };
 
-  const runAnalysis = async () => {
+  /**
+   * Run one analysis over the selected papers.
+   *
+   * The kind is passed in rather than read from `activeTab`, because the button
+   * that starts a run is the same button that selects the kind: a `setActiveTab`
+   * immediately before this would not have landed yet, and the run would use
+   * whichever kind was chosen previously.
+   */
+  const runAnalysis = async (kind = activeTab) => {
     if (selectedDocs.length === 0) return;
 
+    setActiveTab(kind);
     setLoading(true);
     setError('');
     setResult(null);
 
     try {
       let data;
-      switch (activeTab) {
+      switch (kind) {
         case 'summarize':
           data = await analysisApi.summarize(selectedDocs, password);
           break;
@@ -207,19 +216,6 @@ export default function Analysis() {
             )}
           </div>
 
-          <div className="fade-up stagger-3" style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
-            {tabs.map(({ id, label, icon: Icon }) => (
-              <button
-                key={id}
-                className={`btn ${activeTab === id ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => { setActiveTab(id); setResult(null); }}
-              >
-                <Icon size={16} />
-                <span>{label}</span>
-              </button>
-            ))}
-          </div>
-
           {(() => {
             const encryptedSelectedDocs = documents.filter(d => 
               selectedDocs.includes(d.doc_id) && (d.metadata?.is_encrypted === 'true' || d.metadata?.is_encrypted === true)
@@ -250,15 +246,33 @@ export default function Analysis() {
             );
           })()}
 
-          <button
-            className="btn btn-primary fade-up stagger-4"
-            onClick={runAnalysis}
-            disabled={loading || busy || selectedDocs.length === 0}
-            style={{ marginBottom: '1.5rem' }}
-          >
-            {loading || busy ? <div className="spinner" /> : <Brain size={16} />}
-            <span>{loading ? 'Analyzing...' : busy ? 'Model busy…' : `Run ${activeTab}`}</span>
-          </button>
+          {/* One button per analysis, and pressing it runs that analysis.
+              These used to only *select* a kind, with a separate "Run
+              <kind>" button underneath -- two identically styled buttons
+              carrying the same verb, where only the second one did anything. */}
+          <div className="fade-up stagger-3" style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
+            {tabs.map(({ id, label, icon: Icon }) => {
+              const running = loading && activeTab === id;
+              return (
+                <button
+                  key={id}
+                  className={`btn ${activeTab === id ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => runAnalysis(id)}
+                  disabled={loading || busy || selectedDocs.length === 0}
+                  title={
+                    selectedDocs.length === 0
+                      ? 'Select at least one paper first'
+                      : busy
+                      ? 'The model is busy with another task'
+                      : `${label} the ${selectedDocs.length} selected paper${selectedDocs.length === 1 ? '' : 's'}`
+                  }
+                >
+                  {running ? <div className="spinner" /> : <Icon size={16} />}
+                  <span>{running ? 'Analyzing...' : busy ? 'Model busy…' : label}</span>
+                </button>
+              );
+            })}
+          </div>
         </>
       )}
 

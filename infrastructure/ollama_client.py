@@ -6,6 +6,7 @@ supporting both ollama and llama.cpp runtimes.
 """
 
 import asyncio
+import json
 import logging
 import re
 from pathlib import Path
@@ -63,19 +64,159 @@ def _extract_json_text(raw: str) -> str:
     """
     s = (raw or "").strip()
 
-    # strip a fenced code block: ```json ... ``` or ``` ... ```
+    # Strip a fenced code block: ```json ... ``` or ``` ... ```
+    #
+    # The opening fence is removed even when the closing one is missing.
+    # Truncated output has no closing fence, and leaving the opener in place
+    # meant the text no longer began with "{", so the object detection below
+    # gave up on something that was perfectly recoverable.
     if "```" in s:
         match = re.search(r"```(?:json)?\s*(.*?)```", s, re.DOTALL)
         if match:
             s = match.group(1).strip()
+        else:
+            s = re.sub(r"^\s*```(?:json)?\s*", "", s).strip()
 
-    # narrow to the outermost object/array
+    # Narrow to the outermost object or array.
+    #
+    # If the text STARTS with "{" it is an object, even when truncation left it
+    # without a closing brace. Falling through to the array branch there
+    # extracted a nested list and threw the object away, turning a recoverable
+    # truncation into a result of the wrong shape entirely. _repair_json closes
+    # what is left open, so an unterminated object is fine to return as-is.
+    lead = s.lstrip()[:1]
+    if lead == "{":
+        end = s.rfind("}")
+        return s[s.find("{"): end + 1] if end > s.find("{") else s[s.find("{"):]
+    if lead == "[":
+        end = s.rfind("]")
+        return s[s.find("["): end + 1] if end > s.find("[") else s[s.find("["):]
     if "{" in s and "}" in s:
-        s = s[s.find("{"): s.rfind("}") + 1]
-    elif "[" in s and "]" in s:
-        s = s[s.find("["): s.rfind("]") + 1]
+        return s[s.find("{"): s.rfind("}") + 1]
+    if "[" in s and "]" in s:
+        return s[s.find("["): s.rfind("]") + 1]
 
     return s
+
+
+def _repair_json(s: str) -> str:
+    """Make a best effort to parse JSON a small model did not finish writing.
+
+    Two failure modes account for essentially every parse error we see, and
+    neither is the model being wrong about the content:
+
+    1. A raw newline inside a string. JSON forbids literal control characters
+       in strings, but a model wrapping a long sentence emits one, and the
+       parser stops at "Invalid control character".
+    2. Truncation. The generation hits its token limit mid-string, so the
+       string, and every enclosing array and object, is left open. The parser
+       stops at "Unterminated string".
+
+    Both are recoverable: escape the control characters, then close whatever is
+    still open, discarding a trailing fragment that cannot be completed. A
+    summary missing its last bullet is worth far more to the reader than an
+    error message where the summary should be.
+
+    Returns the input unchanged if it already parses.
+    """
+    if not s:
+        return s
+    try:
+        json.loads(s)
+        return s
+    except (ValueError, TypeError):
+        pass
+
+    out: list[str] = []
+    stack: list[str] = []
+    in_string = False
+    escaped = False
+    # where the currently open string begins, so a string the model never
+    # finished can be judged on what it was: prose worth keeping, or a
+    # fragment worth dropping.
+    last_open_idx = -1
+
+    for ch in s:
+        if in_string:
+            if escaped:
+                out.append(ch)
+                escaped = False
+                continue
+            if ch == "\\":
+                out.append(ch)
+                escaped = True
+                continue
+            if ch == '"':
+                in_string = False
+                out.append(ch)
+                continue
+            # escape the control characters JSON will not accept raw
+            if ch == "\n":
+                out.append("\\n")
+            elif ch == "\r":
+                out.append("\\r")
+            elif ch == "\t":
+                out.append("\\t")
+            elif ord(ch) < 0x20:
+                out.append(f"\\u{ord(ch):04x}")
+            else:
+                out.append(ch)
+            continue
+
+        if ch == '"':
+            in_string = True
+            last_open_idx = len(out)
+        elif ch in "{[":
+            stack.append("}" if ch == "{" else "]")
+        elif ch in "}]":
+            if stack and stack[-1] == ch:
+                stack.pop()
+        out.append(ch)
+
+    if in_string:
+        # The model was cut off mid-string. What to do with the fragment
+        # depends on what the fragment IS, which is decided by what precedes
+        # its opening quote:
+        #
+        #   {"summary": "the paper argu     <- a VALUE. Half a summary still
+        #                                      reads, so it is kept.
+        #   {"summary": "done", "key_po     <- a KEY. Cannot be completed into
+        #   ["first point", "second poi     <- an ARRAY ELEMENT. Half a bullet
+        #                                      is noise, so both are dropped.
+        prefix = "".join(out[:last_open_idx]).rstrip() if last_open_idx >= 0 else ""
+        if prefix.endswith(":"):
+            out.append('"')
+        else:
+            del out[last_open_idx:]
+
+    repaired = "".join(out).rstrip()
+
+    # A dangling comma closes into nothing valid, so drop back to the last
+    # point that does. This runs after the fragment removal above, which is
+    # what leaves the comma exposed in the key/element cases.
+    repaired = re.sub(r",\s*$", "", repaired)
+
+    while stack:
+        repaired += stack.pop()
+
+    try:
+        json.loads(repaired)
+        logger.info("repaired truncated/invalid json from the model")
+        return repaired
+    except (ValueError, TypeError):
+        # Last resort: keep only the complete leading entries of the object.
+        m = re.match(r"\s*\{.*", repaired, re.S)
+        if m:
+            for cut in range(len(repaired) - 1, 0, -1):
+                if repaired[cut] == ",":
+                    candidate = repaired[:cut] + "}"
+                    try:
+                        json.loads(candidate)
+                        logger.info("recovered a partial json object from the model")
+                        return candidate
+                    except (ValueError, TypeError):
+                        continue
+        return repaired
 
 
 class OllamaClient:
@@ -644,7 +785,7 @@ class OllamaClient:
                     prompt=prompt, system=system, temperature=temperature,
                     max_tokens=max_tokens, json_mode=True, model=via_ollama,
                 )
-                return _extract_json_text(raw)
+                return _repair_json(_extract_json_text(raw))
             raw = await self._generate_llama_cpp(
                 prompt=prompt,
                 system=system,
