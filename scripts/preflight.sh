@@ -180,8 +180,12 @@ if changed_matches '^\.github/workflows/'; then
             echo -e "\n${YELLOW}!${NC} shellcheck missing - actionlint will SKIP shell checks (CI won't)"
             WARNINGS=$((WARNINGS+1))
         }
-        # actionlint takes files, not a directory
-        run_check "actionlint" "$AL" .github/workflows/*.yml
+        # actionlint takes files, not a directory.
+        # -shellcheck MUST match .github/workflows/ci.yml exactly: actionlint
+        # uses whatever shellcheck is installed, and versions disagree about
+        # SC2015, so without this a clean local run can still fail CI.
+        run_check "actionlint" "$AL" -shellcheck "shellcheck -e SC1091,SC2015" \
+            .github/workflows/*.yml
     else
         echo -e "\n${YELLOW}!${NC} actionlint not installed - workflow changes unverified"
         WARNINGS=$((WARNINGS+1))

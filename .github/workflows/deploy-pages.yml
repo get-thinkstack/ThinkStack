@@ -103,9 +103,11 @@ jobs:
           # here, so renaming a channel stays a one-line config edit. It was
           # hardcoded as "beta", which is also a branch name; see the
           # $comment_rolling note in that file for why it no longer is.
-          ROLLING="$(jq -r '.channels.beta.rolling_tag' release.config.json)"
-          [ -n "$ROLLING" ] && [ "$ROLLING" != "null" ] \
-            || { echo "::error::no rolling_tag for the beta channel"; exit 1; }
+          ROLLING="$(jq -r '.channels.beta.rolling_tag // empty' release.config.json)"
+          if [ -z "$ROLLING" ]; then
+            echo "::error::no rolling_tag for the beta channel in release.config.json"
+            exit 1
+          fi
           sed -e "s#/releases/latest/download/#/releases/download/${ROLLING}/#g" "$SRC" \
             > _site/beta/index.html
 

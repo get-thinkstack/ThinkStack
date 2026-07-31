@@ -104,7 +104,15 @@ jobs:
       - name: Run actionlint
         run: |
           bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
-          ./actionlint -color
+          # The shellcheck exclusions MUST match scripts/preflight.sh exactly.
+          #
+          # actionlint shells out to whatever shellcheck is on the machine, and
+          # the runner's is older than a current developer install. shellcheck
+          # 0.11 stopped reporting SC2015 when the `||` branch exits; the
+          # runner's still reports it. That is a failure no one can reproduce
+          # locally -- it cost a red CI on a workflow that linted clean here.
+          # Pinning the excluded codes on both sides removes the skew.
+          ./actionlint -color -shellcheck "shellcheck -e SC1091,SC2015"
 
   # -- python: real-bug lint (ruff E9 + pyflakes) --
   python-lint:
