@@ -213,13 +213,16 @@ export const papersApi = {
       body: { project_id: projectId, source },
     }),
 
-  generate: (projectId, prompt, currentSource = '', { docIds = [], analysisContext = '' } = {}) =>
+  generate: (projectId, prompt, currentSource = '', { docIds = [], analysisContext = '', cursor = null } = {}) =>
     llmRequest('Generating LaTeX', '/papers/generate', {
       method: 'POST',
       body: {
         project_id: projectId,
         prompt,
         current_source: currentSource,
+        // where the author is working, so the model is shown that part of the
+        // document rather than its opening
+        cursor,
         doc_ids: docIds,
         analysis_context: analysisContext,
       },

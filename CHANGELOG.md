@@ -38,6 +38,11 @@ Work merged but not yet tagged.
   it, and it silenced every future model rather than the one declined.
 
 ### Added
+- `LICENSE` (MIT) and `THIRD-PARTY-NOTICES.md`, covering the model weights and
+  TeX engine redistributed inside the installer.
+- `docs/FUTURE_WORK.md`, separating near-term consolidation (LitGraph, Library)
+  from longer work (custom models, federated learning, a LaTeX editor built from
+  scratch).
 - **The loading screen reports every startup step** with timings, names the
   backend it is launching, and fails with a real error plus a log path instead of
   spinning forever. Startup is bounded at 180s.
@@ -53,6 +58,13 @@ Work merged but not yet tagged.
   paths, and expected unsigned-build friction.
 
 ### Changed
+- **The paper writer edits the document instead of appending to it.** The model
+  was shown the first 6000 characters of the source, which on any real paper is
+  the preamble and introduction, never the part being worked on. It is now shown
+  the preamble plus a window around your cursor with an explicit insertion
+  point, and generated content is inserted **at the cursor** rather than at the
+  end of the document. Output that repeats the surrounding sections, or that
+  redeclares the preamble, is stripped before insertion.
 - **A TeX engine ships inside the installer.** The paper writer no longer needs
   LaTeX installed on the machine — PDF compilation works out of the box, offline.
   Costs ~25 MB compressed per installer.
