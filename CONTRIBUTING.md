@@ -262,16 +262,36 @@ stderr are captured there.
 Only once the installer in `local/` has been validated:
 
 ```bash
-# a feature: soak it on beta first, users later
-scripts/promote.sh feature 1.1.0     # dev -> beta,  tags v1.1.0-beta.N
-#   ... testers install the beta on all three OSes ...
-scripts/promote.sh release 1.1.0     # beta -> main, tags v1.1.0
-
-# a bug fix: beta AND main together, no soak
-scripts/promote.sh fix 1.0.1
+scripts/promote.sh feature     # dev -> beta,   next MINOR
+scripts/promote.sh fix         # dev -> beta AND main, next PATCH
+scripts/promote.sh major       # dev -> beta,   next MAJOR
+scripts/promote.sh release     # beta -> main,  what beta validated
 ```
 
+**You do not pass a version.** It is derived from the newest published stable
+tag, so nobody has to remember the rule or look it up:
+
+| Kind | Bump | Example |
+|------|------|---------|
+| `fix` | patch | `1.0.0` -> `1.0.1` |
+| `feature` | minor | `1.0.0` -> `1.1.0` |
+| `major` | major | `1.0.0` -> `2.0.0` |
+| `release` | none | promotes exactly what beta has been testing |
+
+`release` deliberately reuses beta's version rather than choosing a new one:
+promoting a number nobody validated would defeat the point of the beta channel.
+
+Pass a version explicitly to override, e.g. `scripts/promote.sh feature 1.6.7`.
+
+`scripts/next_version.py --infer --explain` shows what the commit history
+implies and why, without changing anything.
+
 `--dry-run` prints every git command without running one. Use it the first time.
+
+**Merging `beta` into `main` releases automatically.** `release-on-main.yml`
+reads the version beta validated, tags it, builds all three platforms and
+publishes, so the installers users download are swapped without a manual step.
+It does nothing if that version is already tagged.
 
 Each tag kicks off a **~45 minute three-OS build** that publishes installers and
 the signed updater manifest. Installed apps pick the update up on next launch —

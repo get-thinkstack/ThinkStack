@@ -35,7 +35,7 @@ DRY_RUN=false
 ASSUME_YES=false
 while [ $# -gt 0 ]; do
     case "$1" in
-        feature|release|fix) KIND="$1"; shift ;;
+        feature|release|fix|major) KIND="$1"; shift ;;
         --dry-run) DRY_RUN=true; shift ;;
         --yes|-y)  ASSUME_YES=true; shift ;;
         -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
@@ -44,9 +44,37 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-if [ -z "$KIND" ] || [ -z "$VERSION" ]; then
-    echo -e "${RED}usage: scripts/promote.sh {feature|release|fix} <version> [--dry-run] [--yes]${NC}"
+if [ -z "$KIND" ]; then
+    echo -e "${RED}usage: scripts/promote.sh {feature|fix|major|release} [version] [--dry-run] [--yes]${NC}"
+    echo "  feature   next MINOR   X.Y.Z -> X.(Y+1).0     dev  -> beta"
+    echo "  fix       next PATCH   X.Y.Z -> X.Y.(Z+1)     dev  -> beta and main"
+    echo "  major     next MAJOR   X.Y.Z -> (X+1).0.0     dev  -> beta"
+    echo "  release   promote what beta is testing        beta -> main"
+    echo ""
+    echo "  the version is worked out for you; pass one only to override."
     exit 1
+fi
+
+# Work out the version rather than making someone remember the rule. Derived
+# from the newest published STABLE tag, not from tauri.conf.json, which is only
+# bumped while cutting a release and is therefore behind between them.
+if [ -z "$VERSION" ]; then
+    case "$KIND" in
+        fix)     VERSION="$(python3 scripts/next_version.py --bump patch)" ;;
+        feature) VERSION="$(python3 scripts/next_version.py --bump minor)" ;;
+        major)   VERSION="$(python3 scripts/next_version.py --bump major)" ;;
+        release)
+            # Promote exactly what beta has been testing. Choosing a different
+            # number here would ship a version nobody validated.
+            VERSION="$(gh release view beta --repo "$REPO" --json name \
+                        --jq '.name' 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+            if [ -z "$VERSION" ]; then
+                VERSION="$(python3 scripts/next_version.py --infer)"
+                echo -e "  ${YELLOW}no beta release found; inferred ${VERSION} from the commits${NC}"
+            fi
+            ;;
+    esac
+    echo -e "  ${CYAN}version:${NC} ${VERSION}  (derived; pass one explicitly to override)"
 fi
 if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
     echo -e "${RED}version must look like 1.2.3 (got '$VERSION')${NC}"; exit 1
@@ -127,6 +155,11 @@ case "$KIND" in
         echo -e "  ${DEV_BRANCH} -> ${BETA_BRANCH} and ${DEV_BRANCH} -> ${MAIN_BRANCH}, tagging both."
         echo -e "  ${YELLOW}a fix ships to users immediately - no beta soak.${NC}"
         ;;
+    major)
+        echo -e "  ${DEV_BRANCH} -> ${BETA_BRANCH}, then tag a beta."
+        echo -e "  ${YELLOW}a breaking change soaks on beta like a feature does,${NC}"
+        echo -e "  ${YELLOW}and needs a deliberate 'release' to reach users.${NC}"
+        ;;
 esac
 $DRY_RUN && echo -e "  ${YELLOW}(dry run - nothing will change)${NC}"
 
@@ -152,6 +185,10 @@ case "$KIND" in
         tag_channel beta
         merge_into "$DEV_BRANCH" "$MAIN_BRANCH"
         tag_channel stable
+        ;;
+    major)
+        merge_into "$DEV_BRANCH" "$BETA_BRANCH"
+        tag_channel beta
         ;;
 esac
 
