@@ -136,11 +136,15 @@ tag_channel() {
         local n; n="$(next_beta "$VERSION")"
         echo ""
         echo -e "${CYAN}[tag]${NC} beta -> v${VERSION}-beta.${n}"
-        run ./scripts/release.sh "$VERSION" --beta "$n" --push
+        run ./scripts/release.sh "$VERSION" --beta "$n" --push \
+            || fail "the tag was refused, so nothing was released. The branch
+  merge above DID happen. Fix what release.sh reported, then re-run this."
     else
         echo ""
         echo -e "${CYAN}[tag]${NC} stable -> v${VERSION}"
-        run ./scripts/release.sh "$VERSION" --push
+        run ./scripts/release.sh "$VERSION" --push \
+            || fail "the tag was refused, so nothing was released. The branch
+  merge above DID happen. Fix what release.sh reported, then re-run this."
     fi
 }
 
