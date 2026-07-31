@@ -81,11 +81,24 @@ if [ -z "$VERSION" ]; then
         release)
             # Promote exactly what beta has been testing. Choosing a different
             # number here would ship a version nobody validated.
-            VERSION="$(gh release view "$BETA_ROLLING_TAG" --repo "$REPO" --json name \
-                        --jq '.name' 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+            #
+            # Read from the beta VERSION TAGS, not from the rolling release's
+            # name. The tags are the record of what was actually built, they
+            # need no API call, and they do not depend on what the rolling tag
+            # is called -- a lookup by rolling-tag name returned nothing the
+            # moment that tag was renamed, and the fallback below then inferred
+            # 1.1.0 while beta was testing 1.6.7.
+            VERSION="$(git tag -l 'v*-beta.*' \
+                        | sed 's/^v//; s/-beta\..*//' | sort -V | tail -1)"
+            if [ -z "$VERSION" ]; then
+                VERSION="$(gh release view "$BETA_ROLLING_TAG" --repo "$REPO" --json name \
+                            --jq '.name' 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+            fi
             if [ -z "$VERSION" ]; then
                 VERSION="$(python3 scripts/next_version.py --infer)"
-                echo -e "  ${YELLOW}no beta release found; inferred ${VERSION} from the commits${NC}"
+                echo -e "  ${YELLOW}no beta tag found; inferred ${VERSION} from the commits${NC}"
+            else
+                echo -e "  ${GREEN}promoting what beta validated: ${VERSION}${NC}"
             fi
             ;;
     esac
