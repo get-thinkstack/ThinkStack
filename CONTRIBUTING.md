@@ -278,6 +278,26 @@ tag, so nobody has to remember the rule or look it up:
 | `major` | major | `1.0.0` -> `2.0.0` |
 | `release` | none | promotes exactly what beta has been testing |
 
+### Branch names carry the version
+
+Name your branch for what it is, and the number follows:
+
+| Branch | Counts as | Component |
+|--------|-----------|-----------|
+| `feat/short-description` | a feature | **Y** in `X.Y.Z` |
+| `fix/short-description` | a fix | **Z** in `X.Y.Z` |
+| merging `beta` into `main` | a release | **X**, with Y and Z reset |
+
+```bash
+scripts/next_version.py --counted --explain   # X.Y.Z from what has landed
+scripts/next_version.py --release             # what the next release will be
+```
+
+Counting walks the **first-parent** history, so each landing is counted once:
+a merge is classified by its branch name, and a direct push by its commit
+prefix. A feature that lands inside a branch named `fix/...` therefore counts
+as a fix, which is a reason to name branches honestly.
+
 `release` deliberately reuses beta's version rather than choosing a new one:
 promoting a number nobody validated would defeat the point of the beta channel.
 

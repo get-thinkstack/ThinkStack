@@ -32,6 +32,13 @@ import sys
 
 SEMVER_TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 
+# Branch names as they appear in a merge subject:
+#   "Merge pull request #48 from owner/fix/mac-issues"
+#   "Merge branch 'feat/thing'"
+MERGED_BRANCH = re.compile(
+    r"Merge (?:pull request #\d+ from [^/]+/|branch '\)?)(?P<branch>[\w./-]+)"
+)
+
 # A commit is breaking if it says so the way conventional commits say it.
 BREAKING = re.compile(r"^\w+(\([^)]*\))?!:|BREAKING[ -]CHANGE", re.M)
 FEATURE = re.compile(r"^feat(\([^)]*\))?:", re.I)
@@ -81,6 +88,46 @@ def infer_bump(commits: list[str]) -> tuple[str, str]:
     return "patch", f"{len(fixes)} fix(es), {len(commits) - len(fixes)} other"
 
 
+def count_branch_work(version: tuple[int, int, int]) -> tuple[int, int, list[str]]:
+    """Count features and fixes landed since `version`, by how they landed.
+
+    Walks the FIRST-PARENT history, so each landing is counted exactly once:
+    a merge is one entry (classified by its branch name), and a commit pushed
+    directly is one entry (classified by its conventional prefix). Walking the
+    full history instead would count a feature branch once for the merge and
+    again for each commit inside it.
+
+        feat/anything  or  feat: ...   -> a feature
+        fix/anything   or  fix:  ...   -> a fix
+
+    Returns (features, fixes, notes).
+    """
+    tag = "v%d.%d.%d" % version
+    rng = f"{tag}..HEAD" if _git("rev-parse", "--verify", "--quiet", tag) else "HEAD"
+    subjects = _git("log", "--first-parent", "--pretty=%s", rng).splitlines()
+
+    features = fixes = 0
+    notes: list[str] = []
+    for subject in subjects:
+        m = MERGED_BRANCH.search(subject)
+        if m:
+            branch = m.group("branch")
+            if branch.startswith(("feat/", "feature/")):
+                features += 1
+                notes.append(f"feature  {branch}")
+            elif branch.startswith(("fix/", "hotfix/")):
+                fixes += 1
+                notes.append(f"fix      {branch}")
+            continue
+        if FEATURE.match(subject):
+            features += 1
+            notes.append(f"feature  {subject[:60]}")
+        elif FIX.match(subject):
+            fixes += 1
+            notes.append(f"fix      {subject[:60]}")
+    return features, fixes, notes
+
+
 def apply_bump(version: tuple[int, int, int], bump: str) -> str:
     major, minor, patch = version
     if bump == "major":
@@ -96,6 +143,12 @@ def main() -> int:
     g.add_argument("--bump", choices=["major", "minor", "patch"])
     g.add_argument("--infer", action="store_true")
     g.add_argument("--current", action="store_true")
+    g.add_argument("--counted", action="store_true",
+                   help="X.Y.Z where Y counts features and Z counts fixes "
+                        "landed since the last stable release")
+    g.add_argument("--release", action="store_true",
+                   help="the next release version: X is incremented, "
+                        "Y and Z reset")
     ap.add_argument("--explain", action="store_true",
                     help="print the reasoning to stderr")
     args = ap.parse_args()
@@ -104,6 +157,24 @@ def main() -> int:
 
     if args.current:
         print("%d.%d.%d" % cur)
+        return 0
+
+    if args.counted or args.release:
+        feats, fixes, notes = count_branch_work(cur)
+        if args.release:
+            # Reaching users is the event that increments X. Y and Z reset,
+            # because they count work accumulated toward this release.
+            nxt = f"{cur[0] + 1}.0.0"
+        else:
+            nxt = f"{cur[0]}.{feats}.{fixes}"
+        if args.explain:
+            print("  current stable : v%d.%d.%d" % cur, file=sys.stderr)
+            print(f"  landed since   : {feats} feature(s), {fixes} fix(es)",
+                  file=sys.stderr)
+            for n in notes:
+                print(f"      {n}", file=sys.stderr)
+            print(f"  next           : v{nxt}", file=sys.stderr)
+        print(nxt)
         return 0
 
     if args.infer:
