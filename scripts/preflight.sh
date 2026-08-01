@@ -158,6 +158,12 @@ if changed_matches '\.py$|ruff\.toml'; then
     fi
 fi
 
+# ── pinned dependencies (CI: "Dependencies are pinned") ─────
+# A range lets the same commit build a different program tomorrow.
+if changed_matches 'requirements.*\.txt|scripts/check_pins\.py'; then
+    run_check "dependency pins" python3 scripts/check_pins.py
+fi
+
 # ── 2. unit tests (CI: "Test (pytest)") ─────────────────────
 if changed_matches '\.py$|pytest\.ini|requirements.*\.txt'; then
     if python3 -m pytest --version >/dev/null 2>&1; then
