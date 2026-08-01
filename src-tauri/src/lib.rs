@@ -231,6 +231,22 @@ fn scrub_python_env(cmd: &mut Command) {
     ] {
         cmd.env_remove(key);
     }
+
+    // Keep the working directory off sys.path.
+    //
+    // nltk 3.10.1 added a security hook that REFUSES to import xml.etree when
+    // the current directory is importable, and the frozen backend imports nltk
+    // during startup. The result was "Blocked import of xml.etree from current
+    // working directory", the process died before serving anything, and every
+    // platform failed identically -- from a dependency release, with no change
+    // on our side.
+    //
+    // The backend never needs the working directory on its path: PyInstaller
+    // resolves its modules from the bundle. Setting this makes that explicit
+    // and closes the whole class of "something in the CWD shadowed a stdlib
+    // module", which is also how a stray file next to the app could hijack an
+    // import.
+    cmd.env("PYTHONSAFEPATH", "1");
 }
 
 fn apply_inference_env(cmd: &mut Command) {
