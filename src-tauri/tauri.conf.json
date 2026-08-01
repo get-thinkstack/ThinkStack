@@ -38,7 +38,9 @@
     ],
     "createUpdaterArtifacts": true,
     "resources": {
-      "../dist/thinkstack-api/": "api/"
+      "../dist/thinkstack-api/": "api/",
+      "../docs/**/*.md": "docs/",
+      "../docs/academic/*.pdf": "docs/academic/"
     },
     "icon": [
       "icons/32x32.png",
