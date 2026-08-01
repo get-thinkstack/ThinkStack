@@ -1,0 +1,4 @@
+[toolchain]
+# windows-gnu is the machine default but has no dlltool.exe (needs MinGW).
+# msvc is installed and works; pin it so cargo/tauri picks it without env vars.
+channel = "stable-x86_64-pc-windows-msvc"
