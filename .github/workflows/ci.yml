@@ -144,6 +144,12 @@ jobs:
           cache-dependency-path: requirements-test.txt
       - name: Install test dependencies
         run: pip install -r requirements-test.txt
+      # A range means the same commit can build a different program tomorrow.
+      # nltk 3.10.1 proved it: released between two builds, it killed the frozen
+      # backend on all three platforms with no change on our side.
+      - name: Dependencies are pinned
+        run: python scripts/check_pins.py
+
       - name: Run unit tests
         run: pytest --cov=domain --cov=infrastructure --cov=config --cov-report=term-missing
 

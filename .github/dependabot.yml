@@ -1,0 +1,82 @@
+version: 2
+
+# Dependency updates are automatic; MERGING them is not.
+#
+# Every requirement is pinned with == (scripts/check_pins.py enforces it, in CI
+# and in preflight). Pinning without a way to move forward just rots, so this is
+# the other half: dependabot proposes each upgrade as a pull request, CI builds
+# and tests it, and one human decides.
+#
+# This exists because of a real failure. nltk was declared `>=3.9.1`. 3.10.1 was
+# released between two builds and added a hook that refuses to import xml.etree
+# when the working directory is importable, so the frozen backend died during
+# startup on Linux, macOS and Windows simultaneously -- from a commit that
+# changed no Python code. It could not be reproduced locally either, because the
+# developer's venv had 3.9.4.
+#
+# The difference now: that upgrade arrives as a reviewable pull request against
+# dev, runs the full pipeline, and gets rejected there instead of at a beta
+# tester's desk.
+#
+# Targets `dev` on purpose. beta and main are promoted into, never developed on,
+# so an upgrade travels the same path as any other change.
+
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    target-branch: dev
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "fix(deps)"
+    labels: [dependencies, python]
+    reviewers: [Rithesh077]
+    groups:
+      # One PR for the things that only matter to CI keeps the review small;
+      # anything that ships in the installer is proposed on its own, because
+      # that is the code that reaches users.
+      dev-tooling:
+        patterns: ["ruff", "pytest*", "coverage*", "pyinstaller"]
+
+  - package-ecosystem: npm
+    directory: "/frontend"
+    target-branch: dev
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "fix(deps)"
+    labels: [dependencies, frontend]
+    reviewers: [Rithesh077]
+    groups:
+      build-tooling:
+        patterns: ["vite*", "@vitejs/*", "eslint*", "vitest", "jsdom"]
+
+  - package-ecosystem: cargo
+    directory: "/src-tauri"
+    target-branch: dev
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "fix(deps)"
+    labels: [dependencies, rust]
+    reviewers: [Rithesh077]
+
+  # Actions are pinned by tag and drift just as silently. A deprecated runner
+  # image or a major-version bump breaks the build with no commit of ours.
+  - package-ecosystem: github-actions
+    directory: "/"
+    target-branch: dev
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "ci(deps)"
+    labels: [dependencies, ci]
+    reviewers: [Rithesh077]
