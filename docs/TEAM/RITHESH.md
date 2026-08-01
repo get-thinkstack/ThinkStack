@@ -5,7 +5,7 @@ the team (and future me) can find the reasoning behind the decisions.
 
 ## Paper writer
 
-The paper writer is the LaTeX side of the app: an editor, an AI draft helper, a
+Scribe is the LaTeX side of the app: an editor, an AI draft helper, a
 compiler, and a live preview. The pieces I own:
 
 - `domain/paper_writer/compiler.py`: the pdflatex wrapper. It parses compiler
@@ -13,7 +13,7 @@ compiler, and a live preview. The pieces I own:
   or table still produces a PDF instead of failing the whole document.
 - `api/routes_papers.py`: the project endpoints (create, read, save, generate,
   compile, download, delete).
-- `frontend/src/components/PaperWriter.jsx`: the editor, the AI prompt bar, and
+- `frontend/src/components/Scribe.jsx`: the editor, the AI prompt bar, and
   the preview tabs.
 - `frontend/src/components/LatexPreview.jsx`: a client-side LaTeX-to-HTML
   renderer that uses KaTeX for math, so the "Live Preview" tab updates as you
@@ -49,7 +49,7 @@ Two packaging corrections are worth recording:
 
 ## Model bundling and routing
 
-The installer bundles one model - a 0.5B for chat, search, and the paper writer.
+The installer bundles one model - a 0.5B for chat, search, and Scribe.
 The 0.5B is fast and light but produces malformed JSON on the structured-output
 tasks (summarize, claims, gap-finder), so those route to a 1.5B when one is
 available; it is fetched on consent or reused from an existing Ollama/LM Studio
