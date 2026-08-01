@@ -17,6 +17,35 @@ See [scripts/README.md](scripts/README.md) for how releases are cut.
 
 Work merged but not yet tagged.
 
+### Changed — breaking
+
+- **The app is now three sections instead of five.** Library, Search, Analysis,
+  Gap Finder and Paper Writer became **Bibliotekh** → **LitGraph** → **Scribe**
+  (collect, understand, write). Search, Analysis and Gap Finder were three views
+  onto one question, so they are now one canvas. `/search`, `/analysis` and
+  `/gaps` redirect to `/litgraph`; any bookmark to them still lands somewhere
+  sensible. No data, API route or storage path changed — only the sections.
+- **Search is purely semantic.** BM25 keyword search and the reciprocal-rank
+  fusion that combined it with vector search are gone, along with the
+  `rank-bm25` dependency. Queries are now ranked by cosine similarity across
+  *every* chunk of every paper rather than a `top_k` candidate pool. Paraphrase
+  queries improve markedly; rare literal tokens (`FedAvg`, author surnames) are
+  preserved by a small exact-token bonus applied after the semantic score.
+  Results may be ordered differently than before. See `docs/ADR.md`.
+
+### Added
+
+- **LitGraph** — a spatial map of your library. Papers are positioned by meaning
+  (PCA over embedding centroids), linked by similarity, grouped into theme
+  territory, and annotated with gap markers wired back to their evidence. The
+  map doubles as the selector: shift-drag a lasso or run a search, and
+  Summarize / Claims / Themes / Find-gaps operate on that selection. Past
+  analyses and gap scans live in one Runs drawer.
+- `GET /api/graph` — the derived graph payload. Computed from data that already
+  persists, so there is no new state and no extra model call.
+- `POST /api/search` accepts `group_by_doc`, returning papers with every one of
+  their matching chunks in reading order.
+
 ### Fixed
 - **The packaged app never started.** v1.0.0's installer showed a loading spinner
   indefinitely. The backend lookup missed the AppImage/deb layout (binary in

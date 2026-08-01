@@ -8,15 +8,24 @@ own browser (bound to localhost, not hosted anywhere). either way nothing is
 served to the internet and no data leaves the device: language-model inference
 runs locally through `llama.cpp`, and embeddings run locally too.
 
+the app is three sections, in the order the work happens:
+**bibliotekh** (collect) -> **litgraph** (understand) -> **scribe** (write).
+
 ## features
 
 - **ingest and index pdfs.** text extraction (pymupdf, pdfplumber) followed by
   sentence-transformer embeddings, stored in a file-based vector store.
-- **search.** combined semantic and keyword search across your collection.
+- **semantic search.** queries are ranked by meaning across every chunk of every
+  paper, with a small exact-token bonus so rare literal terms stay findable.
+- **litgraph.** a map of your collection: papers placed by meaning (pca over
+  embedding centroids), linked by similarity, grouped into theme territory, with
+  research gaps drawn as markers wired to the papers that evidence them. the map
+  is also the selector -- lasso a region and run summarize, claims, themes or
+  gap-finding on exactly those papers.
 - **analysis.** paper summaries, key-claim extraction, and thematic clustering.
 - **gap finder.** surfaces under-explored areas and suggests research directions.
 - **chat.** a retrieval-augmented assistant grounded on the papers you select.
-- **paper writer.** an ai-assisted latex editor. select any plain-english line
+- **scribe.** an ai-assisted latex editor. select any plain-english line
   and press ctrl+enter to have the local model rewrite it as latex in place. the
   compiled pdf is the preview and rebuilds itself a moment after you stop typing
   (toggle it off and drive it with the compile button instead). the compiler adds
@@ -54,11 +63,11 @@ the built react ui. the tauri shell wraps that backend into a desktop window.
 ```text
 main.py            fastapi app: serves the react spa and /api, with spa-fallback routing
 config.py          pydantic-settings config (env prefix: THINKSTACK_)
-api/               rest endpoints (documents, search, analysis, gaps, chat,
-                   papers, encryption, system)
-domain/            core logic: ingestion, knowledge_base, search, analysis,
-                   gap_finder, chat, paper_writer, encryption, fine_tuning,
-                   model_manager (catalog, discovery, downloader)
+api/               rest endpoints (documents, search, graph, analysis, gaps,
+                   chat, papers, encryption, system)
+domain/            core logic: ingestion, knowledge_base, search, litgraph,
+                   analysis, gap_finder, chat, paper_writer, encryption,
+                   fine_tuning, model_manager (catalog, discovery, downloader)
 infrastructure/    llm client (llama.cpp wrapper), vector store, hardware profiler,
                    file manager, caches and run histories
 frontend/          react 19 + vite spa (built to frontend/dist, served by fastapi)
