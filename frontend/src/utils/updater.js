@@ -22,11 +22,27 @@ function inTauri() {
     (Boolean(window.__TAURI_INTERNALS__) || Boolean(window.__TAURI__));
 }
 
-/** default UX: a blocking confirm() with the new version number. */
-function defaultConfirm({ version }) {
+/** human-readable byte size, for a download measured in hundreds of megabytes. */
+function mb(bytes) {
+  return `${Math.round(bytes / 1024 / 1024)} MB`;
+}
+
+/**
+ * default UX: a blocking confirm() with the new version number AND the size.
+ *
+ * The size is not a detail. ThinkStack ships the model weights inside the
+ * bundle, so an update is ~900 MB, not the few MB people expect from an "update
+ * now?" prompt. Someone on a metered or slow connection needs to know that
+ * before saying yes, and someone who says yes needs to understand why it then
+ * takes several minutes.
+ */
+function defaultConfirm({ version, size }) {
+  const weight = size ? ` (about ${mb(size)})` : '';
   return window.confirm(
-    `ThinkStack ${version} is available.\n\n` +
-    `Install it now and restart? Your papers and data are kept.`
+    `ThinkStack ${version} is available${weight}.\n\n` +
+    `The download includes the local model, so it is large and may take a few ` +
+    `minutes. Your papers and data are kept.\n\n` +
+    `Install it now and restart?`
   );
 }
 
@@ -50,7 +66,7 @@ export const APP_VERSION = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__
  *                   | 'install-failed' | 'restart-needed' | 'unsupported'
  *                   | 'error'>}
  */
-export async function checkForUpdatesInteractive() {
+export async function checkForUpdatesInteractive({ onProgress } = {}) {
   if (!inTauri()) return 'unsupported';
 
   let update;
@@ -86,14 +102,49 @@ export async function checkForUpdatesInteractive() {
 
   if (!update) return 'current';
 
-  const accepted = await defaultConfirm({ version: update.version });
+  const accepted = await defaultConfirm({
+    version: update.version,
+    size: update.contentLength,
+  });
   if (!accepted) return 'current';
 
   try {
     // The bundle's signature is verified against the public key in
     // tauri.conf.json before anything is written. A tampered or truncated
     // download fails here, leaving the installed version untouched.
-    await update.downloadAndInstall();
+    //
+    // The progress callback is not decoration. The bundle carries the model
+    // weights, so this transfers ~900 MB: without it the button sat on
+    // "Checking..." for several minutes with no output, which is
+    // indistinguishable from a hang, and the first person to try it reasonably
+    // concluded the updater was broken.
+    let total = 0;
+    let done = 0;
+    await update.downloadAndInstall((event) => {
+      switch (event.event) {
+        case 'Started':
+          total = event.data?.contentLength ?? 0;
+          done = 0;
+          onProgress?.({ phase: 'downloading', done, total, percent: 0 });
+          break;
+        case 'Progress':
+          done += event.data?.chunkLength ?? 0;
+          onProgress?.({
+            phase: 'downloading',
+            done,
+            total,
+            // No total means no percentage; report bytes rather than a
+            // fabricated one.
+            percent: total ? Math.min(100, Math.round((done / total) * 100)) : null,
+          });
+          break;
+        case 'Finished':
+          onProgress?.({ phase: 'installing', done: total, total, percent: 100 });
+          break;
+        default:
+          break;
+      }
+    });
   } catch (err) {
     console.warn('[updater] install failed:', err);
     // Deliberately NOT relaunching. The installed version is still the working

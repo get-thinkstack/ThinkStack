@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Clock, CheckCircle, FileText, Trash2, RefreshCw, ChevronDown, ChevronUp, Lock, Unlock, ShieldCheck, ShieldOff, Eye, EyeOff, BarChart2, Brain, Target } from 'lucide-react';
+import { Clock, CheckCircle, FileText, Trash2, RefreshCw, ChevronDown, ChevronUp, Lock, ShieldCheck, ShieldOff, Eye, EyeOff, BarChart2, Brain, Target } from 'lucide-react';
 import { documentsApi, encryptionApi } from '../utils/api';
 import UploadPanel from './UploadPanel';
 import LibraryChart from './charts/LibraryChart';
