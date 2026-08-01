@@ -542,6 +542,75 @@ jobs:
       # continue-on-error while this proves itself: a spurious failure here
       # would block releases, which is a worse bug than the one it catches.
       # Once it has passed a few real builds, drop the flag and let it gate.
+      - name: Detect Apple signing availability
+        id: apple
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          CERT: ${{ secrets.APPLE_CERTIFICATE }}
+        run: |
+          if [ -n "$CERT" ]; then
+            echo "signing=true" >> "$GITHUB_OUTPUT"
+            echo "apple signing certificate present - will codesign + notarize"
+          else
+            echo "signing=false" >> "$GITHUB_OUTPUT"
+            echo "no apple certificate - building unsigned (gatekeeper warns once)"
+          fi
+
+      - name: Build Tauri app (macOS universal, signed)
+        if: runner.os == 'macOS' && steps.apple.outputs.signing == 'true'
+        run: npm run tauri build -- --target universal-apple-darwin --bundles ${{ matrix.bundles }}
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      # identical build, minus every APPLE_* var, so tauri never attempts to
+      # codesign. still signs the UPDATER artifacts (.sig) so auto-update works.
+      - name: Build Tauri app (macOS universal, unsigned)
+        if: runner.os == 'macOS' && steps.apple.outputs.signing != 'true'
+        run: npm run tauri build -- --target universal-apple-darwin --bundles ${{ matrix.bundles }}
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      # -- collect artifacts --
+      # *.sig are the updater signatures (present only when signing secrets are
+      # set); the publish job reads them to build the channel manifest. the
+      # AppImage / .app.tar.gz / .msi are also the auto-updater's install targets.
+      # A missing bundle is a BUILD failure and must never be silent.
+      #
+      # The launch tests below are continue-on-error while they prove
+      # themselves, which means anything they report -- including "no .app
+      # found" -- shows up as a tick. That is exactly what happened: the macOS
+      # test was ordered before the macOS build, found nothing, and passed.
+      # This step is not continue-on-error, so the artifact's absence fails the
+      # job while a flaky launch still only warns.
+      - name: The build produced a bundle
+        if: ${{ !inputs.skip_models }}
+        shell: bash
+        run: |
+          case "${{ runner.os }}" in
+            Linux)
+              F="$(find src-tauri/target/release/bundle/appimage -name '*.AppImage' 2>/dev/null | head -1)" ;;
+            macOS)
+              F="$(find src-tauri/target/universal-apple-darwin/release/bundle/macos -maxdepth 1 -name '*.app' 2>/dev/null | head -1)" ;;
+            Windows)
+              F="$(find src-tauri/target/release -maxdepth 1 -name '*.exe' 2>/dev/null | head -1)" ;;
+          esac
+          if [ -z "$F" ]; then
+            echo "::error::${{ runner.os }} build produced no bundle to test"
+            exit 1
+          fi
+          echo "found: $F"
+
       - name: App launch smoke test (macOS)
         if: runner.os == 'macOS' && !inputs.skip_models
         continue-on-error: true
@@ -628,49 +697,6 @@ jobs:
       # fail with "failed to import keychain certificate" instead of quietly
       # skipping signing. so detect first, then run one of two variants: the
       # unsigned one does not define the APPLE_* vars at all.
-      - name: Detect Apple signing availability
-        id: apple
-        if: runner.os == 'macOS'
-        shell: bash
-        env:
-          CERT: ${{ secrets.APPLE_CERTIFICATE }}
-        run: |
-          if [ -n "$CERT" ]; then
-            echo "signing=true" >> "$GITHUB_OUTPUT"
-            echo "apple signing certificate present - will codesign + notarize"
-          else
-            echo "signing=false" >> "$GITHUB_OUTPUT"
-            echo "no apple certificate - building unsigned (gatekeeper warns once)"
-          fi
-
-      - name: Build Tauri app (macOS universal, signed)
-        if: runner.os == 'macOS' && steps.apple.outputs.signing == 'true'
-        run: npm run tauri build -- --target universal-apple-darwin --bundles ${{ matrix.bundles }}
-        shell: bash
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-
-      # identical build, minus every APPLE_* var, so tauri never attempts to
-      # codesign. still signs the UPDATER artifacts (.sig) so auto-update works.
-      - name: Build Tauri app (macOS universal, unsigned)
-        if: runner.os == 'macOS' && steps.apple.outputs.signing != 'true'
-        run: npm run tauri build -- --target universal-apple-darwin --bundles ${{ matrix.bundles }}
-        shell: bash
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-
-      # -- collect artifacts --
-      # *.sig are the updater signatures (present only when signing secrets are
-      # set); the publish job reads them to build the channel manifest. the
-      # AppImage / .app.tar.gz / .msi are also the auto-updater's install targets.
       - name: Collect artifacts (Linux)
         if: runner.os == 'Linux'
         run: |
