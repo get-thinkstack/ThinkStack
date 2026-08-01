@@ -20,7 +20,7 @@ For the full feature reference, see [FEATURES.md](FEATURES.md).
 
 | | |
 |---|---|
-| Latest release | **v<!-- autodoc:version -->1.6.11<!-- /autodoc -->** |
+| Latest release | **v<!-- autodoc:version -->1.6.16<!-- /autodoc -->** |
 | Desktop shell | Tauri <!-- autodoc:tauri -->2<!-- /autodoc --> (Rust, edition <!-- autodoc:rust_edition -->2021<!-- /autodoc -->) |
 | Interface | React <!-- autodoc:react -->19.2.6<!-- /autodoc -->, built with Vite <!-- autodoc:vite -->8.0.12<!-- /autodoc --> |
 | Backend | Python <!-- autodoc:python -->3.12<!-- /autodoc --> (FastAPI) |
