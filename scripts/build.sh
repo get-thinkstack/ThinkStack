@@ -12,6 +12,12 @@ set -e
 
 cd "$(dirname "$0")/.."
 
+# `python3` on Windows is a Microsoft Store stub that does not run, and inside
+# an activated venv `python` always exists. Prefer `python`, fall back to
+# `python3` for the bare-Linux case where only the versioned name is on PATH.
+PY=python
+command -v python >/dev/null 2>&1 || PY=python3
+
 # ── colors ──
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -40,7 +46,8 @@ done
 if [ "$FETCH_EMBEDDINGS" = true ]; then
     echo -e "${CYAN}fetching the embedding model (one time, ~90MB)...${NC}"
     [ -f .venv/bin/activate ] && source .venv/bin/activate
-    python3 - <<'PY'
+    [ -f .venv/Scripts/activate ] && source .venv/Scripts/activate
+    $PY - <<'PY'
 from pathlib import Path
 target = Path("data/models/all-MiniLM-L6-v2")
 if target.is_dir():
@@ -120,7 +127,35 @@ echo -e "${CYAN}[2/4] freezing python backend with pyinstaller...${NC}"
 if [ "$SKIP_PYINSTALLER" = true ]; then
     echo -e "  ${YELLOW}skipped (--skip-pyinstaller)${NC}"
 else
-    source .venv/bin/activate
+    # Activate whichever build venv this machine has. Windows lays a venv out
+    # as Scripts/ and names the interpreter python.exe; the POSIX-only
+    # `source .venv/bin/activate` meant the documented build path could not run
+    # on Windows at all, so the Windows build was done by hand instead -- which
+    # is how .venv-build drifted out of sync with requirements.txt.
+    VENV=""
+    for candidate in .venv-build .venv; do
+        if [ -f "$candidate/bin/activate" ]; then
+            # shellcheck disable=SC1090
+            source "$candidate/bin/activate"; VENV="$candidate"; break
+        elif [ -f "$candidate/Scripts/activate" ]; then
+            # shellcheck disable=SC1090
+            source "$candidate/Scripts/activate"; VENV="$candidate"; break
+        fi
+    done
+    if [ -n "$VENV" ]; then
+        echo -e "  ${GREEN}using build venv:${NC} $VENV"
+    else
+        echo -e "  ${YELLOW}no .venv-build/.venv found - freezing from the ambient python${NC}"
+    fi
+
+    # PyInstaller separates source from destination with ':' on POSIX and ';'
+    # on Windows. Using the wrong one silently produces a bundle with no
+    # frontend and no models.
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*) DATA_SEP=";" ;;
+        *)                    DATA_SEP=":" ;;
+    esac
+
     export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 
     # Stage only the models release.config.json says we ship.
@@ -133,7 +168,7 @@ else
     STAGE_DIR="dist/.models-stage"
     rm -rf "$STAGE_DIR"; mkdir -p "$STAGE_DIR"
 
-    WANTED=$(python3 -c "
+    WANTED=$($PY -c "
 import json
 for u in json.load(open('release.config.json')).get('models', []):
     print(u.rsplit('/', 1)[-1])
@@ -182,13 +217,34 @@ for u in json.load(open('release.config.json')).get('models', []):
 
     # build add-data flags. an array, not a string: an unquoted string expansion
     # relies on word splitting (SC2086) and breaks on any path containing a space.
-    ADD_DATA_FLAGS=(--add-data "frontend/dist:frontend/dist")
+    ADD_DATA_FLAGS=(--add-data "frontend/dist${DATA_SEP}frontend/dist")
     if [ -n "$(ls -A "$STAGE_DIR" 2>/dev/null)" ]; then
-        ADD_DATA_FLAGS+=(--add-data "$STAGE_DIR:data/models")
+        ADD_DATA_FLAGS+=(--add-data "${STAGE_DIR}${DATA_SEP}data/models")
     fi
     if [ -d "data/tex" ]; then
-        ADD_DATA_FLAGS+=(--add-data "data/tex:data/tex")
+        ADD_DATA_FLAGS+=(--add-data "data/tex${DATA_SEP}data/tex")
     fi
+
+    # ── preflight: every hidden import must actually be installed ──
+    #
+    # --hidden-import tells PyInstaller to bundle a module it cannot see being
+    # imported. It does NOT install it. When psutil was missing from the build
+    # venv, PyInstaller shipped without it, hardware.py caught the ImportError,
+    # and every packaged install reported 0.0 GB RAM and pinned itself to the
+    # "low" tier. The flag being present in the build command is exactly what
+    # made that cause look impossible. So check, and fail loudly.
+    MISSING_IMPORTS=""
+    for mod in uvicorn psutil llama_cpp sentence_transformers fitz pdfplumber; do
+        python -c "import $mod" 2>/dev/null || MISSING_IMPORTS="$MISSING_IMPORTS $mod"
+    done
+    if [ -n "$MISSING_IMPORTS" ]; then
+        echo -e "  ${RED}error: these are required at runtime but not installed in the build venv:${NC}"
+        echo -e "  ${RED}  ${MISSING_IMPORTS}${NC}"
+        echo -e "  a --hidden-import flag does not install anything. fix with:"
+        echo -e "    ${CYAN}pip install -r requirements.txt${NC}"
+        exit 1
+    fi
+    echo -e "  ${GREEN}preflight ok${NC} - every runtime import resolves in the build venv"
 
     # --onedir (NOT --onefile): the backend is shipped as a Tauri *resource*
     # dir (tauri.conf.json bundle.resources -> "api/"), which lib.rs launches.
@@ -197,6 +253,13 @@ for u in json.load(open('release.config.json')).get('models', []):
     # --collect-all llama_cpp / sentence_transformers are REQUIRED (neither has a
     # PyInstaller hook): without them the frozen build omits llama_cpp's lib/*.so
     # and sentence_transformers' data, breaking chat/gap-analysis and search.
+    #
+    # The --exclude-module list is only what has been TESTED to be unused: the
+    # app was run with each blocked at import time and every runtime path
+    # (routes, embedding, search, graph, hardware) still passed. sklearn and
+    # scipy are deliberately NOT excluded despite the app never importing them
+    # directly -- sentence_transformers pulls sklearn.metrics at runtime, so
+    # dropping them yields a build with no embeddings and no search.
     pyinstaller --name thinkstack-api --onedir --clean --noconfirm \
         --hidden-import uvicorn \
         --hidden-import uvicorn.logging \
@@ -212,8 +275,41 @@ for u in json.load(open('release.config.json')).get('models', []):
         --hidden-import psutil \
         --collect-all llama_cpp \
         --collect-all sentence_transformers \
+        --exclude-module tkinter \
+        --exclude-module nltk \
+        --exclude-module pytest \
         "${ADD_DATA_FLAGS[@]}" \
         main.py
+
+    # ── the frozen bundle must contain the UI it was built from ──
+    #
+    # Vite writes content-hashed filenames, so rebuilding the frontend while
+    # PyInstaller is running changes them underneath it: Analysis records
+    # index-<oldhash>.js, COLLECT cannot find it, and PyInstaller only WARNS.
+    # The result is a bundle whose index.html references assets that are not in
+    # it -- a blank screen at runtime, from a build that reported success.
+    #
+    # So verify rather than trust: every asset index.html references must exist
+    # inside the frozen bundle.
+    FE="dist/thinkstack-api/_internal/frontend/dist"
+    [ -d "$FE" ] || FE="dist/thinkstack-api/frontend/dist"
+    if [ -f "$FE/index.html" ]; then
+        MISSING_ASSETS=""
+        for asset in $(grep -oE '(src|href)="[^"]*/assets/[^"]+"' "$FE/index.html" \
+                       | sed 's/.*assets\///; s/"$//'); do
+            [ -f "$FE/assets/$asset" ] || MISSING_ASSETS="$MISSING_ASSETS $asset"
+        done
+        if [ -n "$MISSING_ASSETS" ]; then
+            echo -e "  ${RED}error: the frozen bundle is missing assets its index.html needs:${NC}"
+            echo -e "  ${RED} ${MISSING_ASSETS}${NC}"
+            echo -e "  this happens when frontend/dist is rebuilt while pyinstaller runs."
+            echo -e "  re-run the build and do not touch the frontend while it works."
+            exit 1
+        fi
+        echo -e "  ${GREEN}bundled ui verified${NC} - index.html's assets are all present"
+    else
+        echo -e "  ${YELLOW}warning: no bundled index.html found under $FE${NC}"
+    fi
 
     echo -e "  ${GREEN}backend frozen to dist/thinkstack-api/ (onedir)${NC}"
 fi
