@@ -71,11 +71,47 @@ app.include_router(papers_router, prefix="/api/papers", tags=["papers"])
 app.include_router(models_router, prefix="/api/models", tags=["models"])
 
 frontend_dist = settings.base_dir / "frontend" / "dist"
+
+# Caching rules for the bundled UI, and why they are not optional.
+#
+# The desktop shell is a WebKit view pointed at http://127.0.0.1:8000, and it
+# keeps an HTTP cache that OUTLIVES the application: updating the app replaces
+# the binary, not the webview's cache. Nothing here sent any cache header, so
+# WebKit applied *heuristic* freshness -- with no Cache-Control it may reuse a
+# response for a fraction of its age without revalidating at all.
+#
+# index.html is the file that breaks: its name never changes, so a stale copy
+# keeps referencing the PREVIOUS build's asset filenames. An updated app then
+# renders the old UI, reports the old __APP_VERSION__ in the sidebar, and looks
+# for all the world like the update never installed. That is exactly what was
+# reported after 1.6.8 shipped -- a freshly downloaded build still showing
+# v1.6.7 and the old two-button Analysis screen.
+#
+# Vite content-hashes everything under /assets (index-B4FzKC14.js), so a new
+# build is always a new URL and can never be served stale. Those are safe to
+# cache permanently; index.html must never be cached.
+INDEX_CACHE = "no-store, no-cache, must-revalidate, max-age=0"
+ASSET_CACHE = "public, max-age=31536000, immutable"
+
+
+class _ImmutableAssets(StaticFiles):
+    """StaticFiles for content-hashed bundles: cache forever, safely."""
+
+    def is_not_modified(self, response_headers, request_headers) -> bool:
+        response_headers.setdefault("cache-control", ASSET_CACHE)
+        return super().is_not_modified(response_headers, request_headers)
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        response.headers.setdefault("cache-control", ASSET_CACHE)
+        return response
+
+
 if frontend_dist.exists() and (frontend_dist / "index.html").exists():
     # serve hashed build assets directly
     assets_dir = frontend_dist / "assets"
     if assets_dir.exists():
-        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+        app.mount("/assets", _ImmutableAssets(directory=str(assets_dir)), name="assets")
 
     @app.get("/{full_path:path}")
     async def spa(full_path: str):
@@ -89,8 +125,15 @@ if frontend_dist.exists() and (frontend_dist / "index.html").exists():
             raise HTTPException(status_code=404, detail="not found")
         candidate = frontend_dist / full_path
         if full_path and candidate.is_file():
-            return FileResponse(str(candidate))
-        return FileResponse(str(frontend_dist / "index.html"))
+            # A hashed asset can be cached forever; anything else (favicon,
+            # manifest, and index.html itself) must not be, because its name
+            # is stable across builds.
+            cache = ASSET_CACHE if full_path.startswith("assets/") else INDEX_CACHE
+            return FileResponse(str(candidate), headers={"Cache-Control": cache})
+        return FileResponse(
+            str(frontend_dist / "index.html"),
+            headers={"Cache-Control": INDEX_CACHE},
+        )
 
 if __name__ == "__main__":
     import argparse
