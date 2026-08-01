@@ -119,6 +119,28 @@ the gate is wrong — fix the gate.
 
 ---
 
+## Dependencies
+
+**Every requirement is pinned with `==`, and `scripts/check_pins.py` refuses a
+range or a bare name** — in CI, and in `preflight.sh` before you push.
+
+This is not tidiness. `nltk` was declared `>=3.9.1`. Version 3.10.1 was released
+between two builds and refuses to import `xml.etree` when the working directory
+is importable, so the frozen backend died during startup on Linux, macOS and
+Windows at the same moment — from a commit that changed no Python code. It could
+not be reproduced locally either: the developer's venv had 3.9.4. A range is a
+promise that every future release will work, and nobody can make that promise.
+
+Do not upgrade by editing the file. Dependabot proposes each upgrade as a pull
+request against `dev`, one package at a time, and the full pipeline runs on it.
+Review it, let CI build it, then merge. That way an upgrade like the one above
+is rejected in a PR instead of at a beta tester's desk.
+
+If you genuinely need a new package: add it pinned to an exact version, and say
+in the commit why that version.
+
+---
+
 ## Tests
 
 ```bash
