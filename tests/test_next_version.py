@@ -194,3 +194,47 @@ class TestMergeSubjectFormats:
         git(repo, "merge", "-q", "--no-ff", "-m",
             "Merge pull request #48 from get-thinkstack/feat/via-pr", "feat/via-pr")
         assert next_version(repo) == "1.1.0"
+
+
+class TestWorkArrivingThroughAnotherBranch:
+    """dev is where work lands; beta and main receive it as a single merge.
+
+    Replaying with --first-parent from beta sees only "Merge branch 'dev'" --
+    every feat/ and fix/ merge hangs off the second parent and is invisible.
+    That made beta rebuild the version it had already published, so the update
+    advertised a number testers already ran and was correctly never offered.
+    """
+
+    def test_a_fix_merged_via_dev_still_counts_on_beta(self, repo):
+        git(repo, "tag", "-a", "v1.6.7", "-m", "s")
+        git(repo, "checkout", "-q", "-b", "dev")
+        land(repo, "fix/parser")                      # fix/ -> dev
+        git(repo, "checkout", "-q", "-b", "beta", "main")
+        git(repo, "merge", "-q", "--no-ff", "--no-edit", "dev")   # dev -> beta
+        assert next_version(repo) == "1.6.8"
+
+    def test_a_feature_merged_via_dev_still_counts_on_beta(self, repo):
+        git(repo, "tag", "-a", "v1.6.7", "-m", "s")
+        git(repo, "checkout", "-q", "-b", "dev")
+        land(repo, "feat/litgraph")
+        git(repo, "checkout", "-q", "-b", "beta", "main")
+        git(repo, "merge", "-q", "--no-ff", "--no-edit", "dev")
+        assert next_version(repo) == "1.7.0"
+
+    def test_the_dev_merge_itself_does_not_count(self, repo):
+        # "Merge branch 'dev'" is not a feat/ or fix/ landing.
+        git(repo, "tag", "-a", "v1.6.7", "-m", "s")
+        git(repo, "checkout", "-q", "-b", "dev")
+        land(repo, "chore/tidy")
+        git(repo, "checkout", "-q", "-b", "beta", "main")
+        git(repo, "merge", "-q", "--no-ff", "--no-edit", "dev")
+        assert next_version(repo) == "1.6.7"
+
+    def test_a_fix_is_not_counted_twice_when_it_reaches_beta(self, repo):
+        # It is one merge commit, reachable once in the range.
+        git(repo, "tag", "-a", "v1.6.7", "-m", "s")
+        git(repo, "checkout", "-q", "-b", "dev")
+        land(repo, "fix/one")
+        git(repo, "checkout", "-q", "-b", "beta", "main")
+        git(repo, "merge", "-q", "--no-ff", "--no-edit", "dev")
+        assert next_version(repo) == "1.6.8"   # not 1.6.9
