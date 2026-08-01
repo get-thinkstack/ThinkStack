@@ -27,6 +27,21 @@ name: Release
 on:
   push:
     branches: [beta, main]
+    # Documentation cannot change what gets built, so it must not cost a
+    # three-OS build. Without this, correcting a typo in a README cut a new
+    # version and rebuilt ~1 GB per platform -- about twenty minutes and 2.8 GB
+    # of published assets for a change that alters no shipped byte.
+    #
+    # Deliberately narrow: only prose. Anything under scripts/ or .github/ CAN
+    # change the resulting binary (the bundler, the packaging step, the model
+    # list), so those still build.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - 'THIRD-PARTY-NOTICES.md'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/CODEOWNERS'
   schedule:
     - cron: '0 5 * * *'   # 05:00 UTC daily, nightly channel
   workflow_dispatch:

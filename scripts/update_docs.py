@@ -22,23 +22,22 @@ usage:
 from __future__ import annotations
 
 import argparse
-import ast
 import json
 import re
 import subprocess
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
 # Files that may contain markers. Anything not listed is never touched.
 TARGETS = [
-    "README.md",
-    "CONTRIBUTING.md",
+    # docs/ only. README.md and CONTRIBUTING.md are written and owned by
+    # developers: a script editing sentences there produces churn in every
+    # diff and trains people to skim what it wrote.
     "docs/ABOUT.md",
+    "docs/ADR.md",
     "docs/FEATURES.md",
     "docs/FUTURE_WORK.md",
-    "scripts/README.md",
 ]
 
 
@@ -46,74 +45,81 @@ TARGETS = [
 
 
 def _version() -> str:
+    """The newest published version, from the git tags.
+
+    NOT from src-tauri/tauri.conf.json. That file is only bumped when
+    scripts/release.sh runs, and releases no longer go through it -- CI stamps
+    the version into the bundle at build time and never writes it back. So the
+    committed value sat at 1.0.0 while 1.6.10 was shipping, and any doc built
+    from it stated a version that had not existed for weeks.
+
+    Tags are the record of what was actually released, which is the thing the
+    documentation is trying to state.
+    """
+    out = subprocess.run(
+        ["git", "tag", "--list", "v*"],
+        capture_output=True, text=True, check=False, cwd=ROOT,
+    ).stdout
+    versions = []
+    for line in out.splitlines():
+        m = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", line.strip())
+        if m:
+            versions.append(tuple(int(g) for g in m.groups()))
+    if versions:
+        return "%d.%d.%d" % max(versions)
+    # No tags (a fresh clone with --depth=1, say). Fall back rather than lie.
     return json.loads((ROOT / "src-tauri" / "tauri.conf.json").read_text())["version"]
 
 
-def _count_lines(paths) -> int:
-    return sum(len(p.read_text(encoding="utf-8", errors="replace").splitlines()) for p in paths)
 
 
-def _python_modules() -> list[Path]:
-    out = []
-    for d in ("api", "domain", "infrastructure"):
-        out += sorted((ROOT / d).rglob("*.py"))
-    out += [ROOT / "main.py", ROOT / "config.py"]
-    return [p for p in out if p.is_file() and p.name != "__init__.py"]
 
 
-def _test_modules() -> list[Path]:
-    return sorted((ROOT / "tests").glob("test_*.py"))
+
+def _fe_dep(name: str) -> str:
+    """A frontend dependency's version, without the ^ or ~ range marker."""
+    pkg = json.loads((ROOT / "frontend" / "package.json").read_text())
+    raw = pkg.get("dependencies", {}).get(name) or pkg.get("devDependencies", {}).get(name, "")
+    return raw.lstrip("^~") or "?"
 
 
-def _test_count() -> int:
-    """Collected test count. Falls back to 0 if pytest cannot run here."""
-    try:
-        # NOT -q: the quiet form lists per-file counts and omits the total.
-        # The summary line is "308 tests collected in 0.88s".
-        r = subprocess.run(
-            [sys.executable, "-m", "pytest", "--collect-only"],
-            cwd=ROOT, capture_output=True, text=True, timeout=300,
-        )
-        m = re.search(r"(\d+)\s+tests?\s+collected", r.stdout)
-        return int(m.group(1)) if m else 0
-    except Exception:  # noqa: BLE001
-        return 0
+def _cargo(pattern: str) -> str:
+    text = (ROOT / "src-tauri" / "Cargo.toml").read_text()
+    m = re.search(pattern, text, re.M)
+    return m.group(1) if m else "?"
 
 
-def _endpoint_count() -> int:
-    """Routes declared across the api routers, counted from the decorators."""
-    methods = {"get", "post", "put", "delete", "patch"}
-    total = 0
-    for f in sorted((ROOT / "api").glob("routes_*.py")):
-        for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
-            for dec in getattr(node, "decorator_list", []):
-                if (isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute)
-                        and dec.func.attr in methods and dec.args):
-                    total += 1
-    return total
+def _ci_pin(key: str) -> str:
+    """A toolchain version pinned in ci.yml, so docs and CI cannot disagree."""
+    text = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    m = re.search(rf"{key}:\s*'([^']+)'", text)
+    return m.group(1) if m else "?"
 
 
 def facts() -> dict[str, str]:
-    py = _python_modules()
-    tests = _test_modules()
-    fe = sorted((ROOT / "frontend" / "src").rglob("*.jsx")) + \
-         sorted((ROOT / "frontend" / "src").rglob("*.js"))
-    rs = sorted((ROOT / "src-tauri" / "src").glob("*.rs"))
-    adr = len(re.findall(r"^## \d{4}-\d{2}-\d{2}", (ROOT / "docs" / "ADR.md").read_text(), re.M))
-    n_tests = _test_count()
+    """The values this tool is allowed to write: versions, and nothing else.
 
+    It used to derive test counts, line counts, endpoint counts and ADR totals
+    as well. Those are prose about the project, and prose belongs to whoever is
+    writing it -- a number that maintains itself stops being read, and a script
+    that rewrites sentences produces churn in every diff.
+
+    Versions are different. Each has exactly one correct value, none of them is
+    a judgement, and every one of them is wrong the moment something is
+    upgraded. The app version in particular is wrong the moment a release is
+    cut, which is precisely when nobody is looking at the docs.
+    """
     return {
         "version": _version(),
-        "tests": f"{n_tests} tests across {len(tests)} modules" if n_tests
-                 else f"{len(tests)} test modules",
-        "test_count": str(n_tests) if n_tests else "",
-        "python_loc": f"{_count_lines(py):,} lines across {len(py)} modules",
-        "frontend_loc": f"{_count_lines(fe):,} lines, "
-                        f"{len([p for p in fe if p.suffix == '.jsx'])} components",
-        "rust_loc": f"{_count_lines(rs):,} lines",
-        "endpoints": str(_endpoint_count()),
-        "adr_count": str(adr),
+        "react": _fe_dep("react"),
+        "vite": _fe_dep("vite"),
+        "tauri": _cargo(r'^tauri\s*=\s*(?:\{[^}]*version\s*=\s*")?([^",}]+)'),
+        "rust_edition": _cargo(r'^edition\s*=\s*"([^"]+)"'),
+        "python": _ci_pin("python-version"),
+        "node": _ci_pin("node-version"),
     }
+
+
 
 
 # ---------------------------------------------------------------- rewrite
