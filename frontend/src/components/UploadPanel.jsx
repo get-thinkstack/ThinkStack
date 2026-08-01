@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { CloudUpload, FileText, CheckCircle, AlertCircle } from 'lucide-react';
+import { CloudUpload, CheckCircle, AlertCircle } from 'lucide-react';
 import { documentsApi } from '../utils/api';
 
 /**
