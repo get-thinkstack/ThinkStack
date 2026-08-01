@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Search as SearchIcon, FileText, Sparkles } from 'lucide-react';
+import { Search as SearchIcon, FileText } from 'lucide-react';
 import { searchApi } from '../utils/api';
 import SearchScoreChart from './charts/SearchScoreChart';
 import PageHeader from './PageHeader';

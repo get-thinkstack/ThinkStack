@@ -238,13 +238,28 @@ if changed_matches '^src-tauri/'; then
 fi
 
 # ── 6. frontend (non-blocking: CI does not gate on it) ──────
-if [ "$LEVEL" = "full" ] && echo "$CHANGED" | grep -qE '^frontend/'; then
-    echo ""
-    echo -e "${CYAN}[frontend lint]${NC}"
-    if npm --prefix frontend run lint >/dev/null 2>&1; then
-        echo -e "  ${GREEN}✓${NC} frontend lint passed"
+# ── frontend (CI: "Frontend (lint + test + build)") ─────────
+# Mirrors that job exactly: same three commands, same blocking behaviour, on
+# any frontend change rather than only the full gate.
+#
+# This used to run lint alone, non-blocking, and only on `full`. CI ran nothing
+# at all. So every UI change reached users unchecked, which is how a duplicate
+# "Run summarize" button and an updater that reported no progress on a 900 MB
+# download both shipped.
+if changed_matches '^frontend/'; then
+    if command -v npm >/dev/null 2>&1; then
+        if [ -d frontend/node_modules ]; then
+            run_check "frontend lint"  npm --prefix frontend run lint
+            run_check "frontend tests" npm --prefix frontend test
+            # The build is a check in its own right: it produces what ships, and
+            # a broken import passes lint but fails here.
+            run_check "frontend build" npm --prefix frontend run build
+        else
+            echo -e "\n${YELLOW}!${NC} frontend/node_modules missing (npm --prefix frontend ci)"
+            WARNINGS=$((WARNINGS+1))
+        fi
     else
-        echo -e "  ${YELLOW}!${NC} frontend lint warnings (non-blocking)"
+        echo -e "\n${YELLOW}!${NC} npm not installed - frontend checks skipped"
         WARNINGS=$((WARNINGS+1))
     fi
 fi
