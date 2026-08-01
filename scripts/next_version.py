@@ -153,13 +153,22 @@ def replay_landings(
     changes the answer: a fix then a feature gives X.(Y+1).0, while a feature
     then a fix gives X.(Y+1).1.
 
+    Deliberately NOT --first-parent. Work lands on dev, and dev is then merged
+    into beta -- from beta's mainline that is a single "Merge branch 'dev'",
+    with every feat/ and fix/ merge hanging off the SECOND parent and therefore
+    invisible. Replaying beta that way returned the version that was already
+    published, so the build advertised a number testers already had and the
+    updater correctly refused to offer it. Every merge reachable since the tag
+    is counted instead; each merge commit appears exactly once in that range,
+    so nothing is double counted.
+
     NOTE: this requires merges to be real merge commits. A fast-forward merge
     creates none, so the branch name is lost and the landing is invisible here.
     scripts/promote.sh and the merge guide both use --no-ff for that reason.
     """
     rng = f"{since_tag}..HEAD" if since_tag else "HEAD"
     subjects = _git(
-        "log", "--first-parent", "--merges", "--reverse", "--pretty=%s", rng
+        "log", "--merges", "--reverse", "--pretty=%s", rng
     ).splitlines()
 
     major, minor, patch = base

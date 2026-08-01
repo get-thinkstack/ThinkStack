@@ -8,9 +8,16 @@ name: Release
 #
 # What starts a release:
 #
-#     merge into beta  ->  beta channel,    vX.Y.Z-beta.N
-#     merge into main  ->  stable channel,  vX.Y.Z   (what beta validated)
+#     merge into beta  ->  beta channel,    vX.Y.Z   (the tag is created here)
+#     merge into main  ->  stable channel,  vX.Y.Z   (the SAME tag, reused)
 #     the 05:00 cron   ->  nightly channel, rolling, untagged
+#
+# One number, carried through. Beta decides X.Y.Z and records the tag; promoting
+# into main publishes that exact version, so what users install is the number
+# testers ran. There is no -beta.N: the bundle version must be numeric for MSI,
+# so a prerelease suffix was stripped from the binary while the updater manifest
+# kept it, and semver ranks 1.6.7-beta.2 BELOW the 1.6.7 the app reports -- which
+# is why every beta answered "Up to date" and never updated.
 #
 # A MERGE is the decision to release; a tag is the RECORD of what was built.
 # Tags deliberately trigger nothing: when they did, a stray `git push origin
@@ -75,6 +82,7 @@ jobs:
 
       - id: v
         env:
+          GH_TOKEN: ${{ github.token }}
           OVERRIDE: ${{ inputs.version }}
           FORCE: ${{ inputs.force }}
           DISPATCH_CHANNEL: ${{ inputs.channel }}
@@ -99,33 +107,34 @@ jobs:
 
           case "$CH" in
             stable)
-              # Ship exactly the number beta validated. Choosing a different one
-              # here would release a version nobody tested. Read from the beta
-              # VERSION TAGS, not from the rolling release's name: that lookup
-              # returns nothing the moment the rolling tag is renamed.
-              if [ -n "$OVERRIDE" ]; then
-                V="$OVERRIDE"
-              else
-                V="$(git tag -l 'v*-beta.*' | sed 's/^v//; s/-beta\..*//' \
-                      | sort -V | tail -1 || true)"
-                [ -n "$V" ] || V="$(python3 scripts/next_version.py --next)"
-              fi
-              # Already released? Then this push carried no new release.
-              # Re-tagging would change what a published version means.
-              if git rev-parse "v$V" >/dev/null 2>&1; then
-                echo "v$V already exists; nothing to release"
+              # Ship the number beta validated, unchanged. The tag already
+              # exists -- beta created it -- so main reuses it rather than
+              # inventing a new one, and the official release carries exactly
+              # the version testers ran.
+              V="${OVERRIDE:-$(git tag -l 'v*' | sed 's/^v//' \
+                    | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)}"
+              [ -n "$V" ] || V="$(python3 scripts/next_version.py --next)"
+              # Skip on the RELEASE, not the tag: the tag is expected to exist.
+              if gh release view "v$V" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+                echo "v$V is already published as a stable release"
                 RELEASE=false
               fi
               ;;
 
             beta)
-              # Replay the feat/ and fix/ branches merged since the newest tag.
-              BASE="${OVERRIDE:-$(python3 scripts/next_version.py --next --explain)}"
-              # Next free beta counter for this X.Y.Z. Resets on a new version
-              # automatically, because the search is scoped to it.
-              LAST="$(git tag -l "v${BASE}-beta.*" \
-                       | sed "s/^v${BASE}-beta\.//" | sort -n | tail -1)"
-              V="${BASE}-beta.$(( ${LAST:-0} + 1 ))"
+              # Beta carries a plain X.Y.Z. There is deliberately no -beta.N.
+              #
+              # MSI/WiX requires a numeric ProductVersion, so the bundle strips
+              # any prerelease suffix -- while the updater manifest kept the
+              # full string. Semver then ranked the advertised "1.6.7-beta.2"
+              # BELOW the "1.6.7" the installed app reported, so the updater
+              # offered nothing and every beta build said "Up to date". Keeping
+              # one plain number on both sides is what makes updates work.
+              V="${OVERRIDE:-$(python3 scripts/next_version.py --next --explain)}"
+              if git rev-parse "v$V" >/dev/null 2>&1; then
+                echo "v$V is already built; nothing that moves the version has landed"
+                RELEASE=false
+              fi
               ;;
 
             nightly)
@@ -151,6 +160,10 @@ jobs:
         shell: bash
         run: |
           V='${{ steps.v.outputs.version }}'
+          if git rev-parse "v$V" >/dev/null 2>&1; then
+            echo "v$V already recorded (beta created it); reusing it"
+            exit 0
+          fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "v$V" -m "ThinkStack v$V"

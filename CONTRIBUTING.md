@@ -50,8 +50,8 @@ huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct-GGUF \
 | Branch | What it's for | Push gate | Ships installers? |
 |--------|---------------|-----------|-------------------|
 | `dev`  | day-to-day work, experiments | **fast** — lint + tests on what changed | no |
-| `beta` | integration; bundle and test real installers | **full** — everything CI runs | on a `vX.Y.Z-beta.N` tag |
-| `main` | official releases | **full** | on a `vX.Y.Z` tag |
+| `beta` | integration; bundle and test real installers | **full** — everything CI runs | on a merge into `beta` |
+| `main` | official releases | **full** | on merge |
 
 **Work on `dev`.** Branch from it, and merge back into it. `beta` and `main` are
 promoted into, never developed on.

@@ -17,6 +17,12 @@ See [scripts/README.md](scripts/README.md) for how releases are cut.
 
 Work merged but not yet tagged.
 
+Landing this as a `fix/` branch is deliberate: the version is replayed from
+`feat/` and `fix/` branch merges, so work that goes straight onto `dev` moves
+nothing. These fixes reached `beta` as direct commits and the beta therefore
+carried the same 1.6.7 testers already ran, which the updater correctly refused
+to offer. This merge is the record that makes it 1.6.8.
+
 ### Changed
 - **One release workflow instead of five.** `release-stable`, `release-beta`,
   `release-on-main`, `release-on-beta` and `nightly` differed only in what
