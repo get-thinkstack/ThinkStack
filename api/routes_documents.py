@@ -20,7 +20,7 @@ from infrastructure.file_manager import (
 from domain.ingestion.pdf_parser import extract_text, get_page_count
 from domain.ingestion.chunker import chunk_pages
 from domain.ingestion.metadata_extractor import extract_metadata
-from domain.analysis.document_analysis import analyze_document
+from domain.analysis.precompute import schedule_for_new_document
 from domain.knowledge_base.repository import (
     store_chunks,
     get_chunks_by_doc_id,
@@ -71,18 +71,23 @@ async def upload_document(file: UploadFile = File(...)):
         chunks = chunk_pages(pages, doc_id)
         stored_count = store_chunks(chunks, metadata)
 
-        # precompute the per-document summary+claims now, at ingest time, so a
-        # later gap scan reuses it and only pays for the single aggregation
-        # call. best-effort: if the model is unavailable this must not fail the
-        # upload -- the gap route falls back to computing it lazily on demand.
+        # Queue the analysis instead of awaiting it.
+        #
+        # This used to `await analyze_document(...)` here, which put a ~50 s
+        # model call inside the upload request -- the browser sat on a pending
+        # POST for the whole of it, and uploading three papers meant three
+        # minutes of apparent hang. The work still happens at ingest time (so
+        # the canvas is ready before the user opens it); it just happens after
+        # the response, and a re-cluster and gap scan are queued behind it.
+        # Guarded: by this point the pdf is saved and its chunks are stored, so
+        # the document IS ingested. Letting a queue failure fall through to the
+        # handler below would delete it and report a 500 for a paper that is
+        # actually in the library. The analysis is recoverable; the ingest is
+        # not worth throwing away with it.
         try:
-            analysis = await analyze_document(doc_id, full_text)
-            if analysis is not None:
-                doc_analysis_cache.put(
-                    doc_id, analysis["summary"], analysis["claims"]
-                )
-        except Exception as e:  # noqa: BLE001 - ingest-time analysis is optional
-            logger.warning("ingest-time analysis skipped for %s: %s", doc_id, e)
+            schedule_for_new_document(doc_id, full_text, metadata.title)
+        except Exception as e:  # noqa: BLE001 - analysis is optional, ingest is not
+            logger.warning("could not queue analysis for %s: %s", doc_id, e)
 
         return {
             "doc_id": doc_id,

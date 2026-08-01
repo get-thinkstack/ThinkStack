@@ -34,38 +34,43 @@ def _stub_ingestion(monkeypatch, doc_id="docX"):
     monkeypatch.setattr(routes_documents, "store_chunks", lambda chunks, meta: len(chunks))
 
 
-async def test_upload_precomputes_and_caches_analysis(monkeypatch, tmp_path):
-    _stub_ingestion(monkeypatch)
-    cache = DocAnalysisCache(tmp_path / "doc_analysis.json")
-    monkeypatch.setattr(routes_documents, "doc_analysis_cache", cache)
+async def test_upload_queues_analysis_instead_of_awaiting_it(monkeypatch):
+    """the upload response must not wait on the model.
 
-    async def fake_analyze_document(doc_id, text):
-        return {"summary": f"summary of {doc_id}", "claims": [{"text": "c", "type": "finding"}]}
-    monkeypatch.setattr(routes_documents, "analyze_document", fake_analyze_document)
+    this used to await analyze_document inside the handler, which put a ~50 s
+    call in the request: the browser sat on a pending POST for the whole of it
+    and three papers meant three minutes of apparent hang. the analysis still
+    happens at ingest time, just after the response.
+    """
+    _stub_ingestion(monkeypatch)
+    scheduled = []
+    monkeypatch.setattr(
+        routes_documents, "schedule_for_new_document",
+        lambda doc_id, text, title="": scheduled.append((doc_id, text, title)),
+    )
 
     result = await upload_document(FakeUpload("paper.pdf"))
 
     assert result["status"] == "ingested"
-    assert cache.get("docX") == {
-        "summary": "summary of docX",
-        "claims": [{"text": "c", "type": "finding"}],
-    }
+    assert scheduled == [("docX", "full paper text", "")]
 
 
-async def test_upload_still_succeeds_when_analysis_fails(monkeypatch, tmp_path):
+async def test_upload_still_succeeds_when_scheduling_blows_up(monkeypatch):
+    """a broken queue must not cost the user their document.
+
+    the pdf is already saved and its chunks stored by this point; failing the
+    request here would report an ingest failure for a paper that is, in fact,
+    ingested.
+    """
     _stub_ingestion(monkeypatch)
-    cache = DocAnalysisCache(tmp_path / "doc_analysis.json")
-    monkeypatch.setattr(routes_documents, "doc_analysis_cache", cache)
 
-    async def boom(doc_id, text):
-        raise RuntimeError("model unavailable")
-    monkeypatch.setattr(routes_documents, "analyze_document", boom)
+    def boom(doc_id, text, title=""):
+        raise RuntimeError("queue unavailable")
+    monkeypatch.setattr(routes_documents, "schedule_for_new_document", boom)
 
     result = await upload_document(FakeUpload("paper.pdf"))
 
-    # upload succeeds; nothing cached (falls back to lazy compute at scan time)
     assert result["status"] == "ingested"
-    assert cache.get("docX") is None
 
 
 async def test_delete_removes_cached_analysis(monkeypatch, tmp_path):
