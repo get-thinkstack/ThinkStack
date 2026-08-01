@@ -411,7 +411,14 @@ jobs:
           "$BIN" --host 127.0.0.1 --port 8766 > backend-validate.log 2>&1 &
           PID=$!
           set +e
-          python3 scripts/validate_bundle.py --url http://127.0.0.1:8766 --timeout 240
+          # --expect-version is the numeric core, the same value stamped into
+          # tauri.conf.json above. It proves the UI inside this bundle is the
+          # one this run built -- on every platform, every time. Nothing checked
+          # that before, which is how a build shipped showing the previous
+          # version's number and the previous version's buttons.
+          NUMERIC="$(echo '${{ inputs.version }}' | sed -E 's/[-+].*$//')"
+          python3 scripts/validate_bundle.py --url http://127.0.0.1:8766 \
+            --timeout 240 --expect-version "$NUMERIC"
           RC=$?
           set -e
           kill "$PID" 2>/dev/null || true
@@ -517,7 +524,9 @@ jobs:
           fi
 
           # and the whole product works through the packaged app, not a bare backend
-          python3 scripts/validate_bundle.py --url http://127.0.0.1:8000 --timeout 60
+          NUMERIC="$(echo '${{ inputs.version }}' | sed -E 's/[-+].*$//')"
+          python3 scripts/validate_bundle.py --url http://127.0.0.1:8000 \
+            --timeout 60 --expect-version "$NUMERIC"
           RC=$?
           pkill -f "usr/bin/tauri-app" 2>/dev/null || true
           exit $RC
