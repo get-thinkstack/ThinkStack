@@ -30,7 +30,7 @@ function insertLatex(src, gen) {
  * Compiling writes the source first, so an autocompile is also an autosave.
  * Save stays as an explicit checkpoint.
  */
-export default function PaperWriter() {
+export default function Scribe() {
   const [projects, setProjects] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [source, setSource] = useState('');
@@ -317,7 +317,7 @@ export default function PaperWriter() {
   return (
     <div>
       <PageHeader
-        title="Paper Writer"
+        title="Scribe"
         subtitle="Draft, AI-generate, and compile LaTeX papers - fully offline."
       />
 
@@ -455,7 +455,7 @@ export default function PaperWriter() {
               {showContext && (
                 <div className="pw-context-list">
                   {docs.length === 0 ? (
-                    <span className="pw-hint">no papers yet - upload in Library</span>
+                    <span className="pw-hint">no papers yet - upload in Bibliotekh</span>
                   ) : (
                     docs.map((d) => (
                       <button

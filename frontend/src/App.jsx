@@ -1,14 +1,12 @@
 import { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, NavLink, useLocation, Navigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { BookOpen, Search, Brain, Target, PenLine, Sun, Moon, HardDrive, RefreshCw, Check, AlertCircle } from 'lucide-react';
+import { BookOpen, Waypoints, PenLine, Sun, Moon, HardDrive, RefreshCw, Check, AlertCircle } from 'lucide-react';
 import { systemApi } from './utils/api';
 import { checkForUpdatesInteractive, APP_VERSION } from './utils/updater';
-import Library from './components/Library';
-import SearchPage from './components/Search';
-import Analysis from './components/Analysis';
-import GapAnalysis from './components/GapAnalysis';
-import PaperWriter from './components/PaperWriter';
+import Bibliotekh from './components/Bibliotekh';
+import LitGraph from './components/LitGraph';
+import Scribe from './components/Scribe';
 import ModelSetup, { OPEN_MODEL_SETUP } from './components/ModelSetup';
 import './index.css';
 
@@ -46,11 +44,14 @@ function AnimatedRoutes() {
   return (
     <AnimatePresence mode="wait">
       <Routes location={location} key={location.pathname}>
-        <Route path="/" element={<Page><Library /></Page>} />
-        <Route path="/search" element={<Page><SearchPage /></Page>} />
-        <Route path="/analysis" element={<Page><Analysis /></Page>} />
-        <Route path="/gaps" element={<Page><GapAnalysis /></Page>} />
-        <Route path="/write" element={<Page><PaperWriter /></Page>} />
+        <Route path="/" element={<Page><Bibliotekh /></Page>} />
+        <Route path="/litgraph" element={<Page><LitGraph /></Page>} />
+        <Route path="/write" element={<Page><Scribe /></Page>} />
+        {/* Search, Analysis and Gap Finder all became LitGraph. This is a
+            desktop shell, so a stale deep link would otherwise be a dead end. */}
+        <Route path="/search" element={<Navigate to="/litgraph" replace />} />
+        <Route path="/analysis" element={<Navigate to="/litgraph" replace />} />
+        <Route path="/gaps" element={<Navigate to="/litgraph" replace />} />
       </Routes>
     </AnimatePresence>
   );
@@ -119,12 +120,12 @@ export default function App() {
 
   const isDark = theme === 'dark';
 
+  // three sections, in the order the work actually happens:
+  // collect -> understand -> write.
   const navItems = [
-    { to: '/', icon: BookOpen, label: 'Library' },
-    { to: '/search', icon: Search, label: 'Search' },
-    { to: '/analysis', icon: Brain, label: 'Analysis' },
-    { to: '/gaps', icon: Target, label: 'Gap Finder' },
-    { to: '/write', icon: PenLine, label: 'Paper Writer' },
+    { to: '/', icon: BookOpen, label: 'Bibliotekh' },
+    { to: '/litgraph', icon: Waypoints, label: 'LitGraph' },
+    { to: '/write', icon: PenLine, label: 'Scribe' },
   ];
 
   return (

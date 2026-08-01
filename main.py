@@ -16,9 +16,11 @@ from fastapi.staticfiles import StaticFiles
 
 from config import settings
 from infrastructure.file_manager import ensure_directories
+from infrastructure.jobs import job_queue
 from infrastructure.local_vector_store import get_vector_store
 from api.routes_documents import router as documents_router
 from api.routes_search import router as search_router
+from api.routes_graph import router as graph_router
 from api.routes_analysis import router as analysis_router
 from api.routes_gaps import router as gaps_router
 from api.routes_system import router as system_router
@@ -40,9 +42,13 @@ async def lifespan(app: FastAPI):
     logger.info("initializing thinkstack")
     ensure_directories()
     get_vector_store()
+    # started here rather than at import so the worker binds to the loop that
+    # actually serves requests.
+    job_queue.start()
     logger.info("thinkstack ready at http://%s:%s", settings.host, settings.port)
     yield
     logger.info("shutting down thinkstack")
+    await job_queue.stop()
 
 
 app = FastAPI(
@@ -62,6 +68,7 @@ app.add_middleware(
 
 app.include_router(documents_router, prefix="/api/documents", tags=["documents"])
 app.include_router(search_router, prefix="/api/search", tags=["search"])
+app.include_router(graph_router, prefix="/api/graph", tags=["graph"])
 app.include_router(analysis_router, prefix="/api/analysis", tags=["analysis"])
 app.include_router(gaps_router, prefix="/api/gaps", tags=["gaps"])
 app.include_router(system_router, prefix="/api/system", tags=["system"])
