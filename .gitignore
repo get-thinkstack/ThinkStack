@@ -128,3 +128,20 @@ squashfs-root/
 
 # bundled TeX engine + warm package cache (fetched by scripts/fetch-tex.sh)
 data/tex/
+
+# local working notes, never shared
+TODO.md
+
+# ── Local-only docs and scratch design artifacts ─────────
+# Personal reference material and prototypes that live on this machine. The
+# SHARED docs stay tracked: docs/*.md, docs/TEAM/, and docs/academic/ (the
+# coursework record) are the project's documentation and are committed.
+#
+# Anything listed here must NOT appear in src-tauri/tauri.conf.json
+# bundle.resources -- the bundler errors on a resource path it cannot find, so
+# an ignored file that CI is told to bundle turns into a broken CI build.
+docs/LitGraph.pdf
+docs/ThinkStack Design Philosophy.pdf
+docs/litchart.html
+docs/litgraph-demo.html
+litgraph-app.png
