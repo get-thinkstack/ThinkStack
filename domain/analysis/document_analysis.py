@@ -10,9 +10,13 @@ import json
 import logging
 from typing import Optional
 
+from domain.analysis.parsing import as_dict, as_items, one_of
 from infrastructure.ollama_client import ollama_client
 
 logger = logging.getLogger(__name__)
+
+# the claim categories the ui and the gap-finder actually handle.
+CLAIM_TYPES = ("finding", "methodology", "limitation", "future_work")
 
 # text budget per paper. the local model's context is small, and the summary
 # only needs the paper's framing (abstract/intro/conclusion land early), so a
@@ -64,10 +68,15 @@ async def analyze_document(doc_id: str, text: str) -> Optional[dict]:
         return None
 
     claims = []
-    for claim in data.get("claims", []) or []:
+    for entry in as_items(data, "claims"):
+        claim = as_dict(entry, "claim_text")
+        text = claim.get("claim_text") or claim.get("text") or ""
+        if not text:
+            continue
         claims.append({
-            "text": claim.get("claim_text", ""),
-            "type": claim.get("claim_type", "finding"),
+            "text": str(text),
+            "type": one_of(claim.get("claim_type"), CLAIM_TYPES, "finding"),
         })
 
-    return {"summary": data.get("summary", ""), "claims": claims}
+    summary = data.get("summary", "") if isinstance(data, dict) else ""
+    return {"summary": str(summary or ""), "claims": claims}
