@@ -247,6 +247,17 @@ fi
 # "Run summarize" button and an updater that reported no progress on a 900 MB
 # download both shipped.
 if changed_matches '^frontend/'; then
+    # Local and CI must run the same node major, or this whole section proves
+    # nothing. jsdom refused to load on CI's node 20 while passing locally on
+    # 22, and preflight reported "CI should be green" for a commit that failed.
+    CI_NODE="$(grep -A6 'setup-node@v4' .github/workflows/ci.yml \
+                | grep -m1 "node-version:" | tr -dc '0-9')"
+    LOCAL_NODE="$(node -v 2>/dev/null | sed 's/^v//; s/\..*//')"
+    if [ -n "$CI_NODE" ] && [ -n "$LOCAL_NODE" ] && [ "$CI_NODE" != "$LOCAL_NODE" ]; then
+        echo -e "\n${YELLOW}!${NC} node mismatch: local v${LOCAL_NODE}, CI pins v${CI_NODE}"
+        echo -e "  frontend results here do not predict CI. Use nvm to match."
+        WARNINGS=$((WARNINGS+1))
+    fi
     if command -v npm >/dev/null 2>&1; then
         if [ -d frontend/node_modules ]; then
             run_check "frontend lint"  npm --prefix frontend run lint
