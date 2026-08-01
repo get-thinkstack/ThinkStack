@@ -10,6 +10,22 @@ never sends your work to someone else's server, that's ThinkStack.
 
 For the full feature reference, see [FEATURES.md](FEATURES.md).
 
+## Current release and stack
+
+<!-- These values are maintained by scripts/update_docs.py (the Sync doc facts
+     workflow). Only the text between the markers is rewritten -- edit the
+     surrounding sentences freely. Do not hand-edit the numbers: they will be
+     overwritten on the next push, and they were wrong before this was
+     automated (the docs claimed 1.0.0 while 1.6.10 was shipping). -->
+
+| | |
+|---|---|
+| Latest release | **v<!-- autodoc:version -->1.6.11<!-- /autodoc -->** |
+| Desktop shell | Tauri <!-- autodoc:tauri -->2<!-- /autodoc --> (Rust, edition <!-- autodoc:rust_edition -->2021<!-- /autodoc -->) |
+| Interface | React <!-- autodoc:react -->19.2.6<!-- /autodoc -->, built with Vite <!-- autodoc:vite -->8.0.12<!-- /autodoc --> |
+| Backend | Python <!-- autodoc:python -->3.12<!-- /autodoc --> (FastAPI) |
+| Build toolchain | Node <!-- autodoc:node -->22<!-- /autodoc --> |
+
 ## Why offline / on-device?
 
 - **Privacy** — your papers, drafts, and analysis never leave your computer.

@@ -114,14 +114,14 @@ huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct-GGUF \
 ```text
 main.py            fastapi app: serves the react spa and /api
 config.py          pydantic-settings config (env prefix: THINKSTACK_)
-api/               9 routers, <!-- autodoc:endpoints -->36<!-- /autodoc --> REST endpoints
+api/               9 routers, 36 REST endpoints
 domain/            ingestion · knowledge_base · search · analysis · gap_finder
                    chat · paper_writer · encryption · model_manager · fine_tuning
 infrastructure/    llm client · vector store · hardware profiler · file manager
 frontend/          react 19 + vite spa
 src-tauri/         tauri 2 desktop shell (rust): diagnosis, supervision, updates
 scripts/           devops: setup, dev, preflight, build, promote, release
-tests/             <!-- autodoc:tests -->348 tests across 25 modules<!-- /autodoc -->
+tests/             348 tests across 25 modules
 ```
 
 The desktop shell diagnoses the machine, launches the backend as a supervised
@@ -136,7 +136,7 @@ users run an installer.
 
 | Tier | Runs on | Establishes |
 |---|---|---|
-| `preflight.sh` | your machine, every push | lint, <!-- autodoc:test_count -->348<!-- /autodoc --> tests, shellcheck, actionlint, cargo |
+| `preflight.sh` | your machine, every push | lint, 348 tests, shellcheck, actionlint, cargo |
 | CI | every push | the same on a clean machine |
 | `validate_bundle.py` | **Linux, macOS, Windows**, every build | the packaged app starts, resolves models, ingests a PDF, searches, infers, compiles a PDF |
 | GUI smoke test | Linux, every build | the launched application is still alive 45 seconds later |
