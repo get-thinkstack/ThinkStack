@@ -411,7 +411,14 @@ jobs:
           "$BIN" --host 127.0.0.1 --port 8766 > backend-validate.log 2>&1 &
           PID=$!
           set +e
-          python3 scripts/validate_bundle.py --url http://127.0.0.1:8766 --timeout 240
+          # --expect-version is the numeric core, the same value stamped into
+          # tauri.conf.json above. It proves the UI inside this bundle is the
+          # one this run built -- on every platform, every time. Nothing checked
+          # that before, which is how a build shipped showing the previous
+          # version's number and the previous version's buttons.
+          NUMERIC="$(echo '${{ inputs.version }}' | sed -E 's/[-+].*$//')"
+          python3 scripts/validate_bundle.py --url http://127.0.0.1:8766 \
+            --timeout 240 --expect-version "$NUMERIC"
           RC=$?
           set -e
           kill "$PID" 2>/dev/null || true
@@ -517,13 +524,96 @@ jobs:
           fi
 
           # and the whole product works through the packaged app, not a bare backend
-          python3 scripts/validate_bundle.py --url http://127.0.0.1:8000 --timeout 60
+          NUMERIC="$(echo '${{ inputs.version }}' | sed -E 's/[-+].*$//')"
+          python3 scripts/validate_bundle.py --url http://127.0.0.1:8000 \
+            --timeout 60 --expect-version "$NUMERIC"
           RC=$?
           pkill -f "usr/bin/tauri-app" 2>/dev/null || true
           exit $RC
 
+      # -- the packaged app actually launches on macOS and Windows --
+      #
+      # Only Linux ever launched the built app. macOS and Windows had their
+      # backend exercised and nothing more, so "does the window open, does it
+      # reach the backend, does it stay alive" was answered by asking a person
+      # to install it and look. That is why every release needed friends with
+      # the right machine, and why a broken build could sit unnoticed.
+      #
+      # continue-on-error while this proves itself: a spurious failure here
+      # would block releases, which is a worse bug than the one it catches.
+      # Once it has passed a few real builds, drop the flag and let it gate.
+      - name: App launch smoke test (macOS)
+        if: runner.os == 'macOS' && !inputs.skip_models
+        continue-on-error: true
+        shell: bash
+        run: |
+          APP="$(find src-tauri/target/universal-apple-darwin/release/bundle/macos \
+                   -maxdepth 1 -name '*.app' | head -1)"
+          [ -n "$APP" ] || { echo "::warning::no .app bundle found"; exit 1; }
+          BIN="$APP/Contents/MacOS/$(basename "$APP" .app)"
+          [ -x "$BIN" ] || BIN="$(find "$APP/Contents/MacOS" -type f -perm +111 | head -1)"
+          echo "launching $BIN"
+          "$BIN" > gui-smoke.log 2>&1 &
+          APP_PID=$!
+          UP=0
+          for _ in $(seq 1 180); do
+            curl -fsS -m 3 http://127.0.0.1:8000/api/system/health >/dev/null 2>&1 && { UP=1; break; }
+            kill -0 "$APP_PID" 2>/dev/null || break
+            sleep 1
+          done
+          if [ "$UP" -ne 1 ]; then
+            echo "::error::the packaged macOS app never served a request"
+            tail -60 gui-smoke.log || true
+            kill "$APP_PID" 2>/dev/null || true
+            exit 1
+          fi
+          echo "app answered; checking it SURVIVES"
+          sleep 45
+          NUMERIC="$(echo '${{ inputs.version }}' | sed -E 's/[-+].*$//')"
+          python3 scripts/validate_bundle.py --url http://127.0.0.1:8000 \
+            --timeout 60 --expect-version "$NUMERIC"
+          RC=$?
+          kill "$APP_PID" 2>/dev/null || true
+          exit $RC
+
+      - name: App launch smoke test (Windows)
+        if: runner.os == 'Windows' && !inputs.skip_models
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path src-tauri\target\release -Filter *.exe -File |
+                 Where-Object { $_.Name -notlike '*setup*' } | Select-Object -First 1
+          if (-not $exe) { Write-Host "::warning::no .exe found"; exit 1 }
+          Write-Host "launching $($exe.FullName)"
+          $p = Start-Process -FilePath $exe.FullName -PassThru `
+                 -RedirectStandardOutput gui-smoke.log -RedirectStandardError gui-smoke.err
+          $up = $false
+          foreach ($i in 1..180) {
+            try {
+              Invoke-WebRequest -UseBasicParsing -TimeoutSec 3 `
+                http://127.0.0.1:8000/api/system/health | Out-Null
+              $up = $true; break
+            } catch { }
+            if ($p.HasExited) { break }
+            Start-Sleep -Seconds 1
+          }
+          if (-not $up) {
+            Write-Host "::error::the packaged Windows app never served a request"
+            Get-Content gui-smoke.log, gui-smoke.err -Tail 60 -ErrorAction SilentlyContinue
+            if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+            exit 1
+          }
+          Write-Host "app answered; checking it SURVIVES"
+          Start-Sleep -Seconds 45
+          $numeric = ('${{ inputs.version }}' -split '[-+]')[0]
+          python scripts/validate_bundle.py --url http://127.0.0.1:8000 `
+            --timeout 60 --expect-version $numeric
+          $rc = $LASTEXITCODE
+          if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+          exit $rc
+
       - name: Upload GUI smoke log on failure
-        if: failure() && runner.os == 'Linux'
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: gui-smoke-${{ matrix.label }}
