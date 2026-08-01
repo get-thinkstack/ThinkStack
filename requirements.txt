@@ -14,8 +14,9 @@ pdfplumber>=0.11.4
 # ── local embeddings (pulls in torch) ────────────────────
 sentence-transformers>=3.4.1
 
-# ── keyword search / text ────────────────────────────────
-rank-bm25==0.2.2
+# ── text ─────────────────────────────────────────────────
+# rank-bm25 removed with the hybrid/RRF search path: search is now purely
+# semantic (see domain/search/semantic_search.py and docs/ADR.md).
 nltk>=3.9.1
 
 # ── http client (ollama runtime) ─────────────────────────
