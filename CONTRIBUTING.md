@@ -122,7 +122,7 @@ the gate is wrong — fix the gate.
 ## Tests
 
 ```bash
-pytest                    # the whole suite (<!-- autodoc:test_count -->336<!-- /autodoc --> tests, a few seconds)
+pytest                    # the whole suite (<!-- autodoc:test_count -->340<!-- /autodoc --> tests, a few seconds)
 pytest tests/test_x.py    # one file
 pytest -m heavy           # tests that load real models / hit the network
 ```
