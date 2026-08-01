@@ -12,19 +12,16 @@ For the full feature reference, see [FEATURES.md](FEATURES.md).
 
 ## Current release and stack
 
-<!-- These values are maintained by scripts/update_docs.py (the Sync doc facts
-     workflow). Only the text between the markers is rewritten -- edit the
-     surrounding sentences freely. Do not hand-edit the numbers: they will be
-     overwritten on the next push, and they were wrong before this was
-     automated (the docs claimed 1.0.0 while 1.6.10 was shipping). -->
+The version you would install is whatever the
+[releases page](https://github.com/get-thinkstack/ThinkStack/releases/latest)
+serves — it is generated from the tag, so it is correct by construction and
+cannot go stale. This file deliberately does not repeat it: a version written
+into prose is wrong the moment a release is cut.
 
-| | |
-|---|---|
-| Latest release | **v<!-- autodoc:version -->1.6.16<!-- /autodoc -->** |
-| Desktop shell | Tauri <!-- autodoc:tauri -->2<!-- /autodoc --> (Rust, edition <!-- autodoc:rust_edition -->2021<!-- /autodoc -->) |
-| Interface | React <!-- autodoc:react -->19.2.6<!-- /autodoc -->, built with Vite <!-- autodoc:vite -->8.0.12<!-- /autodoc --> |
-| Backend | Python <!-- autodoc:python -->3.12<!-- /autodoc --> (FastAPI) |
-| Build toolchain | Node <!-- autodoc:node -->22<!-- /autodoc --> |
+Built on Tauri 2 (Rust) for the desktop shell, React with Vite for the
+interface, and Python 3.12 with FastAPI for the backend, which is frozen into
+the installer alongside the model weights and a TeX engine. These move rarely;
+update them here when they do.
 
 ## Why offline / on-device?
 

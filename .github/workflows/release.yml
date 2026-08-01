@@ -82,9 +82,10 @@ concurrency:
 jobs:
   decide:
     runs-on: ubuntu-latest
-    # sync-docs.yml pushes back to dev/beta. That push uses GITHUB_TOKEN and so
-    # cannot trigger this workflow, but the guard states the intent and survives
-    # anyone swapping that token for a PAT later.
+    # Never react to a push this repo's own automation made. Nothing does that
+    # today (sync-docs, which pushed back to dev and beta, is gone), and a
+    # GITHUB_TOKEN push cannot trigger a workflow anyway -- but the guard costs
+    # nothing and holds if either of those changes.
     if: github.actor != 'github-actions[bot]'
     outputs:
       channel: ${{ steps.v.outputs.channel }}
