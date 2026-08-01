@@ -245,6 +245,35 @@ class VectorStore:
             "metadatas": result_metas,
         }
 
+    def get_embeddings(self, where: Optional[dict] = None) -> dict:
+        """retrieve stored vectors themselves, not just their documents.
+
+        ``get`` deliberately omits embeddings because callers there want text.
+        the graph builder needs the vectors to compute per-document centroids,
+        and reading them back through ``query`` would be a similarity search
+        against an arbitrary probe -- the wrong operation entirely.
+
+        args:
+            where: optional metadata filter, same semantics as ``get``.
+
+        returns:
+            dict with ids, embeddings (numpy array, shape (n, d)), and
+            metadatas. embeddings is None when nothing matches.
+        """
+        indices = list(range(len(self._entries)))
+
+        if where:
+            indices = self._apply_filter(indices, where)
+
+        if not indices:
+            return {"ids": [], "embeddings": None, "metadatas": []}
+
+        return {
+            "ids": [self._entries[i]["id"] for i in indices],
+            "embeddings": self._embeddings[indices],
+            "metadatas": [self._entries[i]["metadata"] for i in indices],
+        }
+
     def delete(self, ids: list[str]) -> int:
         """delete entries by their ids.
 
