@@ -1,29 +1,57 @@
 name: Sync doc facts
 
-# Keeps the DETERMINISTIC numbers in documentation correct: version, test count,
-# endpoint count, module and line counts. Prose is written by people (or by a
-# model); counts are derived from the repository and go stale silently. This
-# repo has already shipped "207 tests" long after the suite reached 308, and a
-# README describing a preview that had been deleted.
+# Keeps the VERSION NUMBERS in docs/ correct: the app's released version and the
+# versions of the stack it is built on. Nothing else.
+#
+# It used to rewrite test counts, endpoint counts, module totals and line counts
+# across README.md, CONTRIBUTING.md and scripts/README.md as well. That was too
+# much: those are prose about the project, prose belongs to whoever writes it,
+# and a number that maintains itself stops being read. It also meant this job
+# installed torch and the entire requirements file on every push -- several
+# minutes of runner time -- purely to collect the test suite and count it.
+#
+# What is left is the part a person genuinely cannot keep correct: the released
+# version changes when a release is cut, which is exactly when nobody is editing
+# documentation. docs/ABOUT.md stated 1.0.0 while 1.6.10 was shipping.
 #
 # Only text between markers is touched:
-#   <!-- autodoc:tests -->308 tests across 23 modules<!-- /autodoc -->
-# Everything else is left exactly as written, so this can never overwrite an
-# edit.
+#   v<!-- autodoc:version -->1.6.11<!-- /autodoc -->
+# Everything around them is left exactly as written, so this can never overwrite
+# an edit.
 #
 # No infinite loop is possible: the commit this makes triggers another run,
-# which finds nothing stale and commits nothing.
+# which finds nothing stale and commits nothing. The actor guard below stops it
+# a step earlier anyway.
 
 on:
   push:
-    branches: [dev, beta, main]
+    # dev and beta only. main is deliberately absent: its branch protection
+    # restricts pushes to a named user with no apps, so github-actions[bot]
+    # cannot push there and this job could only ever fail. The version reaches
+    # main the same way everything else does -- through the beta merge.
+    branches: [dev, beta]
+    # Only run when something that can change a derived value actually changed.
+    # A push touching only backend code cannot alter a version number.
+    paths:
+      - 'docs/**'
+      - 'scripts/update_docs.py'
+      - '.github/workflows/sync-docs.yml'
+      - 'frontend/package.json'      # react, vite
+      - 'src-tauri/Cargo.toml'       # tauri, rust edition
+      - '.github/workflows/ci.yml'   # the pinned python and node
+  # A release creates the tag the version is read from, and tags do not fire
+  # push events on branches. Without this the new version would sit unwritten
+  # until the next docs change happened to land.
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: sync-docs-${{ github.ref }}
+  group: sync-docs-${{ github.event.workflow_run.head_branch || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -34,42 +62,40 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref_name }}
+          # After a Release run, work on the branch that was released rather
+          # than on the default branch, which is where workflow_run would
+          # otherwise land.
+          ref: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+          # The version is read from the tags, so they have to be present.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: pip
-          cache-dependency-path: requirements.txt
 
-      # The test count comes from collecting the suite, which needs the
-      # application's imports to resolve.
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -r requirements.txt -r requirements-test.txt
-
-      - name: Refresh the facts
+      # No dependency install. Every value now comes from a manifest or from
+      # the git tags, so the application's imports do not need to resolve.
+      - name: Refresh the versions
         run: python scripts/update_docs.py
 
       - name: Commit if anything changed
         shell: bash
         run: |
           if git diff --quiet; then
-            echo "documentation facts already current"
+            echo "documentation versions already current"
             exit 0
           fi
 
           echo "--- what changed ---"
           git --no-pager diff --stat
 
+          BRANCH="${{ github.event.workflow_run.head_branch || github.ref_name }}"
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "docs: refresh derived facts
+          git add docs
+          git commit -m "docs: refresh versions
 
-          Version, test count, endpoint count and module totals, regenerated
-          from the repository by scripts/update_docs.py. Only text between
-          autodoc markers is touched; prose is untouched."
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+          The app version and the stack versions in docs/, regenerated by
+          scripts/update_docs.py. Only text between autodoc markers is
+          touched; prose is untouched."
+          git push origin "HEAD:${BRANCH}"

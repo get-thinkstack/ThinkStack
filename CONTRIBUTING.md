@@ -122,7 +122,7 @@ the gate is wrong — fix the gate.
 ## Tests
 
 ```bash
-pytest                    # the whole suite (<!-- autodoc:test_count -->348<!-- /autodoc --> tests, a few seconds)
+pytest                    # the whole suite (348 tests, a few seconds)
 pytest tests/test_x.py    # one file
 pytest -m heavy           # tests that load real models / hit the network
 ```
@@ -516,7 +516,7 @@ tools/             developer utilities
 tests/             the pytest suite
 ```
 
-<!-- autodoc:python_loc -->7,377 lines across 51 modules<!-- /autodoc -->. Small enough to read; do that before guessing.
+7,377 lines across 51 modules. Small enough to read; do that before guessing.
 
 ### Every runtime dependency
 
