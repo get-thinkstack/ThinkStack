@@ -16,6 +16,7 @@ happily confirmed the two bugs these tests exist to prevent:
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -54,7 +55,7 @@ def land(repo: Path, branch: str, *, ff: bool = False) -> None:
 
 def next_version(repo: Path) -> str:
     out = subprocess.run(
-        ["python3", str(SCRIPT), "--next"],
+        [sys.executable, str(SCRIPT),"--next"],
         cwd=repo, capture_output=True, text=True, check=True,
     )
     return out.stdout.strip()
@@ -62,7 +63,7 @@ def next_version(repo: Path) -> str:
 
 def current(repo: Path) -> str:
     out = subprocess.run(
-        ["python3", str(SCRIPT), "--current"],
+        [sys.executable, str(SCRIPT),"--current"],
         cwd=repo, capture_output=True, text=True, check=True,
     )
     return out.stdout.strip()

@@ -6,7 +6,7 @@ import LibraryChart from './charts/LibraryChart';
 import PageHeader from './PageHeader';
 
 /**
- * paper library component.
+ * Library - the paper collection.
  *
  * displays all ingested documents, allows upload of new papers,
  * and provides document deletion and encryption controls.

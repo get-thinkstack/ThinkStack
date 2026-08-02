@@ -55,7 +55,7 @@ function insertLatexAt(src, gen, caret) {
  * Compiling writes the source first, so an autocompile is also an autosave.
  * Save stays as an explicit checkpoint.
  */
-export default function PaperWriter() {
+export default function Scribe() {
   const [projects, setProjects] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [source, setSource] = useState('');
@@ -360,7 +360,7 @@ export default function PaperWriter() {
   return (
     <div>
       <PageHeader
-        title="Paper Writer"
+        title="Scribe"
         subtitle="Draft, AI-generate, and compile LaTeX papers - fully offline."
       />
 

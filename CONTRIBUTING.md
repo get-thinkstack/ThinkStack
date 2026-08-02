@@ -22,6 +22,21 @@ git clone git@github.com:get-thinkstack/ThinkStack.git && cd ThinkStack
 runs the same checks and updates arrive with a normal `git pull`. It also audits
 your local tooling and tells you what's missing.
 
+> **Windows: set your Rust toolchain locally, never in the repo.** The default
+> host on Windows is often `x86_64-pc-windows-gnu`, which needs MinGW's
+> `dlltool.exe`; the MSVC toolchain works without it. Fix that for your machine
+> only:
+>
+> ```bash
+> rustup override set stable-x86_64-pc-windows-msvc   # this directory, untracked
+> ```
+>
+> Do **not** commit `src-tauri/rust-toolchain.toml` with a host triple in the
+> channel. That file is repo-wide, so pinning `stable-x86_64-pc-windows-msvc`
+> makes `cargo metadata` fail outright on Linux and macOS -- `tauri build` then
+> cannot run at all. It happened once, reached `dev`, and `build.sh` reported
+> success over a build that produced no binary.
+
 **Install `shellcheck`.** Without it, `actionlint` silently skips its shell
 checks, a broken `run:` block passes locally, and CI catches it instead. That has
 already cost us a release build.
@@ -359,9 +374,11 @@ Pass a version explicitly to override, e.g. `scripts/promote.sh feature 1.6.7`.
 
 `--dry-run` prints every git command without running one. Use it the first time.
 
-**Merging `beta` into `main` releases automatically.** `release-on-main.yml`
-reads the version beta validated, tags it, builds all three platforms and
+**Merging `beta` into `main` releases automatically.** `release.yml` reads the
+version beta validated, records the tag, builds all three platforms and
 publishes, so the installers users download are swapped without a manual step.
+The same workflow cuts a beta when `dev` lands on `beta`, and a nightly on the
+cron — one file, three triggers.
 It does nothing if that version is already tagged.
 
 Each tag kicks off a **~45 minute three-OS build** that publishes installers and
@@ -521,7 +538,7 @@ api/               9 routers: documents, search, analysis, gaps, chat,
 domain/            core logic, one package per capability:
                      ingestion/       pdf_parser, chunker, metadata_extractor
                      knowledge_base/  embedding_service, repository
-                     search/          semantic, keyword (BM25), hybrid (RRF)
+                     search/          semantic search over chunk embeddings
                      analysis/        summarizer, claim_extractor, theme_clusterer
                      gap_finder/      gap_analyzer, suggestion_engine, pipeline
                      chat/            chat_service
@@ -556,7 +573,7 @@ after we shipped a build whose flagship feature needed a package no user had.
 
 | Asset | Purpose | Bundled |
 |---|---|---|
-| `qwen2.5-0.5b-instruct-q4_k_m.gguf` | chat, search, paper writer | yes |
+| `qwen2.5-0.5b-instruct-q4_k_m.gguf` | chat, search, Scribe | yes |
 | `all-MiniLM-L6-v2` | embeddings (ingest + search) | yes |
 | `qwen2.5-1.5b-instruct-q4_k_m.gguf` | analysis, gap finder | no — offered on consent |
 
@@ -579,7 +596,7 @@ fails on someone else's machine.
 ### Verifying it
 
 `scripts/validate_bundle.py` runs against a built bundle and exercises the
-real paths — ingest (embedding model), search (BM25 + vectors), inference
+real paths — ingest (embedding model), search (vector similarity), inference
 (llama.cpp). CI runs it on macOS, Windows and Linux on every build, so a
 dependency that did not ship fails the build rather than reaching a user.
 

@@ -237,6 +237,13 @@ class OllamaClient:
         self.model = model
         self.model_path = Path(model_path)
         self.ctx_size = ctx_size
+        # The context the resident model was actually loaded with. The
+        # configured value is only a ceiling: _compute_load_params lowers it
+        # to match the machine, and the OOM path below lowers it again. Callers
+        # that must size a prompt need the real number, not the wish.
+        self._effective_ctx: int | None = None
+        # Cached MachineCapability; see _capability().
+        self._cap = None
         self.gpu_layers = gpu_layers
         self.timeout = timeout
         self._llama = None
@@ -489,37 +496,73 @@ class OllamaClient:
             )
         return base
 
-    def _compute_load_params(self, model_path: Path) -> tuple[int, int]:
-        """compute safe ctx_size and gpu_layers using the hardware profiler.
+    def _capability(self):
+        """This machine's capability, resolved once and cached.
 
-        returns:
-            (n_ctx, n_gpu_layers) tuple tuned to the detected hardware.
+        Cached because detection is not free and the machine does not change
+        while the app is running. The Diagnose screen clears it deliberately
+        when the user asks for a fresh look.
         """
-        from infrastructure.hardware import (
-            profile_system, recommended_ctx_size, recommended_gpu_layers,
-            model_file_size_gb,
-        )
+        if self._cap is None:
+            from infrastructure.capability import for_this_machine
+            self._cap = for_this_machine()
+        return self._cap
 
-        ctx = self.ctx_size
-        layers = self.gpu_layers
+    def _compute_load_params(self, model_path: Path) -> tuple[int, int]:
+        """(n_ctx, n_gpu_layers) for loading this model on this machine.
+
+        Both numbers now come from infrastructure.capability, which is the one
+        place that turns hardware facts into decisions. This method used to
+        derive them itself from three separate helpers, while diagnosis.rs
+        derived its own answers for the same questions -- two policies, one
+        silently winning, and an Apple Silicon Mac pinned to CPU by neither of
+        them quite meaning to.
+
+        The explicit settings still win. THINKSTACK_LLM_GPU_LAYERS=0 has to
+        remain an escape hatch: it is what a user reaches for when offload
+        misbehaves on their machine.
+        """
+        from infrastructure.hardware import model_file_size_gb
+
+        cap = self._capability()
         file_size = model_file_size_gb(model_path)
+        plan = cap.plan_for_size(file_size)
 
-        # auto-detect context size from hardware tier
-        if settings.llm_auto_ctx:
-            profile = profile_system()
-            ctx = recommended_ctx_size(profile.tier)
-            logger.info(
-                "hardware tier %s → ctx_size=%d (model %.2f gb, ram %.1f/%.1f gb)",
-                profile.tier, ctx, file_size,
-                profile.available_ram_gb, profile.total_ram_gb,
-            )
+        # llm_auto_ctx=False means "use exactly what I configured".
+        ctx = plan.n_ctx if settings.llm_auto_ctx else self.ctx_size
+        # gpu_layers=-1 means "decide for me"; anything else is a deliberate
+        # override and is obeyed.
+        layers = plan.n_gpu_layers if self.gpu_layers == -1 else self.gpu_layers
 
-        # auto-detect gpu layers (-1 = auto)
-        if layers == -1:
-            layers = recommended_gpu_layers(model_size_gb=file_size)
-            logger.info("auto-detected gpu_layers=%d for %.2f gb model", layers, file_size)
-
+        p = cap.profile
+        logger.info(
+            "%s tier → ctx=%d, gpu_layers=%d (model %.2f gb, ram %.1f/%.1f gb, "
+            "gpu=%s, engine offload=%s)",
+            cap.tier, ctx, layers, file_size,
+            p.available_ram_gb, p.total_ram_gb,
+            p.gpu_name or "none", cap.engine_offload,
+        )
         return ctx, layers
+
+    def output_token_budget(
+        self, task_type: str = "general", ceiling: int = 1024, floor: int = 256
+    ) -> int:
+        """How many tokens of REPLY to ask for on this machine.
+
+        Delegates to infrastructure.capability. Kept as a method here because
+        callers already hold the client, but the policy lives in one place.
+        """
+        return self._capability().output_tokens(self._effective_ctx)
+
+    def input_char_budget(self, max_tokens: int, task_type: str = "general") -> int:
+        """Prompt characters that fit alongside `max_tokens` of reply.
+
+        The context window holds BOTH. Summarization asked for 6000 characters
+        of paper plus 1024 tokens of output inside a 2048-token window -- it
+        could not fit, and the reader was told the model's response "could not
+        be read".
+        """
+        return self._capability().input_chars(self._effective_ctx, max_tokens)
 
     def _get_llama(self, task_type: str = "general"):
         """lazily initialize llama.cpp model instance with hardware-aware loading.
@@ -580,6 +623,7 @@ class OllamaClient:
                     n_gpu_layers=n_gpu_layers,
                     verbose=False,
                 )
+                self._effective_ctx = n_ctx
                 self._llama_path = requested
                 return self._llama
             except (MemoryError, RuntimeError, Exception) as e:
@@ -609,6 +653,7 @@ class OllamaClient:
                 n_gpu_layers=0,
                 verbose=False,
             )
+            self._effective_ctx = n_ctx
         except (MemoryError, RuntimeError) as e:
             # absolute last resort: minimal context
             logger.error(
@@ -620,6 +665,7 @@ class OllamaClient:
                 n_gpu_layers=0,
                 verbose=False,
             )
+            self._effective_ctx = n_ctx
         self._llama_path = requested
         return self._llama
 
@@ -794,7 +840,7 @@ class OllamaClient:
                 json_mode=True,
                 task_type=task_type,
             )
-            return _extract_json_text(raw)
+            return _repair_json(_extract_json_text(raw))
 
         raw = await self._generate_ollama(
             prompt=prompt,
@@ -803,7 +849,7 @@ class OllamaClient:
             max_tokens=max_tokens,
             json_mode=True,
         )
-        return _extract_json_text(raw)
+        return _repair_json(_extract_json_text(raw))
 
     def _models_dir(self) -> Path:
         """the directory holding the gguf model files."""

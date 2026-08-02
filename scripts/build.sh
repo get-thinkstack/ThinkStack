@@ -12,6 +12,12 @@ set -e
 
 cd "$(dirname "$0")/.."
 
+# `python3` on Windows is a Microsoft Store stub that does not run, and inside
+# an activated venv `python` always exists. Prefer `python`, fall back to
+# `python3` for the bare-Linux case where only the versioned name is on PATH.
+PY=python
+command -v python >/dev/null 2>&1 || PY=python3
+
 # ── colors ──
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -40,7 +46,8 @@ done
 if [ "$FETCH_EMBEDDINGS" = true ]; then
     echo -e "${CYAN}fetching the embedding model (one time, ~90MB)...${NC}"
     [ -f .venv/bin/activate ] && source .venv/bin/activate
-    python3 - <<'PY'
+    [ -f .venv/Scripts/activate ] && source .venv/Scripts/activate
+    $PY - <<'PY'
 from pathlib import Path
 target = Path("data/models/all-MiniLM-L6-v2")
 if target.is_dir():
@@ -76,17 +83,34 @@ echo -e "  target triple: ${GREEN}${TRIPLE}${NC}"
 # accumulates them, and anything copying "the installers" out of there picks up
 # a mix of old and new. A stale binary in local/ is worse than none -- you
 # validate it, it passes, and you ship something else.
+#
+# Where cargo writes is not always src-tauri/target: CARGO_TARGET_DIR redirects
+# it, and on a machine that sets it (to keep build output off a full C: drive)
+# every `rm -rf src-tauri/target/...` here cleared a path that did not exist.
+# Resolve it first, or the clearing step silently does nothing.
 echo ""
 echo -e "${CYAN}[0] clearing previous build outputs...${NC}"
-rm -rf src-tauri/target/release/bundle
+TARGET_DIR="${CARGO_TARGET_DIR:-src-tauri/target}"
+echo -e "  cargo target dir: ${GREEN}${TARGET_DIR}${NC}"
+rm -rf "$TARGET_DIR/release/bundle"
+
+# Tauri copies bundle.resources into <target>/release/ and does NOT remove what
+# is already there, so anything staged by an earlier build survives forever.
+# A .env from July lived in release/api/ for weeks: config.py reads the one
+# beside the executable LAST, so it overrode everything and pinned the app to a
+# 4B model at a path that exists on exactly one machine, with GPU_LAYERS=-1 --
+# which the loader refuses to run on CPU. That would have shipped inside the
+# installer and failed at model load for every user.
+rm -rf "$TARGET_DIR/release/api"
+
 if [ "$SKIP_PYINSTALLER" = true ]; then
     # --skip-pyinstaller means "reuse the backend I already froze". Clearing it
     # here would delete the very thing the flag says to keep, and the build
     # would then fail at step 3 with a missing binary.
-    echo -e "  ${GREEN}cleared${NC} src-tauri/target/release/bundle (kept dist/thinkstack-api)"
+    echo -e "  ${GREEN}cleared${NC} $TARGET_DIR/release/{bundle,api} (kept dist/thinkstack-api)"
 else
     rm -rf dist/thinkstack-api
-    echo -e "  ${GREEN}cleared${NC} src-tauri/target/release/bundle, dist/thinkstack-api"
+    echo -e "  ${GREEN}cleared${NC} $TARGET_DIR/release/{bundle,api}, dist/thinkstack-api"
 fi
 
 # Warn (never block) when the checkout is behind its remote. Building an
@@ -120,7 +144,35 @@ echo -e "${CYAN}[2/4] freezing python backend with pyinstaller...${NC}"
 if [ "$SKIP_PYINSTALLER" = true ]; then
     echo -e "  ${YELLOW}skipped (--skip-pyinstaller)${NC}"
 else
-    source .venv/bin/activate
+    # Activate whichever build venv this machine has. Windows lays a venv out
+    # as Scripts/ and names the interpreter python.exe; the POSIX-only
+    # `source .venv/bin/activate` meant the documented build path could not run
+    # on Windows at all, so the Windows build was done by hand instead -- which
+    # is how .venv-build drifted out of sync with requirements.txt.
+    VENV=""
+    for candidate in .venv-build .venv; do
+        if [ -f "$candidate/bin/activate" ]; then
+            # shellcheck disable=SC1090
+            source "$candidate/bin/activate"; VENV="$candidate"; break
+        elif [ -f "$candidate/Scripts/activate" ]; then
+            # shellcheck disable=SC1090
+            source "$candidate/Scripts/activate"; VENV="$candidate"; break
+        fi
+    done
+    if [ -n "$VENV" ]; then
+        echo -e "  ${GREEN}using build venv:${NC} $VENV"
+    else
+        echo -e "  ${YELLOW}no .venv-build/.venv found - freezing from the ambient python${NC}"
+    fi
+
+    # PyInstaller separates source from destination with ':' on POSIX and ';'
+    # on Windows. Using the wrong one silently produces a bundle with no
+    # frontend and no models.
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*) DATA_SEP=";" ;;
+        *)                    DATA_SEP=":" ;;
+    esac
+
     export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 
     # Stage only the models release.config.json says we ship.
@@ -133,7 +185,7 @@ else
     STAGE_DIR="dist/.models-stage"
     rm -rf "$STAGE_DIR"; mkdir -p "$STAGE_DIR"
 
-    WANTED=$(python3 -c "
+    WANTED=$($PY -c "
 import json
 for u in json.load(open('release.config.json')).get('models', []):
     print(u.rsplit('/', 1)[-1])
@@ -182,13 +234,34 @@ for u in json.load(open('release.config.json')).get('models', []):
 
     # build add-data flags. an array, not a string: an unquoted string expansion
     # relies on word splitting (SC2086) and breaks on any path containing a space.
-    ADD_DATA_FLAGS=(--add-data "frontend/dist:frontend/dist")
+    ADD_DATA_FLAGS=(--add-data "frontend/dist${DATA_SEP}frontend/dist")
     if [ -n "$(ls -A "$STAGE_DIR" 2>/dev/null)" ]; then
-        ADD_DATA_FLAGS+=(--add-data "$STAGE_DIR:data/models")
+        ADD_DATA_FLAGS+=(--add-data "${STAGE_DIR}${DATA_SEP}data/models")
     fi
     if [ -d "data/tex" ]; then
-        ADD_DATA_FLAGS+=(--add-data "data/tex:data/tex")
+        ADD_DATA_FLAGS+=(--add-data "data/tex${DATA_SEP}data/tex")
     fi
+
+    # ── preflight: every hidden import must actually be installed ──
+    #
+    # --hidden-import tells PyInstaller to bundle a module it cannot see being
+    # imported. It does NOT install it. When psutil was missing from the build
+    # venv, PyInstaller shipped without it, hardware.py caught the ImportError,
+    # and every packaged install reported 0.0 GB RAM and pinned itself to the
+    # "low" tier. The flag being present in the build command is exactly what
+    # made that cause look impossible. So check, and fail loudly.
+    MISSING_IMPORTS=""
+    for mod in uvicorn psutil llama_cpp sentence_transformers fitz pdfplumber; do
+        python -c "import $mod" 2>/dev/null || MISSING_IMPORTS="$MISSING_IMPORTS $mod"
+    done
+    if [ -n "$MISSING_IMPORTS" ]; then
+        echo -e "  ${RED}error: these are required at runtime but not installed in the build venv:${NC}"
+        echo -e "  ${RED}  ${MISSING_IMPORTS}${NC}"
+        echo -e "  a --hidden-import flag does not install anything. fix with:"
+        echo -e "    ${CYAN}pip install -r requirements.txt${NC}"
+        exit 1
+    fi
+    echo -e "  ${GREEN}preflight ok${NC} - every runtime import resolves in the build venv"
 
     # --onedir (NOT --onefile): the backend is shipped as a Tauri *resource*
     # dir (tauri.conf.json bundle.resources -> "api/"), which lib.rs launches.
@@ -197,6 +270,13 @@ for u in json.load(open('release.config.json')).get('models', []):
     # --collect-all llama_cpp / sentence_transformers are REQUIRED (neither has a
     # PyInstaller hook): without them the frozen build omits llama_cpp's lib/*.so
     # and sentence_transformers' data, breaking chat/gap-analysis and search.
+    #
+    # The --exclude-module list is only what has been TESTED to be unused: the
+    # app was run with each blocked at import time and every runtime path
+    # (routes, embedding, search, graph, hardware) still passed. sklearn and
+    # scipy are deliberately NOT excluded despite the app never importing them
+    # directly -- sentence_transformers pulls sklearn.metrics at runtime, so
+    # dropping them yields a build with no embeddings and no search.
     pyinstaller --name thinkstack-api --onedir --clean --noconfirm \
         --hidden-import uvicorn \
         --hidden-import uvicorn.logging \
@@ -212,8 +292,47 @@ for u in json.load(open('release.config.json')).get('models', []):
         --hidden-import psutil \
         --collect-all llama_cpp \
         --collect-all sentence_transformers \
+        --exclude-module tkinter \
+        --exclude-module nltk \
+        --exclude-module pytest \
         "${ADD_DATA_FLAGS[@]}" \
         main.py
+
+    # ── the frozen bundle must contain the UI it was built from ──
+    #
+    # Vite writes content-hashed filenames, so rebuilding the frontend while
+    # PyInstaller is running changes them underneath it: Analysis records
+    # index-<oldhash>.js, COLLECT cannot find it, and PyInstaller only WARNS.
+    # The result is a bundle whose index.html references assets that are not in
+    # it -- a blank screen at runtime, from a build that reported success.
+    #
+    # So verify rather than trust: every asset index.html references must exist
+    # inside the frozen bundle.
+    FE="dist/thinkstack-api/_internal/frontend/dist"
+    [ -d "$FE" ] || FE="dist/thinkstack-api/frontend/dist"
+    if [ -f "$FE/index.html" ]; then
+        MISSING_ASSETS=""
+        # read line by line rather than iterating $(...): a for loop splits on
+        # every space, so one asset whose name contained a space would be
+        # checked as two names that both "do not exist" and the build would
+        # fail with a confusing message. shellcheck SC2013.
+        while IFS= read -r asset; do
+            [ -n "$asset" ] || continue
+            [ -f "$FE/assets/$asset" ] || MISSING_ASSETS="$MISSING_ASSETS $asset"
+        done <<EOF
+$(grep -oE '(src|href)="[^"]*/assets/[^"]+"' "$FE/index.html" | sed 's/.*assets\///; s/"$//')
+EOF
+        if [ -n "$MISSING_ASSETS" ]; then
+            echo -e "  ${RED}error: the frozen bundle is missing assets its index.html needs:${NC}"
+            echo -e "  ${RED} ${MISSING_ASSETS}${NC}"
+            echo -e "  this happens when frontend/dist is rebuilt while pyinstaller runs."
+            echo -e "  re-run the build and do not touch the frontend while it works."
+            exit 1
+        fi
+        echo -e "  ${GREEN}bundled ui verified${NC} - index.html's assets are all present"
+    else
+        echo -e "  ${YELLOW}warning: no bundled index.html found under $FE${NC}"
+    fi
 
     echo -e "  ${GREEN}backend frozen to dist/thinkstack-api/ (onedir)${NC}"
 fi
@@ -291,13 +410,54 @@ else
     export APPIMAGE_EXTRACT_AND_RUN=1   # linuxdeploy is itself an AppImage; skip FUSE
     export NO_STRIP=true                # stripping breaks PyInstaller's payload
 
+    # `|| echo` used to swallow EVERY failure here, not just linuxdeploy's.
+    # A toolchain that could not even start -- src-tauri/rust-toolchain.toml
+    # pinned a Windows target, so `cargo metadata` failed on Linux and macOS --
+    # was reported as "linuxdeploy failed (expected)", the AppDir check then
+    # silently found nothing, and the script printed "desktop binary compiled"
+    # and "build complete" over a build that produced no binary at all. The
+    # previous installers were still sitting in local/, so the next person to
+    # validate would have validated a week-old build believing it was fresh.
+    #
+    # The distinction that matters: linuxdeploy failing AFTER the AppDir exists
+    # is expected and recoverable; anything that leaves no AppDir is a real
+    # failure and must stop the build.
     if [ "$(uname -s)" = "Linux" ]; then
-        npm run tauri build || echo -e "  ${YELLOW}linuxdeploy failed (expected) - packaging the AppDir directly${NC}"
-        if [ -d src-tauri/target/release/bundle/appimage ]; then
-            bash scripts/package-appimage.sh
+        TAURI_LOG="$(mktemp)"
+        set +e
+        npm run tauri build 2>&1 | tee "$TAURI_LOG"
+        TAURI_RC=${PIPESTATUS[0]}
+        set -e
+        APPDIR_FOUND=0
+        [ -d "$TARGET_DIR/release/bundle/appimage" ] && APPDIR_FOUND=1
+
+        if [ "$TAURI_RC" -ne 0 ] && [ "$APPDIR_FOUND" -eq 0 ]; then
+            echo ""
+            echo -e "  ${RED}the tauri build failed and produced no AppDir.${NC}"
+            echo -e "  ${RED}this is NOT the expected linuxdeploy failure.${NC}"
+            echo ""
+            echo -e "  last lines:"
+            tail -20 "$TAURI_LOG" | sed 's/^/    /'
+            rm -f "$TAURI_LOG"
+            exit 1
         fi
+        rm -f "$TAURI_LOG"
+        [ "$TAURI_RC" -ne 0 ] && \
+            echo -e "  ${YELLOW}linuxdeploy failed (expected) - packaging the AppDir directly${NC}"
+        [ "$APPDIR_FOUND" -eq 1 ] && bash scripts/package-appimage.sh
     else
         npm run tauri build
+    fi
+
+    # Assert an installer actually exists before claiming success. On every OS:
+    # a green exit code is not evidence that a file was produced.
+    if ! find "$TARGET_DIR/release/bundle" -maxdepth 2 -type f \
+            \( -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \
+               -o -name '*.dmg' -o -name '*.msi' -o -name '*.exe' \) \
+            2>/dev/null | grep -q .; then
+        echo -e "  ${RED}the build reported success but produced no installer.${NC}"
+        echo -e "  looked in ${TARGET_DIR}/release/bundle/"
+        exit 1
     fi
     echo -e "  ${GREEN}desktop binary compiled${NC}"
 fi
@@ -308,7 +468,7 @@ fi
 # are worse than none, because a validation pass against last week's build tells
 # you nothing about the one you are tagging.
 LOCAL_DIR="local"
-if [ -d "src-tauri/target/release/bundle" ]; then
+if [ -d "$TARGET_DIR/release/bundle" ]; then
     echo ""
     echo -e "${CYAN}[5/5] publishing installers to ${LOCAL_DIR}/...${NC}"
     mkdir -p "$LOCAL_DIR"
@@ -321,7 +481,7 @@ if [ -d "src-tauri/target/release/bundle" ]; then
     while IFS= read -r artifact; do
         cp -f "$artifact" "$LOCAL_DIR/" && COPIED=$((COPIED + 1))
         echo -e "    ${GREEN}$(basename "$artifact")${NC} ($(du -h "$artifact" | cut -f1))"
-    done < <(find src-tauri/target/release/bundle -maxdepth 2 -type f \
+    done < <(find "$TARGET_DIR/release/bundle" -maxdepth 2 -type f \
         \( -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \
            -o -name '*.dmg' -o -name '*.msi' -o -name '*.exe' \) 2>/dev/null)
 
@@ -345,8 +505,8 @@ echo -e "${GREEN}  build complete.${NC}"
 echo ""
 echo -e "  artifacts:"
 [ -d "dist/thinkstack-api" ] && echo -e "    frozen backend: ${GREEN}dist/thinkstack-api/ (onedir)${NC}"
-if [ -d "src-tauri/target/release/bundle" ]; then
-    echo -e "    desktop app:    ${GREEN}src-tauri/target/release/bundle/${NC}"
+if [ -d "$TARGET_DIR/release/bundle" ]; then
+    echo -e "    desktop app:    ${GREEN}$TARGET_DIR/release/bundle/${NC}"
 fi
 if [ -d "$LOCAL_DIR" ] && [ -n "$(ls -A "$LOCAL_DIR" 2>/dev/null)" ]; then
     echo -e "    installers:     ${GREEN}${LOCAL_DIR}/${NC}  <- validate THIS before releasing"

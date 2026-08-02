@@ -15,6 +15,7 @@ from domain.knowledge_base.repository import get_chunks_by_doc_id
 from domain.analysis.summarizer import summarize_single, summarize_multiple
 from domain.analysis.claim_extractor import extract_claims
 from domain.analysis.theme_clusterer import cluster_by_themes
+from infrastructure.analysis_cache import doc_analysis_cache
 from infrastructure.analysis_history import analysis_history
 
 logger = logging.getLogger(__name__)
@@ -95,10 +96,16 @@ async def summarize(request: AnalysisRequest):
     if len(request.doc_ids) == 1:
         text = _get_doc_text(request.doc_ids[0], request.password)
         summary = await summarize_single(request.doc_ids[0], text)
+        # into the cache the canvas reads, not only the run history. a summary
+        # asked for by hand is the same fact as one computed at ingest, and
+        # without this the node stays labelled unanalyzed after you ran it.
+        doc_analysis_cache.merge(request.doc_ids[0], summary=summary.summary_text)
     else:
         texts = {}
         for doc_id in request.doc_ids:
             texts[doc_id] = _get_doc_text(doc_id, request.password)
+        # a comparative summary is about the set, not about any one paper, so
+        # it is deliberately not cached per document.
         summary = await summarize_multiple(request.doc_ids, texts)
 
     return _record("summarize", request.doc_ids, asdict(summary))
@@ -121,7 +128,11 @@ async def claims(request: AnalysisRequest):
     for doc_id in request.doc_ids:
         text = _get_doc_text(doc_id, request.password)
         doc_claims = await extract_claims(doc_id, text)
-        all_claims.extend([asdict(c) for c in doc_claims])
+        as_dicts = [asdict(c) for c in doc_claims]
+        # same reason as summarize: the canvas draws claim sub-nodes from the
+        # cache, so claims extracted on demand have to land there too.
+        doc_analysis_cache.merge(doc_id, claims=as_dicts)
+        all_claims.extend(as_dicts)
 
     return _record("claims", request.doc_ids, {
         "claims": all_claims,

@@ -10,9 +10,13 @@ import json
 import logging
 
 from domain.analysis.models import Claim
+from domain.analysis.document_analysis import CLAIM_TYPES
+from domain.analysis.parsing import as_dict, as_items, one_of
 from infrastructure.ollama_client import ollama_client
 
 logger = logging.getLogger(__name__)
+
+CONFIDENCE_LEVELS = ("high", "medium", "low")
 
 EXTRACTION_PROMPT = """analyze this research paper text and extract key claims and findings.
 for each claim, identify:
@@ -57,16 +61,19 @@ async def extract_claims(doc_id: str, text: str) -> list[Claim]:
             prompt, system=system, max_tokens=768, task_type="analysis"
         )
         data = json.loads(response)
-        claims_data = data.get("claims", [])
 
         claims = []
-        for item in claims_data:
+        for entry in as_items(data, "claims"):
+            item = as_dict(entry, "claim_text")
+            text = item.get("claim_text") or item.get("text") or ""
+            if not text:
+                continue
             claims.append(Claim(
                 doc_id=doc_id,
-                claim_text=item.get("claim_text", ""),
-                claim_type=item.get("claim_type", "finding"),
-                confidence=item.get("confidence", "medium"),
-                supporting_text=item.get("supporting_text", ""),
+                claim_text=str(text),
+                claim_type=one_of(item.get("claim_type"), CLAIM_TYPES, "finding"),
+                confidence=one_of(item.get("confidence"), CONFIDENCE_LEVELS, "medium"),
+                supporting_text=str(item.get("supporting_text") or ""),
             ))
 
         logger.info("extracted %d claims from document %s", len(claims), doc_id)

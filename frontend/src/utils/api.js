@@ -5,7 +5,7 @@
  * with consistent error handling and response parsing.
  */
 
-import { useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 
 const BASE_URL = '/api';
 
@@ -47,6 +47,58 @@ export function useLlmBusy() {
     llmBusyStore.getSnapshot,
   );
   return { busy: snap.count > 0, label: snap.label };
+}
+
+/**
+ * Background analysis progress, polled from the server.
+ *
+ * Distinct from `useLlmBusy`, which only knows about calls THIS tab started.
+ * Ingest-time analysis is queued server-side and outlives the request that
+ * triggered it, so the only way to know it is running is to ask.
+ *
+ * Polls slowly and only while there is something to report — an idle app makes
+ * one request every 5 s, and a busy one every 1.5 s, which is well inside the
+ * granularity of jobs measured in tens of seconds.
+ *
+ * @returns {{active: boolean, label: string, done: number, total: number,
+ *            queued: number, error: string}}
+ */
+export function useJobs() {
+  const [state, setState] = useState({
+    active: false, label: '', done: 0, total: 0, queued: 0, error: '',
+  });
+
+  useEffect(() => {
+    let alive = true;
+    let timer = null;
+
+    const tick = async () => {
+      try {
+        const s = await systemApi.jobs();
+        if (!alive) return;
+        const active = !!s.running || s.queued > 0;
+        setState({
+          active,
+          label: s.label || '',
+          done: s.done || 0,
+          total: s.total || 0,
+          queued: s.queued || 0,
+          error: s.last_error || '',
+        });
+        timer = setTimeout(tick, active ? 1500 : 5000);
+      } catch {
+        // The backend may still be starting, or already gone. Back off rather
+        // than hammering it, and never surface this as a user-facing error —
+        // failing to read a progress bar is not something to interrupt for.
+        if (alive) timer = setTimeout(tick, 5000);
+      }
+    };
+
+    tick();
+    return () => { alive = false; if (timer) clearTimeout(timer); };
+  }, []);
+
+  return state;
 }
 
 async function request(path, options = {}) {
@@ -104,11 +156,32 @@ export const documentsApi = {
 };
 
 export const searchApi = {
+  /** ranked chunks, best passage first */
   search: (query, topK = 10, docIds = []) =>
     request('/search', {
       method: 'POST',
       body: { query, top_k: topK, doc_ids: docIds },
     }),
+
+  /**
+   * the same search rolled up to papers, each carrying every chunk of its
+   * that matched. the canvas asks "which papers does this touch, and where
+   * in each", which a flat chunk list cannot answer.
+   */
+  papers: (query, topK = 20, docIds = []) =>
+    request('/search', {
+      method: 'POST',
+      body: { query, top_k: topK, doc_ids: docIds, group_by_doc: true },
+    }),
+};
+
+/**
+ * The library graph. Derived on every request from embeddings, the analysis
+ * cache and past runs -- there is no graph state to invalidate, so this is
+ * simply re-fetched whenever the library or a run changes.
+ */
+export const graphApi = {
+  get: () => request('/graph'),
 };
 
 export const analysisApi = {
@@ -157,8 +230,12 @@ export const systemApi = {
   health: () => request('/system/health'),
   models: () => request('/system/models'),
   stats: () => request('/system/stats'),
+  jobs: () => request('/system/jobs'),
   setModel: (model) =>
     request('/system/model', { method: 'POST', body: { model } }),
+  // POST, not GET: it discards the cached hardware profile and looks again.
+  // Reads nothing the user owns and changes no setting.
+  diagnose: () => request('/system/diagnose', { method: 'POST' }),
 };
 
 /**

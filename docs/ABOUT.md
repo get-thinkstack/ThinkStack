@@ -100,19 +100,35 @@ available for testers.
 
 ## Using the features
 
-### Search your library
-Ask a question or type keywords. ThinkStack runs **semantic** search (by meaning)
-and **keyword** search (BM25) together and fuses the results, so you get relevant
-chunks whether you remember the exact wording or just the idea.
+The app has four sections. Three follow the order the work happens -- **Library**
+→ **LitGraph** → **Scribe**: collect, understand, write. The fourth, **Bench**,
+is the workshop rather than a step: what this machine can run, and what it runs
+it with.
 
-### Summarize & find gaps
-Pick one or more papers to get a comparative **summary** and **thematic
-clusters**. The **gap finder** goes further: it points out contradictions,
-methodological gaps, and missing validation across the papers, and suggests
-concrete research directions.
+### Library — your collection
+Import PDFs, encrypt the sensitive ones, and manage what is in the library.
 
-### Write LaTeX (the paper writer)
-Open the paper writer and write your ideas in plain language in a `.ths` file. The
+### LitGraph — the map
+Everything between collecting and writing happens on one canvas.
+
+Papers are placed by *meaning*: each one's embeddings are averaged and projected
+to 2D, so papers arguing about the same things sit near each other, and the lines
+between them are how similar they actually are. Themes become territory, drawn as
+soft outlines around clusters. Gaps appear as amber markers with dashed lines back
+to the papers that evidence them.
+
+- **Search by meaning.** Describe what you are after and the map dims to what
+  matched, with a ring on each paper showing how strong the match was. You do not
+  need the author's wording — only the idea.
+- **Select by drawing.** Shift-drag a loop around a region and those papers become
+  your selection. **Summarize**, **Claims**, **Themes** and **Find gaps** all run
+  on whatever is selected, so choosing papers and seeing *why* you chose them are
+  the same gesture.
+- **Runs are kept.** Every analysis and gap scan is saved and can be reopened or
+  deleted from the Runs drawer.
+
+### Scribe — write LaTeX
+Open Scribe and write your ideas in plain language in a `.ths` file. The
 local model turns them into compilable LaTeX **in place**. You get:
 - a **Live Preview** tab that renders sections, math, and tables instantly as you
   type (no compile needed), and

@@ -17,6 +17,52 @@ See [scripts/README.md](scripts/README.md) for how releases are cut.
 
 Work merged but not yet tagged.
 
+### Changed — breaking
+
+- **The app is now three sections instead of five.** Library, Search, Analysis,
+  Gap Finder and Paper Writer became **Library** → **LitGraph** → **Scribe**
+  (collect, understand, write). Search, Analysis and Gap Finder were three views
+  onto one question, so they are now one canvas. `/search`, `/analysis` and
+  `/gaps` redirect to `/litgraph`; any bookmark to them still lands somewhere
+  sensible. No data, API route or storage path changed — only the sections.
+- **Search is purely semantic.** BM25 keyword search and the reciprocal-rank
+  fusion that combined it with vector search are gone, along with the
+  `rank-bm25` dependency. Queries are now ranked by cosine similarity across
+  *every* chunk of every paper rather than a `top_k` candidate pool. Paraphrase
+  queries improve markedly; rare literal tokens (`FedAvg`, author surnames) are
+  preserved by a small exact-token bonus applied after the semantic score.
+  Results may be ordered differently than before. See `docs/ADR.md`.
+
+### Added
+- **Bench** — a fourth section: what this machine can run, and the models it
+  runs it with. `Diagnose my machine` and `Add better models` were two sidebar
+  buttons opening modals; they are two halves of one question, and a modal is
+  the wrong shape for something consulted while deciding. Deliberately thin —
+  model acquisition, per-task suggestions and the registry land here later
+  rather than being mocked up now.
+- **`POST /api/system/diagnose`** re-examines the machine on request. The
+  profile is cached at startup, which is right, but a user who frees memory or
+  upgraded from a build predating this had no way to make the app look again.
+- **`infrastructure/capability.py`** — one place that answers "what can this
+  machine do". Rust detects, Python decides; every derived number (tier,
+  context, GPU layers, token budgets) comes from here instead of ten places.
+
+
+- **LitGraph** — a spatial map of your library. Papers are positioned by meaning
+  (PCA over embedding centroids), linked by similarity, grouped into theme
+  territory, and annotated with gap markers wired back to their evidence. The
+  map doubles as the selector: shift-drag a lasso or run a search, and
+  Summarize / Claims / Themes / Find-gaps operate on that selection. Past
+  analyses and gap scans live in one Runs drawer.
+- `GET /api/graph` — the derived graph payload. Computed from data that already
+  persists, so there is no new state and no extra model call.
+- `POST /api/search` accepts `group_by_doc`, returning papers with every one of
+  their matching chunks in reading order.
+- **Analysis runs at ingest, not on the request path.** Uploading no longer waits
+  on a ~50 s model call: summaries, claims and themes are queued to a background
+  worker, and `GET /api/system/jobs` drives a determinate progress bar
+  ("analysing paper 2 of 5"). The canvas refreshes itself when the queue drains.
+
 ### Changed
 - **The shell embeds only the loading screen.** `frontendDist` pointed at
   `frontend/dist`, compiling the whole SPA into the binary a second time -- the
