@@ -117,15 +117,28 @@ GPU present.
 
 ## CI/CD and auto-updates
 
-the release pipeline is config-driven and split into reusable workflows:
-`release.config.json` holds the repo, platform matrix, channels, and models;
-`.github/workflows/_build-desktop.yml` and `_publish-release.yml` are reusable
-(`workflow_call`) and hold all the build/publish logic; and the thin channel
-callers `release-stable.yml`, `release-beta.yml`, and `nightly.yml` trigger them
-for the stable / beta / nightly channels. each builds installers for Linux,
-macOS, and Windows and publishes them to GitHub Releases. Updates use Tauri's
-updater: the installed app checks a signed `latest.json` on each launch and
-installs a newer version if one exists (each channel has its own manifest URL).
+the release pipeline is config-driven: `release.config.json` holds the repo,
+platform matrix, channels, and models; `.github/workflows/_build-desktop.yml`
+and `_publish-release.yml` are reusable (`workflow_call`) and hold all the
+build/publish logic; and `release.yml` is the single entry point.
+
+it used to be five entry points -- `release-stable`, `release-beta`,
+`release-on-main`, `release-on-beta` and `nightly` -- which differed only in
+what started them and how the version was worked out. their build and publish
+halves were byte-identical, and two even shared a concurrency group. one
+workflow with three triggers replaced them: merging into beta cuts a beta,
+merging into main publishes what beta validated, and the cron cuts a nightly.
+Ten workflows became six.
+
+a merge is the decision to release; the tag is the record of what was built.
+tags trigger nothing, because while they did, `git push origin v1.2.3`
+published a release to every user without the merge being reviewed.
+
+each build produces installers for Linux, macOS, and Windows and publishes them
+to GitHub Releases. Updates use Tauri's updater, but only when the user asks:
+the check is behind the sidebar button rather than on launch, because an
+offline-first app should not contact the network unprompted (each channel has
+its own manifest URL).
 The signing key stays out of the repo (the private key lives at `~/.tauri` and as
 a CI secret; only the public key is committed). The supporting scripts are
 `scripts/compose-updater-manifest.sh`, which builds the manifest, and

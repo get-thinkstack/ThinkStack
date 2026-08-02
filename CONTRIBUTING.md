@@ -374,9 +374,11 @@ Pass a version explicitly to override, e.g. `scripts/promote.sh feature 1.6.7`.
 
 `--dry-run` prints every git command without running one. Use it the first time.
 
-**Merging `beta` into `main` releases automatically.** `release-on-main.yml`
-reads the version beta validated, tags it, builds all three platforms and
+**Merging `beta` into `main` releases automatically.** `release.yml` reads the
+version beta validated, records the tag, builds all three platforms and
 publishes, so the installers users download are swapped without a manual step.
+The same workflow cuts a beta when `dev` lands on `beta`, and a nightly on the
+cron — one file, three triggers.
 It does nothing if that version is already tagged.
 
 Each tag kicks off a **~45 minute three-OS build** that publishes installers and
