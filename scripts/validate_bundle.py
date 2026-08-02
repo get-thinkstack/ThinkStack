@@ -266,6 +266,47 @@ def main() -> int:
         except Exception as e:  # noqa: BLE001
             record(FAIL, "inference failed", repr(e))
 
+    # 6b. SUMMARIZATION -- the JSON-mode path, which nothing here touched.
+    #
+    # Check 6 above calls /api/chat, which is plain text generation. Summarize
+    # is different in the way that matters: it asks the model for STRUCTURED
+    # output, parses it, and fails softly by putting an apology in the summary
+    # field instead of raising. So a bundle where structured output is broken
+    # passed every check here with 10/10 while a tester on macOS saw "This paper
+    # could not be summarized" on the very first paper they tried.
+    #
+    # Failing softly is right for the product -- one bad paper must not abort a
+    # multi-paper run -- but it means the ONLY way to detect the failure is to
+    # read the returned text. So that is what this does.
+    if not args.skip_inference:
+        try:
+            # The ingest check above does not keep the id, so ask for it the
+            # same way the UI does.
+            listing = get(f"{base}/api/documents") or {}
+            docs = listing.get("documents") if isinstance(listing, dict) else listing
+            doc_id = (docs or [{}])[0].get("doc_id") if docs else None
+            if not doc_id:
+                raise RuntimeError(f"no ingested document to summarize: {str(listing)[:120]}")
+            t0 = time.time()
+            res = post(f"{base}/api/analysis/summarize", {"doc_ids": [doc_id]})
+            summary = ((res.get("result") or res).get("summary_text") or "").strip()
+            points = (res.get("result") or res).get("key_points") or []
+            if not summary:
+                record(FAIL, "summarize returned no summary at all", json.dumps(res)[:200])
+            elif "could not be summarized" in summary or "could not be read" in summary:
+                # The soft-failure text. The real cause is in the backend log,
+                # which CI uploads on failure -- that is the whole point of
+                # catching it here instead of at a tester's desk.
+                record(FAIL, "summarize failed softly (structured output broke)",
+                       summary[:160])
+            else:
+                record(PASS,
+                       f"summarized a paper in {time.time() - t0:.1f}s "
+                       f"({len(summary)} chars, {len(points)} key point(s))",
+                       summary[:120])
+        except Exception as e:  # noqa: BLE001
+            record(FAIL, "summarize request failed", repr(e))
+
     # 7. the paper writer actually compiles a PDF.
     #    This is the check that would have caught the flagship feature failing
     #    on every machine without a system LaTeX. It asserts the SHIPPED TeX

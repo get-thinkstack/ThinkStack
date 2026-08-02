@@ -149,6 +149,35 @@ async def hardware_info():
     }
 
 
+@router.post("/diagnose")
+async def diagnose_machine():
+    """Re-examine this machine and report what it can do.
+
+    The app profiles the machine once at startup and caches it, which is right:
+    hardware does not change while the app runs, and probing on every launch
+    would slow every launch. But it means a user who adds memory, closes a
+    memory-hog, or installs a GPU-capable runtime has no way to make the app
+    look again -- and someone who upgraded from a build that predates this has
+    never been profiled by it at all.
+
+    POST rather than GET because it discards cached state. It reads nothing
+    the user owns and changes no setting: it only re-answers "what can this
+    machine do".
+
+    Returns the same structure the Diagnose screen renders, which is also what
+    the model picker will consume when the two are merged.
+    """
+    import infrastructure.hardware as hardware
+    from infrastructure.capability import for_this_machine
+    from infrastructure.ollama_client import ollama_client
+
+    # Force a fresh look rather than replaying the startup answer.
+    hardware._cached_profile = None
+    ollama_client._cap = None
+
+    return for_this_machine().report()
+
+
 @router.get("/training-stats")
 async def get_training_stats():
     """return counts of collected training data pairs.

@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, useLocation, Navigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { BookOpen, Waypoints, PenLine, Sun, Moon, HardDrive, RefreshCw, Check, AlertCircle } from 'lucide-react';
+import { BookOpen, Waypoints, PenLine, Sun, Moon, HardDrive, RefreshCw, Check, AlertCircle, Gauge } from 'lucide-react';
 import { systemApi } from './utils/api';
 import { checkForUpdatesInteractive, APP_VERSION } from './utils/updater';
 import Bibliotekh from './components/Bibliotekh';
 import LitGraph from './components/LitGraph';
 import Scribe from './components/Scribe';
 import ModelSetup, { OPEN_MODEL_SETUP } from './components/ModelSetup';
+import Diagnostics from './components/Diagnostics';
 import './index.css';
 
 const THEME_KEY = 'ts-theme';
@@ -77,6 +78,7 @@ export default function App() {
   // contradicts that even though the request carries no user data. Updates are
   // entirely user-initiated via the sidebar button below.
   const [updateState, setUpdateState] = useState('idle');
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
   // Percentage of the update download, or null when nothing is downloading.
   // The bundle carries the model weights, so this is a ~900 MB transfer that
   // takes minutes; with no progress the button looked frozen.
@@ -145,6 +147,7 @@ export default function App() {
       {/* first-run only, and only when a better model is both runnable and
           not already installed. renders nothing otherwise. */}
       <ModelSetup />
+      <Diagnostics open={showDiagnostics} onClose={() => setShowDiagnostics(false)} />
       <div className="ambient-bg">
         <div className="ambient-orb orb-1"></div>
         <div className="ambient-orb orb-2"></div>
@@ -209,6 +212,21 @@ export default function App() {
                   because the flag lives in the webview's localStorage, which
                   even reinstalling does not clear. */}
               <div className="sidebar-tools">
+                {/* Above "Add better models" deliberately: knowing what the
+                    machine can do is the question that makes the model choice
+                    meaningful. The two are separate for now because they do
+                    different things -- this one only reports, that one
+                    downloads -- and they render from the same payload, so
+                    merging them later is a UI change, not a rewrite. */}
+                <button
+                  className="sidebar-tool"
+                  onClick={() => setShowDiagnostics(true)}
+                  title="See what this machine can run, and why"
+                >
+                  <Gauge size={15} />
+                  <span>Diagnose my machine</span>
+                </button>
+
                 <button
                   className="sidebar-tool"
                   onClick={() => window.dispatchEvent(new Event(OPEN_MODEL_SETUP))}
