@@ -134,15 +134,49 @@
 .lg-rmeta { display: block; margin-top: 3px; font-size: 0.7rem; color: var(--text-3); }
 
 /* ---------- bottom chrome ---------- */
-.lg-hint {
+/* Present but quiet: legible enough to find when wanted, dim enough to ignore
+   for the ninety-nine visits after the first. */
+.lg-info {
   position: absolute;
   left: 14px;
   bottom: 14px;
-  font-size: 0.7rem;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: transparent;
   color: var(--text-3);
-  pointer-events: none;
+  font: italic 600 0.72rem/1 Georgia, serif;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 140ms ease, color 140ms ease, border-color 140ms ease;
 }
-.lg-hint b { color: var(--accent); font-weight: 500; }
+.lg-info:hover,
+.lg-info.on {
+  opacity: 1;
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.lg-help {
+  position: absolute;
+  left: 14px;
+  bottom: 44px;
+  display: grid;
+  gap: 5px;
+  padding: 11px 13px;
+  max-width: 320px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  backdrop-filter: blur(8px);
+  font-size: 0.72rem;
+  color: var(--text-3);
+  z-index: 4;
+}
+.lg-help b { color: var(--accent); font-weight: 500; }
 
 /* what the map is made of, readable before you touch anything */
 .lg-stats {

@@ -12,6 +12,16 @@ import Diagnostics from './components/Diagnostics';
 import './index.css';
 
 const THEME_KEY = 'ts-theme';
+const SIDEBAR_KEY = 'ts-sidebar-collapsed';
+
+/** Restore the sidebar state. Expanded is the default for a first run. */
+function getInitialCollapsed() {
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) === '1';
+  } catch {
+    return false;   // private mode / storage disabled
+  }
+}
 
 /** resolve the initial theme: stored choice wins, else follow the OS. */
 function getInitialTheme() {
@@ -66,6 +76,20 @@ function AnimatedRoutes() {
  */
 export default function App() {
   const [llmStatus, setLlmStatus] = useState('checking');
+  // Persisted like the theme: a layout choice the user made once should not be
+  // undone by quitting the app.
+  const [collapsed, setCollapsed] = useState(getInitialCollapsed);
+
+  const toggleSidebar = () =>
+    setCollapsed((c) => {
+      const next = !c;
+      try {
+        localStorage.setItem(SIDEBAR_KEY, next ? '1' : '0');
+      } catch {
+        /* storage unavailable; the choice just will not survive a restart */
+      }
+      return next;
+    });
   const [{ theme, explicit }, setThemeState] = useState(getInitialTheme);
 
   // apply the active theme to <html> so every token switches
@@ -153,18 +177,40 @@ export default function App() {
         <div className="ambient-orb orb-2"></div>
       </div>
       <BrowserRouter>
-        <div className="app-layout">
+        <div className={`app-layout ${collapsed ? 'is-collapsed' : ''}`}>
+          {/* Visible only while collapsed. The logo IS the way back -- with the
+              sidebar gone there is nothing else left to click. */}
+          <button
+            className="sidebar-peek"
+            onClick={toggleSidebar}
+            aria-label="Show sidebar"
+            aria-expanded={!collapsed}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="#0A0A0A"
+                 strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2L2 7l10 5 10-5-10-5z" />
+              <path d="M2 17l10 5 10-5" />
+              <path d="M2 12l10 5 10-5" />
+            </svg>
+          </button>
           <aside className="sidebar">
             <div className="sidebar-brand">
               <div className="brand-logo-container">
                 <h1>
-                  <div className="brand-logo-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="#0A0A0A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-                      <path d="M2 17l10 5 10-5"/>
-                      <path d="M2 12l10 5 10-5"/>
-                    </svg>
-                  </div>
+                  <button
+                    className="brand-logo-button"
+                    onClick={toggleSidebar}
+                    aria-label="Collapse sidebar"
+                    aria-expanded="true"
+                  >
+                    <div className="brand-logo-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="#0A0A0A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                        <path d="M2 17l10 5 10-5"/>
+                        <path d="M2 12l10 5 10-5"/>
+                      </svg>
+                    </div>
+                  </button>
                   ThinkStack
                 </h1>
               </div>

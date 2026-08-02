@@ -57,10 +57,57 @@ install rather than shipped, which kept installers clear of GitHub's 2 GiB asset
 limit. Analysis degrades to the 0.5B when no larger model is present.
 
 To keep memory bounded, `ollama_client.py` keeps only one model resident at a
-time and swaps on demand rather than holding both. GPU is used when available,
-with a CPU fallback so the app still runs on machines without a usable CUDA
-setup. `file_manager.seed_bundled_models()` copies the bundled model into the
+time and swaps on demand rather than holding both.
+`file_manager.seed_bundled_models()` copies the bundled model into the
 writable data directory on first run, since a frozen build ships it read-only.
+
+## Machine capability and diagnosis
+
+`infrastructure/capability.py` is the single place that answers "what can this
+machine do". Before it, that question was answered in about ten places, and two
+of them disagreed: `src-tauri/src/diagnosis.rs` classified the machine and chose
+GPU layers, `infrastructure/hardware.py` did the same again in Python, and the
+Rust answer won at runtime -- so the Python one was unreachable code that still
+looked authoritative.
+
+The split is now Rust detects, Python decides. Rust reports facts about the
+machine; every derived number -- tier, context size, GPU layers, output tokens,
+how much prompt fits -- comes from `capability.py`. Callers ask it; they no
+longer compute.
+
+Two bugs this fixed:
+
+- **Summarization could not fit in its own context window.** 6000 characters of
+  paper (~1500 tokens) plus 1024 tokens of reply needs ~2650 tokens; a low-tier
+  machine is given 2048. The request failed before the model was asked to think,
+  and the error handler then told the reader the response "could not be read",
+  which was untrue. Nobody owned the arithmetic, so nobody noticed it was wrong.
+  Both summarizers now size the prompt from the context the model was actually
+  loaded with, and fall back to map-reduce when a paper will not fit in one pass.
+- **Every Mac was pinned to CPU.** GPU layers were decided by
+  `has_cuda && vram_gb >= 2.0`. Apple Silicon reports no CUDA and 0 GB of
+  dedicated VRAM -- both true, because its GPU shares system memory -- so the
+  test could never pass whatever the machine could do. `HardwareProfile` could
+  not express "unified memory", so three consumers each guessed and all three
+  guessed wrong. Capability asks `llama_supports_gpu_offload()` instead: a fact
+  about the binary we shipped, which is the only thing that decides whether
+  offload works.
+
+Detection no longer imports torch. Torch is bundled for embeddings, not
+inference -- the SLMs run on llama.cpp -- and torch having CUDA says nothing
+about our llama.cpp build. `nvidia-smi` and the platform answer the same
+question in 0.18s rather than 0.82s.
+
+`POST /api/system/diagnose` re-examines the machine on request, behind the
+**Diagnose my machine** button. The profile is cached at startup, which is
+right -- hardware does not change while the app runs -- but a user who frees
+memory, or who upgraded from a build predating this, had no way to make the app
+look again. The button is that way. It reads the local machine, sends nothing,
+and changes no setting, so the click is the consent.
+
+`tests/test_capability.py` covers it against fabricated machines rather than
+real ones, so an 8 GB M1 and a 64 GB workstation are both testable on CI with no
+GPU present.
 
 ## CI/CD and auto-updates
 
