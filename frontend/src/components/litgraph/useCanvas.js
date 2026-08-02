@@ -96,6 +96,26 @@ function inside(pt, poly) {
   return hit;
 }
 
+/**
+ * One place decides node opacity, so the state rules cannot drift apart.
+ * Exported for its test; restyle() uses it verbatim.
+ */
+export function makeAlpha(matches, focus, neighbours) {
+  const searching = matches.size > 0;
+  return (id) => {
+    if (searching) return matches.has(id) ? 1 : 0.15;
+    if (!focus) return 1;
+    if (id === focus) return 1;
+    return neighbours.has(id) ? 0.6 : 0.32;
+  };
+}
+
+/**
+ * Whether a new lasso point is far enough from the last to be worth keeping.
+ * `k` is the zoom, so the threshold stays 4 screen pixels at any scale.
+ */
+export const lassoFar = (a, b, k) => Math.hypot(b.x - a.x, b.y - a.y) >= 4 / k;
+
 export default function useCanvas({
   svgRef,
   graph,
@@ -106,17 +126,39 @@ export default function useCanvas({
   onSelect,
   onLasso,
 }) {
+  // eslint-disable-next-line react-hooks/refs -- see the note above `model`
   const state = useRef({
     cam: { x: 0, y: 0, k: 1 },
     pos: {},
     layers: { themes: true, gaps: true },
     cancelTween: () => {},
+    // What restyle() writes to, collected once while the scene is built. Every
+    // entry holds the elements themselves, so restyling is a loop over arrays
+    // rather than a querySelectorAll per pass.
+    paint: { nodes: [], edges: [], gapEdges: [], gapNodes: [], labels: [] },
+    camRaf: 0,
   }).current;
 
   // ---- derived lookups, rebuilt whenever the graph payload changes ----
+  //
+  // `state` and `model` are containers whose *identity* must never change:
+  // they are mutated in place, they appear in dependency lists, and `state.pos`
+  // is handed out in the returned handle. react-hooks/refs objects to reading
+  // .current at the top of a hook, and it is right about the usual case; here
+  // useMemo would be wrong, because React is permitted to discard a memo, and
+  // discarding this one silently resets the camera and every node position.
+  // eslint-disable-next-line react-hooks/refs -- deliberate; see above
   const model = useRef({ nodes: [], edges: [], themes: [], gaps: [] }).current;
 
-  useEffect(() => {
+  /**
+   * Positions every node and gap from the graph payload. Called at the top of
+   * render rather than from an effect of its own: it used to be separate, and
+   * because `model` and `state` are mutated in place their identity never
+   * changes, so nothing in render's dependency list ever noticed a new graph.
+   * The model updated and the scene did not -- a reload after ingest left the
+   * canvas showing the previous library.
+   */
+  const rebuildModel = useCallback(() => {
     model.nodes = graph?.nodes || [];
     model.edges = graph?.edges || [];
     model.themes = graph?.themes || [];
@@ -142,7 +184,11 @@ export default function useCanvas({
     });
   }, [graph, model, state]);
 
-  const applyCam = useCallback(() => {
+  /**
+   * One camera paint. Never call this directly from an input handler --
+   * `applyCam` below coalesces those into a frame.
+   */
+  const paintCam = useCallback(() => {
     const svg = svgRef.current;
     if (!svg) return;
     const vp = svg.querySelector('#lg-viewport');
@@ -158,10 +204,26 @@ export default function useCanvas({
           ? 1
           : Math.max(0, 1 - (k - 1.6))
         : 0;
-    svg.querySelectorAll('.lg-label').forEach((t) => {
-      t.style.opacity = k < 0.5 ? 0 : Math.min(1, (k - 0.5) * 3);
+    // The label list is collected while the scene is built. It used to be a
+    // querySelectorAll over the whole document, run on every pointermove.
+    const o = k < 0.5 ? 0 : Math.min(1, (k - 0.5) * 3);
+    state.paint.labels.forEach((t) => {
+      t.style.opacity = o;
     });
   }, [svgRef, state]);
+
+  /**
+   * Pan and wheel fire far faster than the screen refreshes, and each event
+   * used to write the transform and every label opacity. At most one paint per
+   * frame; the camera is read at paint time, so the last event still wins.
+   */
+  const applyCam = useCallback(() => {
+    if (state.camRaf) return;
+    state.camRaf = requestAnimationFrame(() => {
+      state.camRaf = 0;
+      paintCam();
+    });
+  }, [state, paintCam]);
 
   const flyTo = useCallback(
     (wx, wy, k, dur = 520) => {
@@ -204,10 +266,75 @@ export default function useCanvas({
     if (ids.length) fitTo(ids, 130, 620);
   }, [model, fitTo]);
 
+  /**
+   * Everything a selection changes, written onto the scene that already exists.
+   *
+   * This is the whole reason render was split. Selecting a node, or moving the
+   * cursor off one, used to re-create every hull, edge, node, label and
+   * sub-node and re-attach a listener to each -- which is what made the canvas
+   * feel slow on a three-paper library. Nothing here touches DOM structure.
+   */
+  const restyle = useCallback(() => {
+    const { nodes, edges, gapEdges, gapNodes } = state.paint;
+    const searching = matches.size > 0;
+    // The hover handlers read this rather than closing over `matches`.
+    state.searching = searching;
+    const neighbours = new Set();
+    if (focus)
+      model.edges.forEach((e) => {
+        if (e.source === focus) neighbours.add(e.target);
+        if (e.target === focus) neighbours.add(e.source);
+      });
+
+    const alpha = makeAlpha(matches, focus, neighbours);
+    const hit = colors['accent-2'] || colors.accent;
+
+    nodes.forEach((n) => {
+      const m = matches.get(n.id);
+      n.g.style.opacity = alpha(n.id);
+      n.circle.setAttribute('fill', n.id === focus ? colors.accent : colors.surface);
+      n.circle.setAttribute('stroke', m ? hit : colors.accent);
+      // relevance arc. A lasso selection carries no score, so it draws no arc:
+      // a full ring on every lassoed node would read as "perfect match". Hidden
+      // rather than absent -- a zero-length dash with a round cap is a dot.
+      if (m && m.score != null) {
+        n.arc.style.display = '';
+        n.arc.setAttribute('stroke', hit);
+        n.arc.setAttribute('stroke-dasharray', `${Math.round(Math.min(1, m.score) * 100)} 100`);
+      } else {
+        n.arc.style.display = 'none';
+      }
+      n.label.style.fill = m ? hit : colors['text-2'];
+    });
+
+    edges.forEach((e) => {
+      e.line.style.strokeOpacity = searching
+        ? matches.has(e.a) && matches.has(e.b) ? 0.55 : 0.05
+        : !focus
+          ? e.weight * 0.5
+          : e.a === focus || e.b === focus ? 0.7 : 0.08;
+    });
+
+    gapEdges.forEach((line) => {
+      line.style.strokeOpacity = searching ? 0.08 : 0.46;
+    });
+
+    gapNodes.forEach((gp) => {
+      const on = focus === gp.id;
+      gp.g.style.opacity = searching
+        ? 0.12
+        : focus && !on && !gp.doc_ids.includes(focus) ? 0.35 : 1;
+      gp.path.setAttribute('fill', on ? colors.warning : 'transparent');
+      gp.path.setAttribute('fill-opacity', on ? 0.5 : 0.16);
+    });
+  }, [state, model, matches, focus, colors]);
+
   // ---- render ----
   const render = useCallback(() => {
     const svg = svgRef.current;
     if (!svg || !colors.accent) return;
+
+    rebuildModel();
 
     const L = {
       hulls: svg.querySelector('#lg-hulls'),
@@ -219,21 +346,14 @@ export default function useCanvas({
       while (g.firstChild) g.removeChild(g.firstChild);
     });
 
-    const searching = matches.size > 0;
-    const neighbours = new Set();
-    if (focus)
-      model.edges.forEach((e) => {
-        if (e.source === focus) neighbours.add(e.target);
-        if (e.target === focus) neighbours.add(e.source);
-      });
-
-    // One place decides opacity, so the state rules cannot drift apart.
-    const alpha = (id) => {
-      if (searching) return matches.has(id) ? 1 : 0.15;
-      if (!focus) return 1;
-      if (id === focus) return 1;
-      return neighbours.has(id) ? 0.6 : 0.32;
-    };
+    // Collected as the scene is built; restyle() and paintCam() write to these
+    // instead of searching the document.
+    const paint = state.paint;
+    paint.nodes = [];
+    paint.edges = [];
+    paint.gapEdges = [];
+    paint.gapNodes = [];
+    paint.labels = [];
 
     // theme hulls
     if (state.layers.themes) {
@@ -271,19 +391,14 @@ export default function useCanvas({
       const a = state.pos[e.source];
       const b = state.pos[e.target];
       if (!a || !b) return;
-      const both = matches.has(e.source) && matches.has(e.target);
       const line = el('line', {
         x1: a.x, y1: a.y, x2: b.x, y2: b.y,
         stroke: colors.accent,
         'stroke-width': (e.weight * 3.4).toFixed(1),
       });
-      line.style.strokeOpacity = searching
-        ? both ? 0.55 : 0.05
-        : !focus
-          ? e.weight * 0.5
-          : e.source === focus || e.target === focus ? 0.7 : 0.08;
       line.dataset.a = e.source;
       line.dataset.b = e.target;
+      paint.edges.push({ line, a: e.source, b: e.target, weight: e.weight });
       L.edges.appendChild(line);
     });
 
@@ -300,7 +415,7 @@ export default function useCanvas({
             stroke: colors.warning,
             'stroke-dasharray': '3 3',
           });
-          line.style.strokeOpacity = searching ? 0.08 : 0.46;
+          paint.gapEdges.push(line);
           L.edges.appendChild(line);
         });
       });
@@ -311,40 +426,32 @@ export default function useCanvas({
       const p = state.pos[n.doc_id];
       if (!p) return;
       const r = 11 + Math.min(n.chunks, 200) / 14;
-      const m = matches.get(n.doc_id);
       // outer <g> positions, inner <g> is what any animation may touch --
       // writing `transform` on the positioned group erases the translate.
       const outer = el('g', { transform: `translate(${p.x},${p.y})` });
       const g = el('g', { class: 'lg-node' });
       g.dataset.id = n.doc_id;
-      g.style.opacity = alpha(n.doc_id);
 
-      g.appendChild(
-        el('circle', {
-          r,
-          fill: n.doc_id === focus ? colors.accent : colors.surface,
-          stroke: m ? colors['accent-2'] || colors.accent : colors.accent,
-          'stroke-width': 1.6 + Math.min((n.claims?.length || 0), 8) * 0.34,
-        }),
-      );
+      const circle = el('circle', {
+        r,
+        'stroke-width': 1.6 + Math.min((n.claims?.length || 0), 8) * 0.34,
+      });
+      g.appendChild(circle);
 
-      // relevance arc. A lasso selection carries no score, so it draws no arc:
-      // a full ring on every lassoed node would read as "perfect match".
-      if (m && m.score != null) {
-        g.appendChild(
-          el('circle', {
-            r: r + 6,
-            fill: 'none',
-            stroke: colors['accent-2'] || colors.accent,
-            'stroke-width': 2.6,
-            'stroke-linecap': 'round',
-            pathLength: 100,
-            'stroke-dasharray': `${Math.round(Math.min(1, m.score) * 100)} 100`,
-            transform: 'rotate(-90)',
-            'transform-origin': 'center',
-          }),
-        );
-      }
+      // The arc exists for every node and restyle() decides whether it shows.
+      // Creating it on match made a search a structural change to the scene.
+      const arc = el('circle', {
+        r: r + 6,
+        fill: 'none',
+        'stroke-width': 2.6,
+        'stroke-linecap': 'round',
+        pathLength: 100,
+        transform: 'rotate(-90)',
+        'transform-origin': 'center',
+      });
+      arc.style.display = 'none';
+      g.appendChild(arc);
+
       if (expanded === n.doc_id)
         g.appendChild(
           el('circle', {
@@ -355,8 +462,9 @@ export default function useCanvas({
 
       const t = el('text', { class: 'lg-label', y: r + 13, 'text-anchor': 'middle' });
       t.textContent = n.title.length > 26 ? n.title.slice(0, 25) + '…' : n.title;
-      t.style.fill = m ? colors['accent-2'] || colors.accent : colors['text-2'];
       g.appendChild(t);
+      paint.labels.push(t);
+      paint.nodes.push({ id: n.doc_id, g, circle, arc, label: t });
       outer.appendChild(g);
       L.nodes.appendChild(outer);
     });
@@ -371,21 +479,19 @@ export default function useCanvas({
         const g = el('g', { class: 'lg-node' });
         g.dataset.id = gp.gap_id;
         g.dataset.gap = '1';
-        g.style.opacity = searching ? 0.12 : focus && focus !== gp.gap_id && !gp.doc_ids.includes(focus) ? 0.35 : 1;
-        g.appendChild(
-          el('path', {
-            d: `M0 ${-s} L${s} ${s * 0.8} L${-s} ${s * 0.8} Z`,
-            fill: focus === gp.gap_id ? colors.warning : 'transparent',
-            'fill-opacity': focus === gp.gap_id ? 0.5 : 0.16,
-            stroke: colors.warning,
-            'stroke-width': 2,
-            'stroke-linejoin': 'round',
-          }),
-        );
+        const tri = el('path', {
+          d: `M0 ${-s} L${s} ${s * 0.8} L${-s} ${s * 0.8} Z`,
+          stroke: colors.warning,
+          'stroke-width': 2,
+          'stroke-linejoin': 'round',
+        });
+        g.appendChild(tri);
         const t = el('text', { class: 'lg-label', y: s + 15, 'text-anchor': 'middle' });
         t.textContent = 'gap';
         t.style.fill = colors.warning;
         g.appendChild(t);
+        paint.labels.push(t);
+        paint.gapNodes.push({ id: gp.gap_id, g, path: tri, doc_ids: gp.doc_ids });
         outer.appendChild(g);
         L.nodes.appendChild(outer);
       });
@@ -437,6 +543,7 @@ export default function useCanvas({
           t.textContent = (cl.type || cl.claim_type || 'claim').replace(/_/g, ' ');
           t.style.fill = colors['text-3'];
           g.appendChild(t);
+          paint.labels.push(t);
           outer.appendChild(g);
           L.nodes.appendChild(outer);
         });
@@ -447,7 +554,10 @@ export default function useCanvas({
     L.nodes.querySelectorAll('.lg-node').forEach((g) => {
       const id = g.dataset.id;
       g.addEventListener('mouseenter', () => {
-        if (!id || matches.size) return;
+        // Read through `state`, not the closure: these listeners are attached
+        // once per structural render, and a selection no longer rebuilds the
+        // scene, so a captured `matches` would be the one from build time.
+        if (!id || state.searching) return;
         const near = new Set([id]);
         model.edges.forEach((e) => {
           if (e.source === id) near.add(e.target);
@@ -462,9 +572,7 @@ export default function useCanvas({
         });
       });
       g.addEventListener('mouseleave', () => {
-        // ponytail: full re-render on hover-out. Fine at this node count; a
-        // dim-only path is the upgrade if libraries get into the thousands.
-        if (!matches.size) render();
+        if (!state.searching) state.restyle();
       });
       g.addEventListener('click', (ev) => {
         ev.stopPropagation();
@@ -472,10 +580,20 @@ export default function useCanvas({
       });
     });
 
-    applyCam();
-  }, [svgRef, colors, matches, focus, expanded, model, state, onSelect, applyCam]);
+    // The scene is built unstyled; this is what colours and dims it.
+    state.restyle();
+    paintCam();
+  }, [svgRef, colors, expanded, model, state, onSelect, rebuildModel, paintCam]);
 
+  // Assigned before the render effect below, because render() calls it on the
+  // scene it has just built.
+  useEffect(() => { state.restyle = restyle; }, [restyle, state]);
+
+  // Structural: the scene is rebuilt only when the graph, the expanded node or
+  // the theme changes. Selecting a node no longer lands here.
   useEffect(() => { render(); }, [render]);
+
+  useEffect(() => { restyle(); }, [restyle]);
 
   // ---- pan / zoom / lasso ----
   //
@@ -512,10 +630,15 @@ export default function useCanvas({
     };
     const move = (e) => {
       if (loop) {
-        loop.push(toWorld(e));
+        const p = toWorld(e);
+        // A slow drag fires hundreds of moves a second. Without this the path
+        // grows unbounded and the whole `d` string is rebuilt on every one of
+        // them; 4px costs nothing visible at any zoom the lasso is used at.
+        if (!lassoFar(loop[loop.length - 1], p, state.cam.k)) return;
+        loop.push(p);
         lassoEl?.setAttribute(
           'd',
-          loop.map((p, i) => (i ? 'L' : 'M') + p.x.toFixed(1) + ' ' + p.y.toFixed(1)).join(' ') + ' Z',
+          loop.map((q, i) => (i ? 'L' : 'M') + q.x.toFixed(1) + ' ' + q.y.toFixed(1)).join(' ') + ' Z',
         );
         return;
       }
@@ -561,13 +684,18 @@ export default function useCanvas({
       svg.removeEventListener('pointermove', move);
       svg.removeEventListener('pointerup', up);
       svg.removeEventListener('wheel', wheel);
+      if (state.camRaf) cancelAnimationFrame(state.camRaf);
+      state.camRaf = 0;
     };
+    // state and model are the in-place containers documented at the top.
+    // eslint-disable-next-line react-hooks/refs
   }, [svgRef, state, model, applyCam, onLasso, graph]);
 
-  // `render` is rebuilt whenever matches/focus/expanded change. Closing over it
-  // directly would make setLayer — and therefore the whole returned handle —
-  // change on every selection, re-triggering callers' effects. Go through a ref
-  // so the callback identity is stable but the behaviour is always current.
+  // `render` is rebuilt when the graph, the expanded node or the theme colours
+  // change. Closing over it directly would make setLayer — and therefore the
+  // whole returned handle — change with it, re-triggering callers' effects. Go
+  // through a ref so the callback identity is stable but the behaviour is
+  // always current.
   const renderRef = useRef(render);
   useEffect(() => { renderRef.current = render; }, [render]);
 
@@ -583,8 +711,11 @@ export default function useCanvas({
    * selection the moment it was made. Every member here is itself stable
    * (useCallback, or a ref object mutated in place).
    */
+  /* eslint-disable react-hooks/refs -- state is the in-place container
+     documented at the top of the hook; its identity never changes */
   return useMemo(
     () => ({ fit, flyTo, fitTo, pos: state.pos, setLayer, W, H }),
     [fit, flyTo, fitTo, setLayer, state],
   );
+  /* eslint-enable react-hooks/refs */
 }
