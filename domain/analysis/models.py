@@ -15,6 +15,10 @@ class Summary:
     summary_text: str = ""
     key_points: list[str] = field(default_factory=list)
     summary_type: str = "single"
+    # Set when the paper had to be summarized in pieces because it did not fit
+    # the machine's context window. Shown beside the summary, not inside it --
+    # it is a fact about this machine, not about the paper.
+    notice: str = ""
 
 
 @dataclass
