@@ -60,6 +60,34 @@ FRONTEND_PID=$!
 TAURI_PID=""
 if [ "$1" = "--tauri" ]; then
     echo -e "${GREEN}starting tauri desktop window...${NC}"
+
+    # Move a real frozen backend aside for the duration.
+    #
+    # tauri.conf.json declares dist/thinkstack-api/ as a bundled resource. In a
+    # dev build tauri still walks that tree to emit rerun-if-changed entries,
+    # and on a real ~2.6 GB onedir bundle that walk fails with
+    # "Not a directory (os error 20)", so `tauri dev` never starts. The desktop
+    # window is unusable on exactly the machines that have built the app.
+    #
+    # Restored on ANY exit, including an interrupt: losing a multi-gigabyte
+    # build to a Ctrl-C would be far worse than the problem being worked around.
+    DEV_STASH=""
+    if [ -d dist/thinkstack-api ] && [ -n "$(ls -A dist/thinkstack-api 2>/dev/null)" ]; then
+        DEV_STASH="dist/.thinkstack-api.dev"
+        rm -rf "$DEV_STASH"
+        mv dist/thinkstack-api "$DEV_STASH"
+        mkdir -p dist/thinkstack-api
+        echo -e "  ${YELLOW}frozen backend moved aside so tauri dev can start${NC}"
+    fi
+    restore_dev_bundle() {
+        if [ -n "${DEV_STASH:-}" ] && [ -d "$DEV_STASH" ]; then
+            rmdir dist/thinkstack-api 2>/dev/null || rm -rf dist/thinkstack-api
+            mv "$DEV_STASH" dist/thinkstack-api
+            echo -e "  ${GREEN}frozen backend restored${NC}"
+        fi
+    }
+    trap restore_dev_bundle EXIT INT TERM
+
     # give vite a moment to bind port 3000
     sleep 2
     npm run tauri dev &

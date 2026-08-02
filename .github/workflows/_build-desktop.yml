@@ -411,7 +411,14 @@ jobs:
           "$BIN" --host 127.0.0.1 --port 8766 > backend-validate.log 2>&1 &
           PID=$!
           set +e
-          python3 scripts/validate_bundle.py --url http://127.0.0.1:8766 --timeout 240
+          # --expect-version is the numeric core, the same value stamped into
+          # tauri.conf.json above. It proves the UI inside this bundle is the
+          # one this run built -- on every platform, every time. Nothing checked
+          # that before, which is how a build shipped showing the previous
+          # version's number and the previous version's buttons.
+          NUMERIC="$(echo '${{ inputs.version }}' | sed -E 's/[-+].*$//')"
+          python3 scripts/validate_bundle.py --url http://127.0.0.1:8766 \
+            --timeout 240 --expect-version "$NUMERIC"
           RC=$?
           set -e
           kill "$PID" 2>/dev/null || true
@@ -517,27 +524,24 @@ jobs:
           fi
 
           # and the whole product works through the packaged app, not a bare backend
-          python3 scripts/validate_bundle.py --url http://127.0.0.1:8000 --timeout 60
+          NUMERIC="$(echo '${{ inputs.version }}' | sed -E 's/[-+].*$//')"
+          python3 scripts/validate_bundle.py --url http://127.0.0.1:8000 \
+            --timeout 60 --expect-version "$NUMERIC"
           RC=$?
           pkill -f "usr/bin/tauri-app" 2>/dev/null || true
           exit $RC
 
-      - name: Upload GUI smoke log on failure
-        if: failure() && runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
-        with:
-          name: gui-smoke-${{ matrix.label }}
-          path: gui-smoke.log
-          if-no-files-found: ignore
-
-      # -- build tauri (macOS universal) --
-      # apple code-signing is opt-in and must be all-or-nothing. tauri decides to
-      # codesign based on whether APPLE_CERTIFICATE is PRESENT, not whether it has
-      # a value -- and `${{ secrets.X }}` for an undefined secret expands to an
-      # empty string, which still counts as present. that made an unsigned build
-      # fail with "failed to import keychain certificate" instead of quietly
-      # skipping signing. so detect first, then run one of two variants: the
-      # unsigned one does not define the APPLE_* vars at all.
+      # -- the packaged app actually launches on macOS and Windows --
+      #
+      # Only Linux ever launched the built app. macOS and Windows had their
+      # backend exercised and nothing more, so "does the window open, does it
+      # reach the backend, does it stay alive" was answered by asking a person
+      # to install it and look. That is why every release needed friends with
+      # the right machine, and why a broken build could sit unnoticed.
+      #
+      # continue-on-error while this proves itself: a spurious failure here
+      # would block releases, which is a worse bug than the one it catches.
+      # Once it has passed a few real builds, drop the flag and let it gate.
       - name: Detect Apple signing availability
         id: apple
         if: runner.os == 'macOS'
@@ -581,6 +585,118 @@ jobs:
       # *.sig are the updater signatures (present only when signing secrets are
       # set); the publish job reads them to build the channel manifest. the
       # AppImage / .app.tar.gz / .msi are also the auto-updater's install targets.
+      # A missing bundle is a BUILD failure and must never be silent.
+      #
+      # The launch tests below are continue-on-error while they prove
+      # themselves, which means anything they report -- including "no .app
+      # found" -- shows up as a tick. That is exactly what happened: the macOS
+      # test was ordered before the macOS build, found nothing, and passed.
+      # This step is not continue-on-error, so the artifact's absence fails the
+      # job while a flaky launch still only warns.
+      - name: The build produced a bundle
+        if: ${{ !inputs.skip_models }}
+        shell: bash
+        run: |
+          case "${{ runner.os }}" in
+            Linux)
+              F="$(find src-tauri/target/release/bundle/appimage -name '*.AppImage' 2>/dev/null | head -1)" ;;
+            macOS)
+              F="$(find src-tauri/target/universal-apple-darwin/release/bundle/macos -maxdepth 1 -name '*.app' 2>/dev/null | head -1)" ;;
+            Windows)
+              F="$(find src-tauri/target/release -maxdepth 1 -name '*.exe' 2>/dev/null | head -1)" ;;
+          esac
+          if [ -z "$F" ]; then
+            echo "::error::${{ runner.os }} build produced no bundle to test"
+            exit 1
+          fi
+          echo "found: $F"
+
+      - name: App launch smoke test (macOS)
+        if: runner.os == 'macOS' && !inputs.skip_models
+        continue-on-error: true
+        shell: bash
+        run: |
+          APP="$(find src-tauri/target/universal-apple-darwin/release/bundle/macos \
+                   -maxdepth 1 -name '*.app' | head -1)"
+          [ -n "$APP" ] || { echo "::warning::no .app bundle found"; exit 1; }
+          BIN="$APP/Contents/MacOS/$(basename "$APP" .app)"
+          [ -x "$BIN" ] || BIN="$(find "$APP/Contents/MacOS" -type f -perm +111 | head -1)"
+          echo "launching $BIN"
+          "$BIN" > gui-smoke.log 2>&1 &
+          APP_PID=$!
+          UP=0
+          for _ in $(seq 1 180); do
+            curl -fsS -m 3 http://127.0.0.1:8000/api/system/health >/dev/null 2>&1 && { UP=1; break; }
+            kill -0 "$APP_PID" 2>/dev/null || break
+            sleep 1
+          done
+          if [ "$UP" -ne 1 ]; then
+            echo "::error::the packaged macOS app never served a request"
+            tail -60 gui-smoke.log || true
+            kill "$APP_PID" 2>/dev/null || true
+            exit 1
+          fi
+          echo "app answered; checking it SURVIVES"
+          sleep 45
+          NUMERIC="$(echo '${{ inputs.version }}' | sed -E 's/[-+].*$//')"
+          python3 scripts/validate_bundle.py --url http://127.0.0.1:8000 \
+            --timeout 60 --expect-version "$NUMERIC"
+          RC=$?
+          kill "$APP_PID" 2>/dev/null || true
+          exit $RC
+
+      - name: App launch smoke test (Windows)
+        if: runner.os == 'Windows' && !inputs.skip_models
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path src-tauri\target\release -Filter *.exe -File |
+                 Where-Object { $_.Name -notlike '*setup*' } | Select-Object -First 1
+          if (-not $exe) { Write-Host "::warning::no .exe found"; exit 1 }
+          Write-Host "launching $($exe.FullName)"
+          $p = Start-Process -FilePath $exe.FullName -PassThru `
+                 -RedirectStandardOutput gui-smoke.log -RedirectStandardError gui-smoke.err
+          $up = $false
+          foreach ($i in 1..180) {
+            try {
+              Invoke-WebRequest -UseBasicParsing -TimeoutSec 3 `
+                http://127.0.0.1:8000/api/system/health | Out-Null
+              $up = $true; break
+            } catch { }
+            if ($p.HasExited) { break }
+            Start-Sleep -Seconds 1
+          }
+          if (-not $up) {
+            Write-Host "::error::the packaged Windows app never served a request"
+            Get-Content gui-smoke.log, gui-smoke.err -Tail 60 -ErrorAction SilentlyContinue
+            if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+            exit 1
+          }
+          Write-Host "app answered; checking it SURVIVES"
+          Start-Sleep -Seconds 45
+          $numeric = ('${{ inputs.version }}' -split '[-+]')[0]
+          python scripts/validate_bundle.py --url http://127.0.0.1:8000 `
+            --timeout 60 --expect-version $numeric
+          $rc = $LASTEXITCODE
+          if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+          exit $rc
+
+      - name: Upload GUI smoke log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gui-smoke-${{ matrix.label }}
+          path: gui-smoke.log
+          if-no-files-found: ignore
+
+      # -- build tauri (macOS universal) --
+      # apple code-signing is opt-in and must be all-or-nothing. tauri decides to
+      # codesign based on whether APPLE_CERTIFICATE is PRESENT, not whether it has
+      # a value -- and `${{ secrets.X }}` for an undefined secret expands to an
+      # empty string, which still counts as present. that made an unsigned build
+      # fail with "failed to import keychain certificate" instead of quietly
+      # skipping signing. so detect first, then run one of two variants: the
+      # unsigned one does not define the APPLE_* vars at all.
       - name: Collect artifacts (Linux)
         if: runner.os == 'Linux'
         run: |

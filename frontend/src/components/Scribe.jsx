@@ -8,13 +8,38 @@ import PageHeader from './PageHeader';
 
 const AUTOCOMPILE_KEY = 'thinkstack.paperWriter.autoCompile';
 
-/** insert AI-generated body just before \end{document} (else append). */
-function insertLatex(src, gen) {
-  if (!gen) return src;
-  const marker = '\\end{document}';
-  const i = src.lastIndexOf(marker);
-  if (i === -1) return `${src}\n\n${gen}\n`;
-  return `${src.slice(0, i)}\n${gen}\n\n${src.slice(i)}`;
+/**
+ * Insert generated LaTeX where the author is working.
+ *
+ * Previously this always went just before \end{document}, so asking for a
+ * section put it at the bottom of the paper no matter where the cursor was,
+ * and the author then had to cut and paste it into place. Writing at the caret
+ * is what makes this feel like editing a document rather than appending to one.
+ *
+ * The caret is nudged out of the preamble and out of the trailing
+ * \end{document}, because neither is a legal place for body content.
+ */
+function insertLatexAt(src, gen, caret) {
+  if (!gen) return { text: src, caretAfter: caret };
+
+  const bodyStart = (() => {
+    const m = src.indexOf('\\begin{document}');
+    return m === -1 ? 0 : m + '\\begin{document}'.length;
+  })();
+  const bodyEnd = (() => {
+    const m = src.lastIndexOf('\\end{document}');
+    return m === -1 ? src.length : m;
+  })();
+
+  let at = typeof caret === 'number' ? caret : bodyEnd;
+  if (at < bodyStart) at = bodyStart;   // caret was in the preamble
+  if (at > bodyEnd) at = bodyEnd;       // caret was past \end{document}
+
+  // keep the insertion on its own lines so the source stays readable
+  const before = src.slice(0, at).replace(/\s+$/, '');
+  const after = src.slice(at).replace(/^\s+/, '');
+  const text = `${before}\n\n${gen}\n\n${after}`;
+  return { text, caretAfter: before.length + 2 + gen.length };
 }
 
 /**
@@ -243,7 +268,15 @@ export default function Scribe() {
     setError('');
     const before = source;
     try {
-      const d = await papersApi.generate(activeId, instruction.trim(), source, { docIds: groundDocs });
+      // For a selection the insertion point is where it starts; for the prompt
+      // box it is wherever the caret was left.
+      const cursor = range
+        ? range[0]
+        : (editorRef.current ? editorRef.current.selectionStart : null);
+      const d = await papersApi.generate(activeId, instruction.trim(), source, {
+        docIds: groundDocs,
+        cursor,
+      });
       const latex = d.generated_latex || '';
       if (!latex.trim()) {
         setError('The model returned nothing. Try describing it more concretely.');
@@ -266,9 +299,19 @@ export default function Scribe() {
         });
         flash('rewritten as LaTeX');
       } else {
-        setSource(insertLatex(before, latex));
+        // the caret the author last had in the editor, so a prompt-box request
+        // is written where they are looking rather than at the end of the paper
+        const caret = editorRef.current ? editorRef.current.selectionStart : undefined;
+        const { text, caretAfter } = insertLatexAt(before, latex, caret);
+        setSource(text);
         setPrompt('');
-        flash('AI draft inserted');
+        requestAnimationFrame(() => {
+          const el = editorRef.current;
+          if (!el) return;
+          el.focus();
+          el.setSelectionRange(caretAfter, caretAfter);
+        });
+        flash('AI draft inserted at your cursor');
       }
       setDirty(true);
     } catch (e) {

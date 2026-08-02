@@ -45,8 +45,92 @@ Work merged but not yet tagged.
   persists, so there is no new state and no extra model call.
 - `POST /api/search` accepts `group_by_doc`, returning papers with every one of
   their matching chunks in reading order.
+- **Analysis runs at ingest, not on the request path.** Uploading no longer waits
+  on a ~50 s model call: summaries, claims and themes are queued to a background
+  worker, and `GET /api/system/jobs` drives a determinate progress bar
+  ("analysing paper 2 of 5"). The canvas refreshes itself when the queue drains.
+
+### Changed
+- **The shell embeds only the loading screen.** `frontendDist` pointed at
+  `frontend/dist`, compiling the whole SPA into the binary a second time -- the
+  window never renders it, since it navigates to the backend, which serves the
+  copy PyInstaller bundled.
+- **Documentation-only changes no longer trigger a three-OS build**, and the doc
+  sync maintains versions in `docs/` only. It previously rewrote test and line
+  counts across every markdown file, and installed torch on every push to do it.
+- **One release workflow instead of five.** `release-stable`, `release-beta`,
+  `release-on-main`, `release-on-beta` and `nightly` differed only in what
+  started them and how the version was worked out; their build and publish
+  halves were identical, and two even shared a concurrency group. They are now
+  `release.yml`: merge into `beta` cuts a beta, merge into `main` releases what
+  beta validated, the cron cuts a nightly. Ten workflows became seven.
+- **A merge is the release; a tag is the record.** Tags no longer trigger
+  builds. While they did, `git push origin v1.2.3` published a stable release to
+  every user without the merge being reviewed. The `v*` ruleset still forbids
+  moving or deleting a published tag.
+- **The version can no longer go backwards.** It is derived from the newest tag
+  on *any* channel, not the newest stable one: beta was testing 1.6.7 while
+  stable was 1.0.0, so a patch bump computed from stable gave 1.0.1 -- below
+  what testers already ran. Each `feat/` and `fix/` branch merged since is
+  replayed in landing order, one bump each. `chore/` and `docs/` branches and
+  direct commits do not move it. Merges must be `--no-ff`, or the branch name
+  never enters the history and the landing is invisible.
 
 ### Fixed
+- **An updated app kept rendering the previous build's UI.** A freshly installed
+  1.6.10 still showed v1.6.7 and the old Analysis screen. The desktop shell is a
+  WebKit view whose HTTP cache outlives the application, and nothing sent a
+  cache header, so `index.html` -- whose name never changes -- was reused from
+  cache and kept pointing at the previous build's assets. It is now `no-store`;
+  the content-hashed assets are cached permanently instead.
+- **A dependency release broke every platform at once.** `nltk` was declared
+  `>=3.9.1`; 3.10.1 shipped between two builds and refuses to import
+  `xml.etree` when the working directory is importable, so the frozen backend
+  died during startup on Linux, macOS and Windows from a commit that changed no
+  Python code. It could not be reproduced locally either, because the developer
+  venv had 3.9.4.
+- **`uvicorn[standard]` lost its extra** while pinning, silently dropping
+  uvloop, httptools, websockets and watchfiles. Nothing failed; it was caught by
+  diffing every changed line before merging.
+- **The macOS launch test ran before the macOS app was built** and reported a
+  tick, because `continue-on-error` renders a failure as success. A separate
+  non-masking step now fails the job when a build produces no bundle.
+
+- **Summarizing a paper could return a parser error as the summary.** The token
+  limit (640) was too small to hold the summary, key points, methodology *and*
+  limitations the prompt asks for, so generation stopped mid-sentence and the
+  JSON never closed. The reader saw `summarization failed: Unterminated string
+  starting at: line 9 column 5`. The limit is now 1024 (1280 comparative),
+  incomplete responses are repaired rather than discarded — a truncated summary
+  is kept, a half-written bullet is dropped — and if it still cannot be read the
+  message explains what to do instead of quoting the exception.
+- **The Analysis page had two buttons for one action.** "Summarize" only
+  *selected* a mode; a second, identically styled "Run summarize" underneath did
+  the work. The three analysis buttons now run the analysis they name.
+- **`preflight.sh` checked nothing on a branch that had never been pushed.**
+  With no upstream it fell back to diffing the working tree, so once the work
+  was committed it saw zero changed files, skipped every toolchain, and printed
+  "CI should be green" without running ruff, pytest or shellcheck. That is every
+  `feat/` and `fix/` branch on its first run. It now compares against `origin/dev`.
+- **`beta` and `nightly` name both a branch and a rolling release tag**, and git
+  resolves tags first. `git checkout beta` detaches onto a release, `git pull`
+  reports a divergence that does not exist, and `git push origin HEAD:beta` fails
+  with "dst refspec beta matches more than one" — which is what broke the doc
+  sync. Renaming the tags was tried and reverted: it split the download path, and
+  testers got the previous build. Every push and checkout in the repo now names
+  refs in full (`refs/heads/beta`), which is unambiguous regardless of the tag.
+- **`promote.sh release` would have promoted the wrong version.** `$REPO` was
+  read but never assigned, so under `set -u` the lookup of what beta had been
+  testing failed silently and the script fell back to inferring from commit
+  subjects: it derived **1.1.0** while beta was validating **1.6.7**. It now
+  reads the repo from `release.config.json` and fails loudly if it cannot.
+- **`promote.sh release` reported failure for a release that published fine.**
+  It merged into `main` *and* tagged, but a push to `main` already triggers
+  `release-on-main.yml`, which derives the version and creates the tag itself.
+  `release.sh` then hit either "no CI results found" (CI on the new commit had
+  not finished) or "tag already exists", and `promote.sh` printed "the tag was
+  refused, so nothing was released" while CI was building and publishing it.
+  Tagging `main` is now CI's job alone.
 - **The packaged app never started.** v1.0.0's installer showed a loading spinner
   indefinitely. The backend lookup missed the AppImage/deb layout (binary in
   `usr/bin`, resources in `usr/lib/ThinkStack`), so the app silently fell back to
@@ -67,6 +151,11 @@ Work merged but not yet tagged.
   it, and it silenced every future model rather than the one declined.
 
 ### Added
+- `LICENSE` (MIT) and `THIRD-PARTY-NOTICES.md`, covering the model weights and
+  TeX engine redistributed inside the installer.
+- `docs/FUTURE_WORK.md`, separating near-term consolidation (LitGraph, Library)
+  from longer work (custom models, federated learning, a LaTeX editor built from
+  scratch).
 - **The loading screen reports every startup step** with timings, names the
   backend it is launching, and fails with a real error plus a log path instead of
   spinning forever. Startup is bounded at 180s.
@@ -82,6 +171,13 @@ Work merged but not yet tagged.
   paths, and expected unsigned-build friction.
 
 ### Changed
+- **The paper writer edits the document instead of appending to it.** The model
+  was shown the first 6000 characters of the source, which on any real paper is
+  the preamble and introduction, never the part being worked on. It is now shown
+  the preamble plus a window around your cursor with an explicit insertion
+  point, and generated content is inserted **at the cursor** rather than at the
+  end of the document. Output that repeats the surrounding sections, or that
+  redeclares the preamble, is stripped before insertion.
 - **A TeX engine ships inside the installer.** The paper writer no longer needs
   LaTeX installed on the machine — PDF compilation works out of the box, offline.
   Costs ~25 MB compressed per installer.

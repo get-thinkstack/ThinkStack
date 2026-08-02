@@ -1,0 +1,497 @@
+\documentclass[11pt,a4paper]{article}
+\input{preamble}
+\begin{document}
+\coverpage{Project Diary}{A Record of Decisions, Implementations and Corrections}
+
+\newpage
+\section*{About this Diary}
+\addcontentsline{toc}{section}{About this Diary}
+\markboth{About this Diary}{}
+
+This diary records the development of ThinkStack from 5 June to 30 July 2026.
+It is reconstructed from the repository itself: 133 commits, 42 merged pull
+requests, 32 recorded architecture decisions, and the published releases. It is
+not written from memory.
+
+Two conventions are observed throughout. First, every quantity was measured or
+counted, never estimated. Second, decisions that turned out to be wrong are
+recorded alongside those that were right, because a diary that contains only
+successes teaches nothing.
+
+The work was carried out jointly by the three team members. Entries describe
+what was decided and built rather than who performed each action.
+
+\vspace{0.6cm}
+\noindent\textbf{Team:} Aditya Mehta (2440204), Jitvan Chadha (2440222), Ritesh K R (2440233)
+
+\newpage
+\tableofcontents
+\newpage
+
+\section{Timeline at a Glance}
+\markboth{Timeline}{}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}llX@{}}
+\toprule
+\textbf{Date} & \textbf{Phase} & \textbf{Event} \\
+\midrule
+5 Jun & Sprint I & repository created \\
+17 Jun & Sprint I & project renamed ScholarLens to ThinkStack; decision log started \\
+19 Jun & Sprint I & desktop shell introduced \\
+20 Jun & Sprint I & encryption implemented \\
+23 Jun & Sprint I & LaTeX editor and auto-healing compiler \\
+24 Jun & Sprint I & interface unified; Sprint I closes \\
+7 Jul & Sprint II & download page \\
+10 Jul & Sprint II & cross-platform builds and CI \\
+21 Jul & Sprint II & hardware-aware model routing \\
+22 Jul & Sprint II & in-application updates \\
+25 Jul & Sprint II & test suite introduced; Rust startup diagnosis \\
+27 Jul & Sprint II & first public release, v0.1.0 \\
+29 Jul & Sprint II & v0.1.1, then v1.0.0 \\
+30 Jul & Sprint II & v1.0.0 found not to start; root cause analysis and correction \\
+30 Jul & Sprint II & TeX engine bundled; validated beta published \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Sprint I: Building the Application}
+
+\subsection{5 to 16 June: foundations}
+
+The repository was created on 5 June. The first two weeks established the
+project structure, an initial working demonstration, and the first iteration of
+the interface.
+
+\subsection{17 June: naming, audit, and the decision log}
+
+Three things happened on the same day that shaped everything afterwards.
+
+The project was renamed from ScholarLens to ThinkStack. A backend audit
+corrected a set of defects found by reading rather than by testing. Most
+consequentially, an architecture decision log was started.
+
+\evidence{\textbf{Decision recorded.} Run entirely on the user's device, with no
+hosted language model. The reasoning: a researcher working with unpublished
+results or institutionally restricted material cannot upload it, and a student
+project has no budget for per-call inference. This single decision determined
+local inference, quantised models, a frozen runtime, and eventually a bundled
+typesetting engine.}
+
+The log reached 32 entries by the end of the project. Its value was not
+apparent at the time; it became apparent during the dependency audit in the
+final week, when the reasoning behind earlier choices could be read rather than
+reconstructed.
+
+\subsection{19 to 21 June: desktop shell and encryption}
+
+The application was wrapped in a desktop shell. The shell starts the backend as
+a supervised child process and stops it when the window closes, so no orphaned
+process is left holding a port.
+
+Encryption was implemented with Argon2id for key derivation and AES-256-GCM for
+the ciphertext.
+
+\evidence{\textbf{Decision recorded.} Use authenticated encryption rather than
+an unauthenticated mode. Tampering with a stored paper is then detected at
+decryption instead of producing plausible but corrupted output, which for
+research material is the difference between an error and a silent falsification.}
+
+\subsection{23 to 24 June: the paper writer}
+
+The LaTeX editor was implemented, with a compiler designed to be forgiving. A
+small language model produces markup that is frequently almost correct, so the
+compiler inserts missing package declarations, wraps bare fragments into
+complete documents, and continues past recoverable errors. When a pass produces
+no PDF, the failing environment is progressively neutralised and compilation is
+retried, so one malformed figure does not cost the author the paper.
+
+Sprint I closed on 24 June with every feature working from a source checkout.
+
+\section{Sprint II: Making It Usable by Others}
+
+\subsection{7 to 10 July: distribution}
+
+A download page was produced, and cross-platform builds were automated. The
+build configuration was made data-driven, so that adding an operating system is
+an edit to a configuration file rather than to build logic.
+
+\subsection{20 to 22 July: hardware awareness}
+
+Model selection was made dependent on the machine rather than fixed.
+
+\evidence{\textbf{Decision recorded.} Size the model against \emph{available}
+memory rather than installed memory. A user has a browser and an editor open.
+Sizing against total memory produces a process that is terminated by the
+operating system partway through an analysis, which is worse than producing a
+slightly weaker answer.}
+
+A related decision concerned graphics hardware. The diagnosis reports the GPU
+but enables offload only for one specific class of device.
+
+\evidence{\textbf{Decision recorded.} Report the GPU, but treat all but CUDA
+devices with sufficient memory as unusable. The inference library shipped in the
+installer is a CPU build, so attempting offload elsewhere fails at model load.
+Reporting a capability the runtime cannot use converts a working configuration
+into a crash.}
+
+\subsection{25 July: testing and the Rust rewrite}
+
+An automated test suite was introduced. Startup diagnosis was moved from Python
+into the desktop shell, written in Rust, because the Python implementation
+imported a deep learning framework purely to determine whether a GPU existed,
+which cost several seconds on every launch.
+
+\evidence{\textbf{Decision recorded, with a limit.} Hardware diagnosis moved to
+Rust because it was on the startup path and slow. Model discovery was measured
+at approximately 9 milliseconds and was left in Python, because the same
+argument does not apply to code that is already fast. The principle recorded was
+to move work for a measured reason, not because a language seems faster.}
+
+\subsection{27 to 29 July: first releases}
+
+Version 0.1.0 was published on 27 July, the first release to build on all three
+operating systems. Two defects had blocked it, both worth recording because
+neither was reproducible locally.
+
+\begin{itemize}[leftmargin=*]
+  \item The Windows build failed at model download. A JSON tool on that platform
+        emits carriage returns, which left an invalid character on the end of a
+        URL. The transfer tool rejected it. Linux and macOS were unaffected, so
+        the defect existed only on the platform none of the team used daily.
+  \item The macOS build failed at code signing. An absent optional credential
+        was passed as an empty string, so the signing tool attempted to import
+        an empty certificate rather than skipping signing.
+\end{itemize}
+
+Version 1.0.0 followed on 29 July, alongside a decision to reduce the installer
+size.
+
+\evidence{\textbf{Decision recorded.} Ship only the smaller model and offer the
+larger one with the user's consent, reusing weights the user may already have
+through other local tools. This removed approximately one gigabyte from every
+installer. Matching required a canonical naming key, because the same weights
+are named differently by each runtime, and comparing filenames caused the
+application to offer a download the user did not need.}
+
+\subsection{30 July: the release that did not work}
+
+\evidence{\textbf{Observed.} The published v1.0.0 installer, downloaded and run,
+displayed a loading screen indefinitely. One tester waited approximately 200
+seconds. Continuous integration had been green throughout.}
+
+This is the most instructive day of the project.
+
+\subsubsection{Diagnosis}
+
+The startup path was instrumented before anything was changed, on the reasoning
+that the failure could not be fixed while it was invisible. The instrumentation
+identified the cause in a single run.
+
+Three defects compounded:
+
+\begin{enumerate}[leftmargin=*]
+  \item The packaging framework installs the executable and its resources into
+        different directories. The lookup searched only beside the executable,
+        found nothing, and fell back to the development path of launching a
+        system Python interpreter.
+  \item The Linux application image exports an environment variable that
+        redirects a Python interpreter's library search into the mounted image.
+        A frozen interpreter ignores this; a system interpreter does not, and it
+        terminated before running any project code.
+  \item The loading screen retried without limit and had no error state, so a
+        backend that died in under a second looked exactly like one that was
+        slow.
+\end{enumerate}
+
+\subsubsection{What the same investigation uncovered}
+
+\begin{itemize}[leftmargin=*]
+  \item The embedding weights had never been placed in the bundle. The first
+        document ingested on an installed copy attempted a network download, in
+        an application whose entire premise is that it needs no network. The
+        code's own documentation stated the opposite.
+  \item The model directory was derived from the current working directory,
+        which the application image changes before launching. This was incorrect
+        on every operating system for every installed copy; it worked only when
+        launched from a developer checkout.
+  \item The window terminated approximately one second after appearing, from
+        heap corruption in a graphics path of the system webview. Every backend
+        check passed while this happened, because the backend was healthy and
+        only the window was gone.
+\end{itemize}
+
+\subsubsection{The correction that mattered most}
+
+Rather than continue fixing defects individually, every external dependency was
+enumerated by walking all imports and every subprocess call across 51 backend
+modules.
+
+\evidence{\textbf{Result.} Exactly one unbundled runtime dependency existed: the
+TeX engine. Everything else was already inside the bundle. Bundling that engine
+closed the entire category rather than one instance of it.}
+
+The pattern the audit exposed was that the absent TeX engine, the absent
+embedding weights and the incorrect model path were the same defect: an
+assumption that a user's machine resembles a developer's.
+
+\subsection{30 July: bundling the typesetting engine}
+
+The engine was measured before it was adopted: a 58 MB binary and a package
+cache of approximately 47 MB, against roughly 1.1 GB of headroom under the
+hosting platform's asset limit.
+
+The first attempt worked locally and failed on the Linux build server, which
+produced the most transferable lesson of the project.
+
+\evidence{\textbf{Cause.} The chosen engine version required a newer system C
+library than the build platform provides, so it never executed at all, failing
+in 15 milliseconds. The build step recorded a warning and continued, so the
+installer was assembled with an engine that had no package cache. The same
+binary would have reached users of long-term-support distributions, who would
+have had a paper writer that silently could not compile.}
+
+\evidence{\textbf{Correction.} The engine version was chosen by measuring the
+minimum system library each release requires, rather than by taking the newest
+release. The selected version runs on the build platform and on older user
+systems, and reduced the bundled payload from 104 MB to 70 MB. Equally
+important, the build step now prints the engine's actual error and stops the
+build, because suppressing that error is what made the diagnosis expensive.}
+
+\subsection{30 July: verified delivery}
+
+A validated beta was published to all three operating systems, with every
+automated check passing, including compilation of a PDF by the packaged
+application.
+
+\section{Decisions and Their Consequences}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}XXX@{}}
+\toprule
+\textbf{Decision} & \textbf{Reason} & \textbf{Consequence accepted} \\
+\midrule
+local inference only & privacy, cost, offline operation & far weaker models; seconds per response \\
+quantised small models & fit consumer memory & reduced quality on structured output \\
+frozen Python runtime & the user installs nothing & installers approach 1 GB \\
+file-based vector store & no database to install & keyword index rebuilt per query \\
+bundle only the smaller model & installer size & analysis quality depends on a consented download \\
+bundle a typesetting engine & the writer must work with no LaTeX & 70 MB added per installer \\
+CPU-only inference build & one build behaves identically everywhere & GPU hardware unused \\
+tags, not branches, produce releases & releases cannot happen by accident & a deliberate step is required \\
+updates only when requested & an offline product must not contact a server unprompted & a user who never asks never updates \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{What Was Learned}
+
+\subsection{Testing source code is not testing a product}
+
+309 tests passed while the shipped installer could not start. The tests examined
+a source tree; users run an installer. The verification tiers added afterwards
+exercise the packaged application on each supported operating system, on
+machines that have no model and no typesetting distribution installed, so that a
+pass is evidence about a user's machine.
+
+\subsection{Suppressed errors are expensive}
+
+Two separate diagnoses were slowed by output sent to a null device. In both
+cases the fix was to print the error and stop, rather than warn and continue.
+A build that continues after a step has failed produces an artefact nobody
+intended to ship.
+
+\subsection{Fix categories, not instances}
+
+Three defects were the same defect. Enumerating every dependency once bounded
+the problem and ended it, where fixing them one at a time as testers reported
+them would not have converged.
+
+\subsection{Documentation drifts silently}
+
+Instructions told macOS users to use a mechanism the operating system had
+removed, and a LaTeX error message offered a command for one Linux distribution
+to every user on every platform. Both were written when they were true. Neither
+was noticed until a person followed them and could not proceed.
+
+\section{Present State}
+
+\begin{center}
+\small
+\begin{tabular}{@{}lr@{}}
+\toprule
+\textbf{Measure} & \textbf{Value} \\
+\midrule
+Commits & 133 \\
+Pull requests merged & 42 \\
+Application code (Python) & 8\,258 lines, 73 modules \\
+Test code & 2\,709 lines, 23 modules, 309 tests \\
+Interface code & 3\,280 lines, 9 components \\
+Desktop shell (Rust) & 745 lines \\
+REST endpoints & 36 \\
+Architecture decisions recorded & 32 \\
+Releases published & 5 \\
+Platforms built and validated automatically & 3 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Verification status by platform}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+\textbf{Platform} & \textbf{Status} \\
+\midrule
+Linux & automatically validated and exercised by hand on physical hardware \\
+Windows & automatically validated and confirmed working by a human tester, though not yet across a range of machines \\
+macOS & automatically validated; windowed behaviour on physical hardware remains unconfirmed, because unsigned applications are obstructed on first launch \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Planned Work}
+
+The following are planned rather than aspirational. Each follows from a
+limitation identified during development, and several are already partly
+prepared for in the existing structure of the system.
+
+\subsection{Language models trained for this application}
+
+The clearest quality limitation is the capability of a general-purpose 0.5
+billion parameter model on structured output. Asked to plot a function it
+produced a reference to an image file that does not exist, where a 1.5 billion
+parameter model produced a correct plot. The intended response is models suited
+to the task rather than simply larger ones, in three stages of increasing
+ambition.
+
+\paragraph{Stage one: fine-tuned task models.} Training pairs of natural
+language instruction and compilable LaTeX are already collected passively during
+normal use, and the routing table in the inference client already contains
+entries for a dedicated writing model, so adopting one is a matter of supplying
+weights. A second model fine-tuned for the structured summarisation and claim
+extraction formats the application parses would address the cases where a
+general model returns prose where JSON was requested.
+
+\paragraph{Stage two: adapter distribution.} Rather than shipping whole models,
+distribute small adapters applied over the bundled base model, so a capability
+upgrade costs tens of megabytes instead of gigabytes. Selection would use the
+hardware profile the application already computes at startup, so a machine
+receives only variants it can run.
+
+\paragraph{Stage three: models trained from scratch.} The longer term intention
+is to train small language models specifically for academic literature work,
+rather than adapting general-purpose ones. A model trained from the outset on
+research text, structured extraction and typesetting markup can be far smaller
+than a general model of equivalent usefulness for these tasks, which matters
+directly for a product constrained to consumer hardware.
+
+\paragraph{Federated learning.} A possible direction, subject to careful design,
+is improving these models from real usage without collecting anyone's documents.
+Training would occur on the user's own machine and only model updates, never
+text, would leave the device, and only with explicit consent. This is recorded
+as a possibility rather than a commitment: it must not be allowed to weaken the
+privacy guarantee that is the reason the product exists, and that constraint
+takes precedence over the capability.
+
+\subsection{An interface design philosophy, and the refactor that follows it}
+
+The interface was built feature by feature under time pressure. It is coherent
+but was not designed as a system: styling has accumulated into a single large
+stylesheet with two competing styling mechanisms in use.
+
+The intention is deliberately ordered. A design philosophy will first be agreed
+by the team through discussion, and the interface will then be refactored to it.
+Refactoring before that agreement would simply produce a second set of
+accumulated decisions. Points to be settled include:
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Design tokens.} Colour, spacing and typography expressed as
+        variables, so the interface compiles from a defined system rather than
+        from decisions made one screen at a time.
+  \item \textbf{One environment rather than four.} Browsing, searching,
+        interpreting and writing are currently separate screens. The intended
+        direction is a single workspace whose density and visual quiet change
+        with the task.
+  \item \textbf{A single cross-platform identity} rather than per-platform
+        conventions, so the application looks deliberate on every operating
+        system.
+  \item \textbf{Latency as a design material.} Local inference takes seconds and
+        that cannot be removed. The interface should be designed around honest
+        waiting rather than concealing it.
+  \item \textbf{Reading comfort.} Sessions are long and the content is dense, so
+        typography, measure and contrast are functional requirements rather than
+        decoration.
+\end{itemize}
+
+\subsection{LitGraph: consolidating retrieval, analysis and conversation}
+
+At present the gap finder, search, and summarisation and chat are separate
+features reached from separate screens, although they operate on the same corpus
+and much of the same computation. The planned direction is to consolidate them
+into a single capability, provisionally called LitGraph, in which the literature
+is treated as a connected structure rather than as a list of documents.
+
+\begin{itemize}[leftmargin=*]
+  \item A user would ask a question, see the passages that answer it, see how
+        the papers containing them relate to one another, and see where the
+        literature is thin, as one continuous activity rather than four.
+  \item Retrieval, summarisation and gap detection already share the embedding
+        index and the same model runtime, so consolidation removes duplicated
+        computation as well as duplicated interface.
+  \item Relationships between papers become first-class, which is the
+        foundation the previously planned citation visualisation requires.
+\end{itemize}
+
+\subsection{A robust paper editor}
+
+The paper writer is the most used feature and has received the most correction,
+but its editing surface remains a plain text area over LaTeX source. The planned
+work is a genuinely capable editor:
+
+\begin{itemize}[leftmargin=*]
+  \item syntax awareness, bracket matching, and compiler diagnostics shown
+        against the line that caused them;
+  \item a visual editing mode in which document structure can be edited without
+        the author reading markup, with the compiled PDF remaining the single
+        source of truth for appearance;
+  \item position synchronisation between the source and the compiled document,
+        so that selecting a place in one moves to it in the other;
+  \item continued strengthening of the natural language to LaTeX path, which
+        currently rewrites a selected passage in place and is the feature the
+        planned writing model would most improve.
+\end{itemize}
+
+\subsection{Further planned refactors}
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Incremental keyword index}, removing the per-query rebuild that
+        currently limits corpus size.
+  \item \textbf{Stylesheet consolidation}, resolving the two styling mechanisms
+        into one, carried out as part of the interface refactor above rather
+        than separately.
+  \item \textbf{Code signing and notarisation} for macOS and Windows. This is
+        required before a production release: both operating systems currently
+        obstruct the first launch of an unsigned application, which every user
+        encounters and which reads as the software being broken.
+  \item \textbf{Bundled model integrity checks}, so that a corrupted or partial
+        payload is detected at startup rather than at first use.
+\end{itemize}
+
+\section{Closing Note}
+
+The technically demanding parts of this project, namely local inference with
+hardware-aware model selection, hybrid retrieval, an auto-healing typesetting
+pipeline and authenticated encryption, were completed and work. What determined
+whether anyone else could use the software was packaging, dependency
+completeness, and verification of the delivered artefact.
+
+The distinction between software that works and software that has been shown to
+work on a machine other than its author's is the lesson this project taught most
+clearly, and it was taught by a release that failed rather than by one that
+succeeded.
+
+\end{document}

@@ -104,7 +104,15 @@ jobs:
       - name: Run actionlint
         run: |
           bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
-          ./actionlint -color
+          # The shellcheck exclusions MUST match scripts/preflight.sh exactly.
+          #
+          # actionlint shells out to whatever shellcheck is on the machine, and
+          # the runner's is older than a current developer install. shellcheck
+          # 0.11 stopped reporting SC2015 when the `||` branch exits; the
+          # runner's still reports it. That is a failure no one can reproduce
+          # locally -- it cost a red CI on a workflow that linted clean here.
+          # Pinning the excluded codes on both sides removes the skew.
+          ./actionlint -color -shellcheck "shellcheck -e SC1091,SC2015"
 
   # -- python: real-bug lint (ruff E9 + pyflakes) --
   python-lint:
@@ -136,6 +144,12 @@ jobs:
           cache-dependency-path: requirements-test.txt
       - name: Install test dependencies
         run: pip install -r requirements-test.txt
+      # A range means the same commit can build a different program tomorrow.
+      # nltk 3.10.1 proved it: released between two builds, it killed the frozen
+      # backend on all three platforms with no change on our side.
+      - name: Dependencies are pinned
+        run: python scripts/check_pins.py
+
       - name: Run unit tests
         run: pytest --cov=domain --cov=infrastructure --cov=config --cov-report=term-missing
 
@@ -183,8 +197,43 @@ jobs:
   # resolve a required-but-skipped context). This one always runs and passes only
   # when nothing that DID run failed, so "skipped" and "passed" are both green
   # while any real failure is red.
+  # -- frontend: the react app is linted, tested and must build --
+  # This job did not exist. `changes` already emitted a `frontend` flag, but
+  # nothing consumed it, so every UI change reached users unchecked -- which is
+  # how a duplicate "Run summarize" button and an updater that reported no
+  # progress on a 900 MB download both shipped.
+  frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    name: Frontend (lint + test + build)
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # 22, not 20. jsdom (the vitest environment) declares
+          # engines.node ^22.22.2 || ^24.15.0 || >=26, so on 20 it installs and
+          # then fails to load -- which passed locally on node 22 and failed
+          # only in CI. Keep this in step with frontend/package.json engines.
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Unit tests
+        run: npm test
+      # The build is a test in its own right: it is the step that actually
+      # produces what ships, and a broken import passes lint but fails here.
+      - name: Build
+        run: npm run build
+
   ci-ok:
-    needs: [changes, actionlint, python-lint, python-test, rust-check]
+    needs: [changes, actionlint, python-lint, python-test, rust-check, frontend]
     if: always()
     runs-on: ubuntu-latest
     name: CI OK

@@ -10,6 +10,19 @@ never sends your work to someone else's server, that's ThinkStack.
 
 For the full feature reference, see [FEATURES.md](FEATURES.md).
 
+## Current release and stack
+
+The version you would install is whatever the
+[releases page](https://github.com/get-thinkstack/ThinkStack/releases/latest)
+serves — it is generated from the tag, so it is correct by construction and
+cannot go stale. This file deliberately does not repeat it: a version written
+into prose is wrong the moment a release is cut.
+
+Built on Tauri 2 (Rust) for the desktop shell, React with Vite for the
+interface, and Python 3.12 with FastAPI for the backend, which is frozen into
+the installer alongside the model weights and a TeX engine. These move rarely;
+update them here when they do.
+
 ## Why offline / on-device?
 
 - **Privacy** — your papers, drafts, and analysis never leave your computer.

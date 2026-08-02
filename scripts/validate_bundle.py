@@ -23,7 +23,9 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import re
 import sys
+import types
 import time
 import urllib.error
 import urllib.request
@@ -64,6 +66,20 @@ def record(status: str, name: str, detail: str = "") -> None:
 def get(url: str, timeout: int = 30):
     with urllib.request.urlopen(url, timeout=timeout) as r:
         return json.loads(r.read().decode())
+
+
+def get_text(url: str, timeout: int = 30):
+    """GET a URL, returning an object with .text and .headers, or None.
+
+    Separate from get(): the frontend checks need the raw body and the
+    response headers, not parsed JSON.
+    """
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            body = r.read().decode("utf-8", "replace")
+            return types.SimpleNamespace(text=body, headers=dict(r.headers))
+    except (urllib.error.URLError, OSError, TimeoutError, UnicodeError):
+        return None
 
 
 def post(url: str, payload: dict, timeout: int = 600):
@@ -109,6 +125,9 @@ def main() -> int:
                     help="seconds to wait for the backend to come up")
     ap.add_argument("--skip-inference", action="store_true",
                     help="skip chat/analysis (still checks ingest + embeddings)")
+    ap.add_argument("--expect-version", default="",
+                    help="the version this bundle was built as; the UI it "
+                         "serves must report exactly this")
     args = ap.parse_args()
     base = args.url.rstrip("/")
 
@@ -123,6 +142,72 @@ def main() -> int:
         record(FAIL, f"backend never answered within {args.timeout}s")
         return report()
     record(PASS, f"backend ready in {time.time() - started:.1f}s")
+
+    # 1b. THE UI THIS BUNDLE SERVES IS THE ONE IT WAS BUILT FROM.
+    #
+    # Nothing checked this, on any platform, ever. Every check here exercised
+    # the API and none of them requested the frontend, so a bundle could ship
+    # a stale UI and pass everything. That is not hypothetical: a build was
+    # released whose window showed the previous version's number and the
+    # previous version's buttons, and it was only caught by a person looking
+    # at the screen and by downloading the installer and grepping it by hand.
+    #
+    # The version is the honest probe. Vite bakes it into the JS bundle from
+    # tauri.conf.json at build time, so if the served bundle reports the
+    # version this build was stamped with, the frontend in the package is the
+    # one this run produced -- which also proves the build ran in the right
+    # order (stamp, then frontend).
+    index = get_text(f"{base}/")
+    if index is None:
+        record(FAIL, "frontend not served", "GET / returned nothing")
+    else:
+        # index.html must never be cached: its name is stable across builds,
+        # so a cached copy keeps pointing at the previous build's assets. That
+        # shipped -- an updated app rendered the old UI from the webview cache.
+        cache = (index.headers.get("cache-control") or "").lower()
+        if "no-store" in cache:
+            record(PASS, "index.html is uncacheable", cache)
+        else:
+            record(FAIL, "index.html is cacheable",
+                   f"cache-control: {cache or '(absent)'} -- an updated app "
+                   "will serve the previous build from the webview cache")
+
+        refs = re.findall(r'/assets/([A-Za-z0-9._-]+\.js)', index.text)
+        if not refs:
+            record(FAIL, "index.html references no JS bundle")
+        else:
+            asset = get_text(f"{base}/assets/{refs[0]}")
+            if asset is None:
+                record(FAIL, "the JS bundle index.html points at is missing",
+                       refs[0])
+            elif args.expect_version:
+                # Quoted, in ANY of the three styles. Vite replaces
+                # __APP_VERSION__ with a string literal, but the minifier
+                # rewrites literals as backtick templates -- the bundle
+                # contains `1.6.13`, not "1.6.13". Matching only double quotes
+                # failed on every real build, which would have made this check
+                # cry wolf until someone deleted it.
+                #
+                # Still quoted rather than bare, which narrows it -- but be
+                # honest about the limit: a dependency version that happens to
+                # be quoted will also match, so passing "19.2.7" here succeeds
+                # because React's version is in the bundle. That does not
+                # weaken what this is for. The failure being guarded against is
+                # a STALE frontend, and a stale bundle carries the PREVIOUS app
+                # version, which cannot match the one this build stamped.
+                needle = re.compile(
+                    r"[\"'`]" + re.escape(args.expect_version) + r"[\"'`]"
+                )
+                if needle.search(asset.text):
+                    record(PASS, "UI reports the built version",
+                           f"{args.expect_version} in {refs[0]}")
+                else:
+                    found = re.findall(r'\b\d+\.\d+\.\d+\b', asset.text)[:3]
+                    record(FAIL, "UI reports the WRONG version",
+                           f"expected {args.expect_version}, bundle contains "
+                           f"{found or 'no version string'} ({refs[0]})")
+            else:
+                record(PASS, "UI bundle served", refs[0])
 
     # 2. hardware diagnosis produced real numbers
     hw = health.get("hardware") or {}

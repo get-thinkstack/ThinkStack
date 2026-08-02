@@ -1,0 +1,13 @@
+# Merging beta into main publishes a release to the public automatically
+# (see .github/workflows/release-on-main.yml), so a merge to main is a
+# release decision, not a code decision. It requires the maintainer's review.
+#
+# dev and beta are deliberately NOT listed: day-to-day work must not need
+# anyone's permission.
+
+*                       @Rithesh077
+
+# The release machinery itself: a change here changes what ships and how.
+/.github/workflows/     @Rithesh077
+/scripts/               @Rithesh077
+/release.config.json    @Rithesh077

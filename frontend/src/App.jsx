@@ -77,10 +77,22 @@ export default function App() {
   // contradicts that even though the request carries no user data. Updates are
   // entirely user-initiated via the sidebar button below.
   const [updateState, setUpdateState] = useState('idle');
+  // Percentage of the update download, or null when nothing is downloading.
+  // The bundle carries the model weights, so this is a ~900 MB transfer that
+  // takes minutes; with no progress the button looked frozen.
+  const [updatePercent, setUpdatePercent] = useState(null);
 
   const runUpdateCheck = async () => {
     setUpdateState('checking');
-    setUpdateState(await checkForUpdatesInteractive());
+    setUpdatePercent(null);
+    const result = await checkForUpdatesInteractive({
+      onProgress: ({ phase, percent }) => {
+        setUpdateState(phase);
+        setUpdatePercent(percent);
+      },
+    });
+    setUpdatePercent(null);
+    setUpdateState(result);
   };
 
   // track the OS appearance until the user makes an explicit choice
@@ -207,29 +219,56 @@ export default function App() {
                 </button>
 
                 <button
-                  className={`sidebar-tool ${updateState === 'current' ? 'is-ok' : ''} ${
-                    updateState === 'error' ? 'is-bad' : ''
+                  className={`sidebar-tool ${
+                    ['current', 'offline', 'restart-needed'].includes(updateState) ? 'is-ok' : ''
+                  } ${
+                    ['error', 'install-failed', 'blocked'].includes(updateState) ? 'is-bad' : ''
                   }`}
                   onClick={runUpdateCheck}
-                  disabled={updateState === 'checking'}
+                  disabled={['checking', 'downloading', 'installing'].includes(updateState)}
                   title={
                     updateState === 'current'
                       ? `You are on the latest version (v${APP_VERSION}). Click to check again.`
+                      : updateState === 'offline'
+                      ? 'Could not reach the release server. Nothing was changed.'
+                      : updateState === 'install-failed'
+                      ? 'The download failed verification or could not be written. '
+                        + 'Your installed version is untouched.'
+                      : updateState === 'restart-needed'
+                      ? 'Installed. Restart ThinkStack to use the new version.'
                       : 'Check for a new version of ThinkStack'
                   }
                 >
-                  {updateState === 'current' ? (
+                  {updateState === 'current' || updateState === 'restart-needed' ? (
                     <Check size={15} />
-                  ) : updateState === 'error' ? (
+                  ) : updateState === 'error' || updateState === 'install-failed'
+                      || updateState === 'blocked' ? (
                     <AlertCircle size={15} />
                   ) : (
-                    <RefreshCw size={15} className={updateState === 'checking' ? 'spin' : ''} />
+                    <RefreshCw
+                      size={15}
+                      className={['checking', 'downloading', 'installing'].includes(updateState)
+                        ? 'spin' : ''}
+                    />
                   )}
                   <span>
-                    {updateState === 'checking' ? 'Checking…'
+                    {/* The bundle carries the model weights, so this is a
+                        ~900 MB transfer. Without a percentage the button read
+                        "Checking..." for several minutes, which is
+                        indistinguishable from a hang. */}
+                    {updateState === 'downloading'
+                      ? (updatePercent === null
+                          ? 'Downloading…'
+                          : `Downloading ${updatePercent}%`)
+                      : updateState === 'installing' ? 'Installing…'
+                      : updateState === 'checking' ? 'Checking…'
                       : updateState === 'current' ? 'Up to date'
+                      : updateState === 'offline' ? 'Up to date (offline)'
+                      : updateState === 'restart-needed' ? 'Restart to finish'
+                      : updateState === 'install-failed' ? 'Update failed, kept current'
+                      : updateState === 'blocked' ? 'Update blocked'
                       : updateState === 'unsupported' ? 'Desktop app only'
-                      : updateState === 'error' ? 'Check failed — retry'
+                      : updateState === 'error' ? 'Check failed, retry'
                       : 'Update app'}
                   </span>
                 </button>

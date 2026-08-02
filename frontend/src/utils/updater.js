@@ -22,11 +22,27 @@ function inTauri() {
     (Boolean(window.__TAURI_INTERNALS__) || Boolean(window.__TAURI__));
 }
 
-/** default UX: a blocking confirm() with the new version number. */
-function defaultConfirm({ version }) {
+/** human-readable byte size, for a download measured in hundreds of megabytes. */
+function mb(bytes) {
+  return `${Math.round(bytes / 1024 / 1024)} MB`;
+}
+
+/**
+ * default UX: a blocking confirm() with the new version number AND the size.
+ *
+ * The size is not a detail. ThinkStack ships the model weights inside the
+ * bundle, so an update is ~900 MB, not the few MB people expect from an "update
+ * now?" prompt. Someone on a metered or slow connection needs to know that
+ * before saying yes, and someone who says yes needs to understand why it then
+ * takes several minutes.
+ */
+function defaultConfirm({ version, size }) {
+  const weight = size ? ` (about ${mb(size)})` : '';
   return window.confirm(
-    `ThinkStack ${version} is available.\n\n` +
-    `Install it now and restart? Your papers and data are kept.`
+    `ThinkStack ${version} is available${weight}.\n\n` +
+    `The download includes the local model, so it is large and may take a few ` +
+    `minutes. Your papers and data are kept.\n\n` +
+    `Install it now and restart?`
   );
 }
 
@@ -46,25 +62,104 @@ export const APP_VERSION = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__
  * indistinguishable from a broken button, so 'current' is a result the caller
  * is expected to show, not a no-op.
  *
- * @returns {Promise<'updating' | 'current' | 'unsupported' | 'error'>}
+ * @returns {Promise<'updating' | 'current' | 'offline' | 'blocked'
+ *                   | 'install-failed' | 'restart-needed' | 'unsupported'
+ *                   | 'error'>}
  */
-export async function checkForUpdatesInteractive() {
+export async function checkForUpdatesInteractive({ onProgress } = {}) {
   if (!inTauri()) return 'unsupported';
 
+  let update;
   try {
     const { check } = await import('@tauri-apps/plugin-updater');
-    const update = await check();
-    if (!update) return 'current';
-
-    const accepted = await defaultConfirm({ version: update.version });
-    if (!accepted) return 'current';
-
-    await update.downloadAndInstall();
-    const { relaunch } = await import('@tauri-apps/plugin-process');
-    await relaunch();
-    return 'updating';
+    update = await check();
   } catch (err) {
-    console.warn('[updater] manual update check failed:', err);
+    // Distinguish the reasons, because "error" told the user nothing and was
+    // shown for the most common case of all: being on the newest version but
+    // temporarily offline.
+    const msg = String(err?.message ?? err);
+    console.warn('[updater] check failed:', msg);
+
+    // No manifest published for this channel yet. There is genuinely nothing
+    // to update to, which is "up to date" from where the user is standing.
+    if (/404|not found/i.test(msg)) return 'current';
+
+    // Offline, or the release host is unreachable. Not an application fault,
+    // and an offline-first app being offline is not an error worth alarming
+    // anyone about.
+    if (/network|fetch|dns|timed? ?out|connect|unreachable|tls|certificate/i.test(msg)) {
+      return 'offline';
+    }
+
+    // A denied plugin call means the capability does not cover this origin.
+    // That was a real bug: the UI is served from http://127.0.0.1:8000, which
+    // Tauri treats as remote content, and the capability only covered
+    // tauri://localhost, so every press of the button threw.
+    if (/not allowed|forbidden|permission|capabilit/i.test(msg)) return 'blocked';
+
     return 'error';
   }
+
+  if (!update) return 'current';
+
+  const accepted = await defaultConfirm({
+    version: update.version,
+    size: update.contentLength,
+  });
+  if (!accepted) return 'current';
+
+  try {
+    // The bundle's signature is verified against the public key in
+    // tauri.conf.json before anything is written. A tampered or truncated
+    // download fails here, leaving the installed version untouched.
+    //
+    // The progress callback is not decoration. The bundle carries the model
+    // weights, so this transfers ~900 MB: without it the button sat on
+    // "Checking..." for several minutes with no output, which is
+    // indistinguishable from a hang, and the first person to try it reasonably
+    // concluded the updater was broken.
+    let total = 0;
+    let done = 0;
+    await update.downloadAndInstall((event) => {
+      switch (event.event) {
+        case 'Started':
+          total = event.data?.contentLength ?? 0;
+          done = 0;
+          onProgress?.({ phase: 'downloading', done, total, percent: 0 });
+          break;
+        case 'Progress':
+          done += event.data?.chunkLength ?? 0;
+          onProgress?.({
+            phase: 'downloading',
+            done,
+            total,
+            // No total means no percentage; report bytes rather than a
+            // fabricated one.
+            percent: total ? Math.min(100, Math.round((done / total) * 100)) : null,
+          });
+          break;
+        case 'Finished':
+          onProgress?.({ phase: 'installing', done: total, total, percent: 100 });
+          break;
+        default:
+          break;
+      }
+    });
+  } catch (err) {
+    console.warn('[updater] install failed:', err);
+    // Deliberately NOT relaunching. The installed version is still the working
+    // one, so staying on it is the safe outcome; relaunching after a failed
+    // install is how you turn a failed update into a broken application.
+    return 'install-failed';
+  }
+
+  try {
+    const { relaunch } = await import('@tauri-apps/plugin-process');
+    await relaunch();
+  } catch {
+    // Installed but could not restart automatically. Nothing is broken; the
+    // new version is live on the next manual start.
+    return 'restart-needed';
+  }
+  return 'updating';
 }
