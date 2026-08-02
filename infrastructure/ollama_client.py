@@ -237,6 +237,11 @@ class OllamaClient:
         self.model = model
         self.model_path = Path(model_path)
         self.ctx_size = ctx_size
+        # The context the resident model was actually loaded with. The
+        # configured value is only a ceiling: _resolve_runtime_params lowers it
+        # to match the machine, and the OOM path below lowers it again. Callers
+        # that must size a prompt need the real number, not the wish.
+        self._effective_ctx: int | None = None
         self.gpu_layers = gpu_layers
         self.timeout = timeout
         self._llama = None
@@ -521,6 +526,24 @@ class OllamaClient:
 
         return ctx, layers
 
+    def input_char_budget(self, max_tokens: int, task_type: str = "general") -> int:
+        """Characters of prompt that fit alongside `max_tokens` of output.
+
+        The context window holds the prompt AND the reply. Summarization asked
+        for 6000 characters of paper (~1500 tokens) plus 1024 tokens of output
+        inside a window that is only 2048 tokens on a low-tier machine -- an 8 GB
+        M1, which is the commonest Mac there is. It could not fit, so it failed
+        before model quality was even in question, and the reader was told the
+        response "could not be read".
+
+        Four characters per token is the usual rough English ratio; a 15% margin
+        covers the system prompt, the chat template's own tokens, and the fact
+        that a tokenizer is not a divider.
+        """
+        ctx = self._effective_ctx or self.ctx_size
+        room_for_prompt = max(0, ctx - max_tokens)
+        return int(room_for_prompt * 4 * 0.85)
+
     def _get_llama(self, task_type: str = "general"):
         """lazily initialize llama.cpp model instance with hardware-aware loading.
 
@@ -580,6 +603,7 @@ class OllamaClient:
                     n_gpu_layers=n_gpu_layers,
                     verbose=False,
                 )
+                self._effective_ctx = n_ctx
                 self._llama_path = requested
                 return self._llama
             except (MemoryError, RuntimeError, Exception) as e:
@@ -609,6 +633,7 @@ class OllamaClient:
                 n_gpu_layers=0,
                 verbose=False,
             )
+            self._effective_ctx = n_ctx
         except (MemoryError, RuntimeError) as e:
             # absolute last resort: minimal context
             logger.error(
@@ -620,6 +645,7 @@ class OllamaClient:
                 n_gpu_layers=0,
                 verbose=False,
             )
+            self._effective_ctx = n_ctx
         self._llama_path = requested
         return self._llama
 

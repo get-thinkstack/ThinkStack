@@ -322,6 +322,19 @@ export default function Analysis() {
           {activeTab === 'summarize' && (
             <div className="analysis-section">
               <h3><Brain size={18} /> Summary</h3>
+              {/* Set when the paper had to be summarized in pieces because it
+                  did not fit this machine's context window. Deliberately kept
+                  out of summary_text: it is a fact about the machine, not about
+                  the paper, and must not read as the model's view of the
+                  research. */}
+              {result.notice && (
+                <p style={{
+                  color: 'var(--text-secondary)', fontSize: '0.85rem',
+                  lineHeight: '1.6', marginBottom: '0.75rem', opacity: 0.75,
+                }}>
+                  {result.notice}
+                </p>
+              )}
               <p style={{ color: 'var(--text-secondary)', lineHeight: '1.8', marginBottom: '1rem' }}>
                 {result.summary_text}
               </p>
