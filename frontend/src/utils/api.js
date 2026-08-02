@@ -233,6 +233,9 @@ export const systemApi = {
   jobs: () => request('/system/jobs'),
   setModel: (model) =>
     request('/system/model', { method: 'POST', body: { model } }),
+  // POST, not GET: it discards the cached hardware profile and looks again.
+  // Reads nothing the user owns and changes no setting.
+  diagnose: () => request('/system/diagnose', { method: 'POST' }),
 };
 
 /**

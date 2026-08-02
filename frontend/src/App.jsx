@@ -1,16 +1,27 @@
 import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, useLocation, Navigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { BookOpen, Waypoints, PenLine, Sun, Moon, HardDrive, RefreshCw, Check, AlertCircle } from 'lucide-react';
+import { BookOpen, Waypoints, PenLine, Sun, Moon, RefreshCw, Check, AlertCircle, Gauge } from 'lucide-react';
 import { systemApi } from './utils/api';
 import { checkForUpdatesInteractive, APP_VERSION } from './utils/updater';
-import Bibliotekh from './components/Bibliotekh';
+import Library from './components/Library';
 import LitGraph from './components/LitGraph';
 import Scribe from './components/Scribe';
-import ModelSetup, { OPEN_MODEL_SETUP } from './components/ModelSetup';
+import Bench from './components/Bench';
+import ModelSetup from './components/ModelSetup';
 import './index.css';
 
 const THEME_KEY = 'ts-theme';
+const SIDEBAR_KEY = 'ts-sidebar-collapsed';
+
+/** Restore the sidebar state. Expanded is the default for a first run. */
+function getInitialCollapsed() {
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) === '1';
+  } catch {
+    return false;   // private mode / storage disabled
+  }
+}
 
 /** resolve the initial theme: stored choice wins, else follow the OS. */
 function getInitialTheme() {
@@ -44,9 +55,10 @@ function AnimatedRoutes() {
   return (
     <AnimatePresence mode="wait">
       <Routes location={location} key={location.pathname}>
-        <Route path="/" element={<Page><Bibliotekh /></Page>} />
+        <Route path="/" element={<Page><Library /></Page>} />
         <Route path="/litgraph" element={<Page><LitGraph /></Page>} />
         <Route path="/write" element={<Page><Scribe /></Page>} />
+        <Route path="/bench" element={<Page><Bench /></Page>} />
         {/* Search, Analysis and Gap Finder all became LitGraph. This is a
             desktop shell, so a stale deep link would otherwise be a dead end. */}
         <Route path="/search" element={<Navigate to="/litgraph" replace />} />
@@ -65,6 +77,20 @@ function AnimatedRoutes() {
  */
 export default function App() {
   const [llmStatus, setLlmStatus] = useState('checking');
+  // Persisted like the theme: a layout choice the user made once should not be
+  // undone by quitting the app.
+  const [collapsed, setCollapsed] = useState(getInitialCollapsed);
+
+  const toggleSidebar = () =>
+    setCollapsed((c) => {
+      const next = !c;
+      try {
+        localStorage.setItem(SIDEBAR_KEY, next ? '1' : '0');
+      } catch {
+        /* storage unavailable; the choice just will not survive a restart */
+      }
+      return next;
+    });
   const [{ theme, explicit }, setThemeState] = useState(getInitialTheme);
 
   // apply the active theme to <html> so every token switches
@@ -135,9 +161,10 @@ export default function App() {
   // three sections, in the order the work actually happens:
   // collect -> understand -> write.
   const navItems = [
-    { to: '/', icon: BookOpen, label: 'Bibliotekh' },
+    { to: '/', icon: BookOpen, label: 'Library' },
     { to: '/litgraph', icon: Waypoints, label: 'LitGraph' },
     { to: '/write', icon: PenLine, label: 'Scribe' },
+    { to: '/bench', icon: Gauge, label: 'Bench' },
   ];
 
   return (
@@ -150,18 +177,40 @@ export default function App() {
         <div className="ambient-orb orb-2"></div>
       </div>
       <BrowserRouter>
-        <div className="app-layout">
+        <div className={`app-layout ${collapsed ? 'is-collapsed' : ''}`}>
+          {/* Visible only while collapsed. The logo IS the way back -- with the
+              sidebar gone there is nothing else left to click. */}
+          <button
+            className="sidebar-peek"
+            onClick={toggleSidebar}
+            aria-label="Show sidebar"
+            aria-expanded={!collapsed}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="#0A0A0A"
+                 strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2L2 7l10 5 10-5-10-5z" />
+              <path d="M2 17l10 5 10-5" />
+              <path d="M2 12l10 5 10-5" />
+            </svg>
+          </button>
           <aside className="sidebar">
             <div className="sidebar-brand">
               <div className="brand-logo-container">
                 <h1>
-                  <div className="brand-logo-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="#0A0A0A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-                      <path d="M2 17l10 5 10-5"/>
-                      <path d="M2 12l10 5 10-5"/>
-                    </svg>
-                  </div>
+                  <button
+                    className="brand-logo-button"
+                    onClick={toggleSidebar}
+                    aria-label="Collapse sidebar"
+                    aria-expanded="true"
+                  >
+                    <div className="brand-logo-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="#0A0A0A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                        <path d="M2 17l10 5 10-5"/>
+                        <path d="M2 12l10 5 10-5"/>
+                      </svg>
+                    </div>
+                  </button>
                   ThinkStack
                 </h1>
               </div>
@@ -209,15 +258,6 @@ export default function App() {
                   because the flag lives in the webview's localStorage, which
                   even reinstalling does not clear. */}
               <div className="sidebar-tools">
-                <button
-                  className="sidebar-tool"
-                  onClick={() => window.dispatchEvent(new Event(OPEN_MODEL_SETUP))}
-                  title="Check whether this machine can run a better model"
-                >
-                  <HardDrive size={15} />
-                  <span>Add better models</span>
-                </button>
-
                 <button
                   className={`sidebar-tool ${
                     ['current', 'offline', 'restart-needed'].includes(updateState) ? 'is-ok' : ''

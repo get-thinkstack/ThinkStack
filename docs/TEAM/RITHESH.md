@@ -57,22 +57,88 @@ install rather than shipped, which kept installers clear of GitHub's 2 GiB asset
 limit. Analysis degrades to the 0.5B when no larger model is present.
 
 To keep memory bounded, `ollama_client.py` keeps only one model resident at a
-time and swaps on demand rather than holding both. GPU is used when available,
-with a CPU fallback so the app still runs on machines without a usable CUDA
-setup. `file_manager.seed_bundled_models()` copies the bundled model into the
+time and swaps on demand rather than holding both.
+`file_manager.seed_bundled_models()` copies the bundled model into the
 writable data directory on first run, since a frozen build ships it read-only.
+
+## Machine capability and diagnosis
+
+`infrastructure/capability.py` is the single place that answers "what can this
+machine do". Before it, that question was answered in about ten places, and two
+of them disagreed: `src-tauri/src/diagnosis.rs` classified the machine and chose
+GPU layers, `infrastructure/hardware.py` did the same again in Python, and the
+Rust answer won at runtime -- so the Python one was unreachable code that still
+looked authoritative.
+
+The split is now Rust detects, Python decides. Rust reports facts about the
+machine; every derived number -- tier, context size, GPU layers, output tokens,
+how much prompt fits -- comes from `capability.py`. Callers ask it; they no
+longer compute.
+
+Two bugs this fixed:
+
+- **Summarization could not fit in its own context window.** 6000 characters of
+  paper (~1500 tokens) plus 1024 tokens of reply needs ~2650 tokens; a low-tier
+  machine is given 2048. The request failed before the model was asked to think,
+  and the error handler then told the reader the response "could not be read",
+  which was untrue. Nobody owned the arithmetic, so nobody noticed it was wrong.
+  Both summarizers now size the prompt from the context the model was actually
+  loaded with, and fall back to map-reduce when a paper will not fit in one pass.
+- **Every Mac was pinned to CPU.** GPU layers were decided by
+  `has_cuda && vram_gb >= 2.0`. Apple Silicon reports no CUDA and 0 GB of
+  dedicated VRAM -- both true, because its GPU shares system memory -- so the
+  test could never pass whatever the machine could do. `HardwareProfile` could
+  not express "unified memory", so three consumers each guessed and all three
+  guessed wrong. Capability asks `llama_supports_gpu_offload()` instead: a fact
+  about the binary we shipped, which is the only thing that decides whether
+  offload works.
+
+Detection no longer imports torch. Torch is bundled for embeddings, not
+inference -- the SLMs run on llama.cpp -- and torch having CUDA says nothing
+about our llama.cpp build. `nvidia-smi` and the platform answer the same
+question in 0.18s rather than 0.82s.
+
+`POST /api/system/diagnose` re-examines the machine on request, behind the
+**Diagnose my machine** button. The profile is cached at startup, which is
+right -- hardware does not change while the app runs -- but a user who frees
+memory, or who upgraded from a build predating this, had no way to make the app
+look again. The button is that way. It reads the local machine, sends nothing,
+and changes no setting, so the click is the consent.
+
+**Bench** is where this surfaces. The capability report and the model picker
+were two sidebar buttons opening modals; they answer two halves of one question,
+so they are one section now. It is deliberately thin: HuggingFace acquisition,
+per-task model suggestions and the registry are being built separately and land
+here, rather than being mocked up against a data shape that does not exist yet.
+
+`tests/test_capability.py` covers it against fabricated machines rather than
+real ones, so an 8 GB M1 and a 64 GB workstation are both testable on CI with no
+GPU present.
 
 ## CI/CD and auto-updates
 
-the release pipeline is config-driven and split into reusable workflows:
-`release.config.json` holds the repo, platform matrix, channels, and models;
-`.github/workflows/_build-desktop.yml` and `_publish-release.yml` are reusable
-(`workflow_call`) and hold all the build/publish logic; and the thin channel
-callers `release-stable.yml`, `release-beta.yml`, and `nightly.yml` trigger them
-for the stable / beta / nightly channels. each builds installers for Linux,
-macOS, and Windows and publishes them to GitHub Releases. Updates use Tauri's
-updater: the installed app checks a signed `latest.json` on each launch and
-installs a newer version if one exists (each channel has its own manifest URL).
+the release pipeline is config-driven: `release.config.json` holds the repo,
+platform matrix, channels, and models; `.github/workflows/_build-desktop.yml`
+and `_publish-release.yml` are reusable (`workflow_call`) and hold all the
+build/publish logic; and `release.yml` is the single entry point.
+
+it used to be five entry points -- `release-stable`, `release-beta`,
+`release-on-main`, `release-on-beta` and `nightly` -- which differed only in
+what started them and how the version was worked out. their build and publish
+halves were byte-identical, and two even shared a concurrency group. one
+workflow with three triggers replaced them: merging into beta cuts a beta,
+merging into main publishes what beta validated, and the cron cuts a nightly.
+Ten workflows became six.
+
+a merge is the decision to release; the tag is the record of what was built.
+tags trigger nothing, because while they did, `git push origin v1.2.3`
+published a release to every user without the merge being reviewed.
+
+each build produces installers for Linux, macOS, and Windows and publishes them
+to GitHub Releases. Updates use Tauri's updater, but only when the user asks:
+the check is behind the sidebar button rather than on launch, because an
+offline-first app should not contact the network unprompted (each channel has
+its own manifest URL).
 The signing key stays out of the repo (the private key lives at `~/.tauri` and as
 a CI secret; only the public key is committed). The supporting scripts are
 `scripts/compose-updater-manifest.sh`, which builds the manifest, and

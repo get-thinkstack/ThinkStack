@@ -56,7 +56,9 @@ respond in json format with keys: summary (concise), key_points (4-6 short
 strings capturing the comparison, in your own words -- do not quote)."""
 
 
-async def _map_reduce(text: str, room: int, system: str) -> tuple[str, list[str]]:
+async def _map_reduce(
+    text: str, room: int, system: str, out_tokens: int
+) -> tuple[str, list[str]]:
     """Summarize a paper that does not fit the context window, in two passes.
 
     MAP:    each piece is summarized on its own, as plain prose.
@@ -97,7 +99,7 @@ async def _map_reduce(text: str, room: int, system: str) -> tuple[str, list[str]
     response = await ollama_client.generate_json(
         SINGLE_PAPER_PROMPT.format(text=joined),
         system=system,
-        max_tokens=1024,
+        max_tokens=out_tokens,
         task_type="analysis",
     )
     data = json.loads(response)
@@ -130,7 +132,8 @@ async def summarize_single(doc_id: str, text: str) -> Summary:
     # machine gets 2048 (an 8 GB M1, the commonest Mac sold), so the request
     # could not fit in its own window and failed before model quality mattered.
     # The reader was told the response "could not be read", which was not true.
-    budget = ollama_client.input_char_budget(max_tokens=1024, task_type="analysis")
+    out_tokens = ollama_client.output_token_budget("analysis")
+    budget = ollama_client.input_char_budget(max_tokens=out_tokens, task_type="analysis")
     overhead = len(SINGLE_PAPER_PROMPT.replace("{text}", ""))
     room = max(0, budget - overhead)
 
@@ -138,7 +141,9 @@ async def summarize_single(doc_id: str, text: str) -> Summary:
         if room and len(text) > room:
             # Does not fit: summarize the pieces, then summarize those.
             # Slower, and on a small model noticeably so -- hence the notice.
-            summary_text, key_points = await _map_reduce(text, room, system)
+            summary_text, key_points = await _map_reduce(
+                text, room, system, out_tokens
+            )
             return Summary(
                 doc_ids=[doc_id],
                 summary_text=summary_text,
@@ -156,7 +161,7 @@ async def summarize_single(doc_id: str, text: str) -> Summary:
         # so generation stopped mid-string and the JSON never closed. That
         # surfaced to users as "Unterminated string starting at: line 9".
         response = await ollama_client.generate_json(
-            prompt, system=system, max_tokens=1024, task_type="analysis"
+            prompt, system=system, max_tokens=out_tokens, task_type="analysis"
         )
         data = json.loads(response)
         return Summary(
@@ -195,9 +200,20 @@ async def summarize_multiple(doc_ids: list[str], texts: dict[str, str]) -> Summa
     returns:
         populated Summary instance with comparative analysis.
     """
+    # Share the window between the papers instead of taking a flat 2000
+    # characters from each. The old form grew with the number of papers and had
+    # no relationship to the context at all: five papers is ~2500 tokens of
+    # input against a 2048-token window on a low-tier machine, so adding papers
+    # made the request progressively more impossible.
+    out_tokens = ollama_client.output_token_budget("analysis")
+    budget = ollama_client.input_char_budget(max_tokens=out_tokens, task_type="analysis")
+    overhead = len(MULTI_PAPER_PROMPT.replace("{papers}", ""))
+    # each paper also carries its own "--- paper N (id: ...) ---" header
+    per_paper = max(400, (max(0, budget - overhead) // max(1, len(texts))) - 60)
+
     papers_text = ""
     for i, (doc_id, text) in enumerate(texts.items()):
-        excerpt = text[:2000]
+        excerpt = text[:per_paper]
         papers_text += f"\n--- paper {i + 1} (id: {doc_id}) ---\n{excerpt}\n"
 
     prompt = MULTI_PAPER_PROMPT.format(papers=papers_text)
@@ -211,7 +227,7 @@ async def summarize_multiple(doc_ids: list[str], texts: dict[str, str]) -> Summa
         # A comparative summary grows with the number of papers, so it needs
         # more room than the single-paper case, not less. See the note there.
         response = await ollama_client.generate_json(
-            prompt, system=system, max_tokens=1280, task_type="analysis"
+            prompt, system=system, max_tokens=out_tokens, task_type="analysis"
         )
         data = json.loads(response)
         return Summary(

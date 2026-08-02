@@ -6,13 +6,13 @@ import LibraryChart from './charts/LibraryChart';
 import PageHeader from './PageHeader';
 
 /**
- * Bibliotekh - the paper collection.
+ * Library - the paper collection.
  *
  * displays all ingested documents, allows upload of new papers,
  * and provides document deletion and encryption controls.
  * shows metadata, chunk counts, and encryption status for each paper.
  */
-export default function Bibliotekh() {
+export default function Library() {
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ total: 0, total_chunks: 0 });
@@ -134,7 +134,7 @@ export default function Bibliotekh() {
     <div>
       <PageHeader
         className="fade-up stagger-1"
-        title="Bibliotekh"
+        title="Library"
         subtitle="Manage your collection of ingested research papers."
       />
 

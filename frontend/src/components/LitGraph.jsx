@@ -42,7 +42,8 @@ export default function LitGraph() {
   const [matches, setMatches] = useState(new Map());
   const [focus, setFocus] = useState(null);
   const [expanded, setExpanded] = useState(null);
-  const [panel, setPanel] = useState(null); // {kind:'paper'|'gap'|'claim', ...}
+  const [panel, setPanel] = useState(null);
+  const [showHelp, setShowHelp] = useState(false); // {kind:'paper'|'gap'|'claim', ...}
 
   // search
   const [query, setQuery] = useState('');
@@ -107,8 +108,21 @@ export default function LitGraph() {
     wasBusy.current = jobs.active;
   }, [jobs.active, loadGraph, loadRuns]);
 
+  // Read the graph through a ref, not the closure.
+  //
+  // The canvas attaches its click listeners once per STRUCTURAL render, so a
+  // handler that closes over `graph` keeps whichever value was current when the
+  // scene was built. setFocus(id) needs no graph and therefore always worked --
+  // the node ringed and the camera moved -- while the very next line looked the
+  // node up in a stale graph, found nothing, and silently opened no panel. The
+  // hover handler above already avoids this by reading through `state`; this is
+  // the same hazard one function down.
+  const graphRef = useRef(graph);
+  useEffect(() => { graphRef.current = graph; }, [graph]);
+
   const onSelect = useCallback((id, claimIndex, isGap) => {
     if (!id) return;
+    const graph = graphRef.current;
     setFocus(id);
     if (claimIndex != null) {
       const node = graph?.nodes.find((n) => n.doc_id === id);
@@ -123,7 +137,7 @@ export default function LitGraph() {
     }
     const node = graph?.nodes.find((n) => n.doc_id === id);
     if (node) setPanel({ kind: 'paper', node });
-  }, [graph]);
+  }, []);
 
   const onLasso = useCallback((picked) => {
     // Reuses the same `matches` map search fills, with score null -- a lasso is
@@ -136,6 +150,34 @@ export default function LitGraph() {
   const canvas = useCanvas({
     svgRef, graph, colors, matches, focus, expanded, onSelect, onLasso,
   });
+
+  // Clicking a paper frames it WITH the papers it is linked to.
+  //
+  // The click already selected the node and opened the panel, but the camera
+  // never moved, so on a dense graph the only feedback was a panel appearing
+  // off to the side -- which reads as "nothing happened". flyTo and fitTo
+  // already existed here; the click simply never called them.
+  //
+  // Fitting the neighbourhood rather than the node alone is the point: this is
+  // a graph, and a paper on its own says nothing the Library list does not
+  // already say. What is worth zooming to is the cluster it sits in. A paper
+  // with no edges still gets framed, just tighter.
+  //
+  // Keyed on `focus` rather than done inside onSelect, because `canvas` is
+  // created below and onSelect is passed INTO it -- calling it from there
+  // would be a circular reference.
+  const framed = useRef(null);
+  useEffect(() => {
+    if (!focus || !graph?.nodes?.length) return;
+    if (framed.current === focus) return;      // don't re-fit on every re-render
+    framed.current = focus;
+    const linked = (graph.edges || [])
+      .filter((e) => e.source === focus || e.target === focus)
+      .map((e) => (e.source === focus ? e.target : e.source));
+    // de-duplicated: a pair can be joined by more than one edge
+    const ids = [...new Set([focus, ...linked])];
+    requestAnimationFrame(() => canvas.fitTo(ids, 180, 520));
+  }, [focus, graph, canvas]);
 
   // fit once the graph first lands
   const fitted = useRef(false);
@@ -236,7 +278,7 @@ export default function LitGraph() {
         <BookOpen size={44} />
         <h3>Nothing to map yet</h3>
         <p>LitGraph draws your collection in embedding space — papers that argue
-          about the same things sit together. Upload a few papers in Bibliotekh
+          about the same things sit together. Upload a few papers in Library
           and the map builds itself.</p>
       </div>
     );
@@ -339,10 +381,23 @@ export default function LitGraph() {
         )}
 
         {/* ---------- hint ---------- */}
-        {!matches.size && !focus && (
-          <div className="lg-hint">
-            <b>drag</b> pan · <b>wheel</b> zoom · <b>click</b> a paper to open it ·
-            {' '}<b>shift-drag</b> lasso a region to act on it
+        {/* The controls were a permanent line of text across the bottom of the
+            canvas -- read once, then noise on every visit after. Behind an "i"
+            they stay reachable without competing with the map. */}
+        <button
+          className={`lg-info ${showHelp ? 'on' : ''}`}
+          onClick={() => setShowHelp((v) => !v)}
+          aria-label="How to use the map"
+          aria-expanded={showHelp}
+        >
+          i
+        </button>
+        {showHelp && (
+          <div className="lg-help" role="dialog" aria-label="How to use the map">
+            <div><b>drag</b> pan the map</div>
+            <div><b>wheel</b> zoom in and out</div>
+            <div><b>click</b> a paper to open it and frame its neighbours</div>
+            <div><b>shift-drag</b> lasso a region to act on it</div>
           </div>
         )}
 

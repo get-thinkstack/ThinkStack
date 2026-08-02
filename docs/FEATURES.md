@@ -8,13 +8,14 @@ ThinkStack is an **offline, edge-AI research assistant**: a cross-platform deskt
 app that ingests papers, searches and analyses them, finds research gaps, and
 helps you write LaTeX — all running locally with no cloud dependency.
 
-The app has three sections, in the order the work happens:
+The app has four sections. Three follow the order the work happens:
 
 | Section | What it does |
 | --- | --- |
-| **Bibliotekh** | Collect — upload, encrypt and manage papers. |
+| **Library** | Collect — upload, encrypt and manage papers. |
 | **LitGraph** | Understand — the map of your collection, and every analysis run. |
 | **Scribe** | Write — AI-assisted LaTeX drafting and compilation. |
+| **Bench** | Measure — what this machine can run, and the models it runs it with. |
 
 - [Document ingestion](#document-ingestion)
 - [Offline knowledge base](#offline-knowledge-base)

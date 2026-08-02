@@ -312,10 +312,16 @@ for u in json.load(open('release.config.json')).get('models', []):
     [ -d "$FE" ] || FE="dist/thinkstack-api/frontend/dist"
     if [ -f "$FE/index.html" ]; then
         MISSING_ASSETS=""
-        for asset in $(grep -oE '(src|href)="[^"]*/assets/[^"]+"' "$FE/index.html" \
-                       | sed 's/.*assets\///; s/"$//'); do
+        # read line by line rather than iterating $(...): a for loop splits on
+        # every space, so one asset whose name contained a space would be
+        # checked as two names that both "do not exist" and the build would
+        # fail with a confusing message. shellcheck SC2013.
+        while IFS= read -r asset; do
+            [ -n "$asset" ] || continue
             [ -f "$FE/assets/$asset" ] || MISSING_ASSETS="$MISSING_ASSETS $asset"
-        done
+        done <<EOF
+$(grep -oE '(src|href)="[^"]*/assets/[^"]+"' "$FE/index.html" | sed 's/.*assets\///; s/"$//')
+EOF
         if [ -n "$MISSING_ASSETS" ]; then
             echo -e "  ${RED}error: the frozen bundle is missing assets its index.html needs:${NC}"
             echo -e "  ${RED} ${MISSING_ASSETS}${NC}"
@@ -404,13 +410,54 @@ else
     export APPIMAGE_EXTRACT_AND_RUN=1   # linuxdeploy is itself an AppImage; skip FUSE
     export NO_STRIP=true                # stripping breaks PyInstaller's payload
 
+    # `|| echo` used to swallow EVERY failure here, not just linuxdeploy's.
+    # A toolchain that could not even start -- src-tauri/rust-toolchain.toml
+    # pinned a Windows target, so `cargo metadata` failed on Linux and macOS --
+    # was reported as "linuxdeploy failed (expected)", the AppDir check then
+    # silently found nothing, and the script printed "desktop binary compiled"
+    # and "build complete" over a build that produced no binary at all. The
+    # previous installers were still sitting in local/, so the next person to
+    # validate would have validated a week-old build believing it was fresh.
+    #
+    # The distinction that matters: linuxdeploy failing AFTER the AppDir exists
+    # is expected and recoverable; anything that leaves no AppDir is a real
+    # failure and must stop the build.
     if [ "$(uname -s)" = "Linux" ]; then
-        npm run tauri build || echo -e "  ${YELLOW}linuxdeploy failed (expected) - packaging the AppDir directly${NC}"
-        if [ -d "$TARGET_DIR/release/bundle/appimage" ]; then
-            bash scripts/package-appimage.sh
+        TAURI_LOG="$(mktemp)"
+        set +e
+        npm run tauri build 2>&1 | tee "$TAURI_LOG"
+        TAURI_RC=${PIPESTATUS[0]}
+        set -e
+        APPDIR_FOUND=0
+        [ -d "$TARGET_DIR/release/bundle/appimage" ] && APPDIR_FOUND=1
+
+        if [ "$TAURI_RC" -ne 0 ] && [ "$APPDIR_FOUND" -eq 0 ]; then
+            echo ""
+            echo -e "  ${RED}the tauri build failed and produced no AppDir.${NC}"
+            echo -e "  ${RED}this is NOT the expected linuxdeploy failure.${NC}"
+            echo ""
+            echo -e "  last lines:"
+            tail -20 "$TAURI_LOG" | sed 's/^/    /'
+            rm -f "$TAURI_LOG"
+            exit 1
         fi
+        rm -f "$TAURI_LOG"
+        [ "$TAURI_RC" -ne 0 ] && \
+            echo -e "  ${YELLOW}linuxdeploy failed (expected) - packaging the AppDir directly${NC}"
+        [ "$APPDIR_FOUND" -eq 1 ] && bash scripts/package-appimage.sh
     else
         npm run tauri build
+    fi
+
+    # Assert an installer actually exists before claiming success. On every OS:
+    # a green exit code is not evidence that a file was produced.
+    if ! find "$TARGET_DIR/release/bundle" -maxdepth 2 -type f \
+            \( -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \
+               -o -name '*.dmg' -o -name '*.msi' -o -name '*.exe' \) \
+            2>/dev/null | grep -q .; then
+        echo -e "  ${RED}the build reported success but produced no installer.${NC}"
+        echo -e "  looked in ${TARGET_DIR}/release/bundle/"
+        exit 1
     fi
     echo -e "  ${GREEN}desktop binary compiled${NC}"
 fi

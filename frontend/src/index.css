@@ -262,13 +262,25 @@ body::after {
 }
 
 /* layout */
+/* One variable drives both the sidebar's width and the content's offset. They
+   were two hard-coded 220px values, which is a pair that silently drifts the
+   moment either is touched -- and the failure is a strip of dead space or an
+   overlapped page, neither of which any test would catch. */
 .app-layout {
   display: flex;
   min-height: 100vh;
+  --sidebar-w: 220px;
+}
+
+.app-layout.is-collapsed {
+  /* Zero: the sidebar leaves entirely and the canvas takes the width. The
+     logo stays as a floating button (.sidebar-peek) to bring it back. */
+  --sidebar-w: 0px;
 }
 
 .sidebar {
-  width: 220px;
+  width: var(--sidebar-w);
+  transition: width 180ms ease;
   background: transparent;
   border-right: 1px solid var(--border-subtle);
   padding: 2rem 0;
@@ -411,7 +423,8 @@ body::after {
 
 .main-content {
   flex: 1;
-  margin-left: 220px;
+  margin-left: var(--sidebar-w);
+  transition: margin-left 180ms ease;
   padding: 3.5rem 4rem;
   max-width: 1400px;
 }
@@ -2269,3 +2282,60 @@ input::-webkit-credentials-auto-fill-button {
   cursor: pointer;
   text-decoration: underline;
 }
+
+
+/* ── collapsed sidebar ─────────────────────────────────────────────
+   Collapsed means GONE, not narrow. An icons-only rail keeps taking width
+   while saying less, and on a graph canvas the width is the whole point.
+
+   The logo is the control, both ways: it collapses the sidebar and, once
+   collapsed, it is the only thing left and brings it back. No separate
+   button -- one affordance in one place beats two that do the same job. */
+.app-layout.is-collapsed .sidebar {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.brand-logo-button {
+  border: 0;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+  display: inline-flex;
+  border-radius: 8px;
+}
+
+.brand-logo-button:focus-visible {
+  outline: 2px solid var(--accent, #95ff00);
+  outline-offset: 3px;
+}
+
+/* Visible only while collapsed, and deliberately the SAME bright mark as the
+   expanded brand: dimming it would read as disabled, when it is the one live
+   control on the screen. */
+.sidebar-peek {
+  position: fixed;
+  top: 1.5rem;
+  left: 1.25rem;
+  z-index: 120;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: #95FF00;
+  cursor: pointer;
+  transition: transform 140ms ease, box-shadow 140ms ease;
+}
+
+.app-layout.is-collapsed .sidebar-peek { display: flex; }
+
+.sidebar-peek:hover {
+  transform: scale(1.08);
+  box-shadow: 0 0 0 4px color-mix(in srgb, #95FF00 22%, transparent);
+}
+
+.sidebar-peek svg { width: 18px; height: 18px; }

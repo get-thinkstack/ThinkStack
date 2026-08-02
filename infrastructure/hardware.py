@@ -10,6 +10,8 @@ are tuned to the available resources.
 import json
 import logging
 import os
+import platform
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,7 +25,18 @@ class HardwareProfile:
     available_ram_gb: float = 0.0
     cpu_cores: int = 1
     gpu_name: str = ""
+    # "nvidia" | "apple" | "none". Rust has always sent this and Python had
+    # nowhere to put it, so it was dropped at the boundary -- and then the
+    # CUDA-only fallback re-derived the answer wrongly. An Apple Silicon Mac
+    # reports vram_gb 0.0 because its GPU has no *dedicated* memory, not
+    # because it has no GPU. Without the vendor there is no way to tell those
+    # two situations apart, and every consumer guessed.
+    gpu_vendor: str = "none"
     vram_gb: float = 0.0
+    # True when the GPU shares system RAM (Apple Silicon, most integrated
+    # graphics). vram_gb is meaningless for these machines; what matters is
+    # how much of total_ram_gb the GPU may borrow.
+    unified_memory: bool = False
     has_cuda: bool = False
     tier: str = "low"  # low | medium | high
 
@@ -59,22 +72,68 @@ def _detect_cpu_cores() -> int:
         return os.cpu_count() or 1
 
 
-def _detect_gpu() -> tuple[str, float, bool]:
-    """return (gpu_name, vram_gb, has_cuda) using torch if available."""
+def _detect_gpu() -> tuple[str, str, float, bool, bool]:
+    """return (gpu_name, gpu_vendor, vram_gb, has_cuda, unified_memory).
+
+    FALLBACK ONLY. The packaged app gets this from the tauri shell, which
+    diagnoses natively and cheaply. This path exists for the backend run
+    standalone or in dev.
+
+    Deliberately does NOT import torch. Torch is in the bundle for embeddings
+    (sentence-transformers), not for inference -- the SLMs run on llama.cpp --
+    and asking torch about the GPU is both slow (0.82s to import, against 0.18s
+    here) and the wrong question: torch having CUDA says nothing about whether
+    the llama.cpp build we ship can offload. See engine_supports_gpu_offload()
+    for the question that matters.
+
+    This replaced a torch probe that Aditya had just fixed a real bug in: it
+    read `total_mem` instead of `total_memory`, raising an AttributeError that
+    nothing caught, so on a machine that genuinely HAS CUDA the probe crashed
+    its caller rather than degrading to "no gpu". That class of failure is gone
+    with the dependency, but the lesson stands -- a detection path must never
+    be able to take down the thing that called it, which is why every branch
+    below returns rather than raises.
+    """
+    # nvidia-smi is the cheapest reliable CUDA probe and needs no python deps.
     try:
-        import torch
-        if torch.cuda.is_available():
-            name = torch.cuda.get_device_name(0)
-            # total_memory, not total_mem. the misspelling raised
-            # AttributeError -- which was not caught below -- so on a machine
-            # that actually HAS cuda, probing the gpu crashed the caller
-            # instead of degrading to "no gpu". AttributeError is caught now
-            # so a future torch rename cannot do the same thing again.
-            vram = round(torch.cuda.get_device_properties(0).total_memory / (1024 ** 3), 1)
-            return name, vram, True
-    except (ImportError, RuntimeError, AssertionError, AttributeError) as e:
-        logger.warning("gpu detection failed, assuming none: %s", e)
-    return "", 0.0, False
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,memory.total",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=2, check=False,
+        ).stdout.strip()
+        if out:
+            name, _, mem = out.splitlines()[0].partition(",")
+            return name.strip(), "nvidia", round(float(mem) / 1024, 1), True, False
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+
+    # Apple Silicon: no dedicated VRAM to report, so vram stays 0.0 and
+    # `unified_memory` is what tells a caller the GPU borrows system RAM.
+    if platform.system() == "Darwin" and platform.machine() == "arm64":
+        return "Apple Silicon", "apple", 0.0, False, True
+
+    return "", "none", 0.0, False, False
+
+
+def engine_supports_gpu_offload() -> bool:
+    """Can the llama.cpp build we actually ship put layers on the GPU?
+
+    This is a fact about the BINARY, not the machine, and it is the only thing
+    that decides whether n_gpu_layers > 0 will work. A CUDA-capable machine
+    running a CPU-only wheel cannot offload; an Apple Silicon Mac running a
+    Metal wheel can, even though it reports 0 GB of VRAM.
+
+    Guessing this from the machine is how every Mac ended up pinned to CPU:
+    the check was `has_cuda && vram >= 2`, which Apple Silicon can never
+    satisfy no matter what the engine supports. Ask the engine instead.
+    """
+    try:
+        from llama_cpp import llama_supports_gpu_offload
+        return bool(llama_supports_gpu_offload())
+    except (ImportError, AttributeError, OSError):
+        # Older binding without the symbol, or llama.cpp not installed.
+        # Assume no: claiming offload we cannot do fails the model load.
+        return False
 
 
 def _classify_tier(total_ram_gb: float, vram_gb: float) -> str:
@@ -109,12 +168,17 @@ def _profile_from_env() -> HardwareProfile | None:
         d = json.loads(raw)
         total = float(d.get("total_ram_gb", 0.0))
         vram = float(d.get("vram_gb", 0.0))
+        vendor = str(d.get("gpu_vendor", "none")).lower()
         return HardwareProfile(
             total_ram_gb=total,
             available_ram_gb=float(d.get("available_ram_gb", 0.0)),
             cpu_cores=int(d.get("cpu_cores") or d.get("cpu_threads") or 1),
             gpu_name=str(d.get("gpu_name", "")),
+            gpu_vendor=vendor,
             vram_gb=vram,
+            # Rust may report it directly; infer from the vendor otherwise so
+            # an older shell paired with a newer backend still behaves.
+            unified_memory=bool(d.get("unified_memory", vendor == "apple")),
             has_cuda=bool(d.get("has_cuda", False)),
             tier=str(d.get("tier") or _classify_tier(total, vram)),
         )
@@ -129,7 +193,7 @@ def profile_system() -> HardwareProfile:
     this is the primary entry point. results are cached in-module after the
     first call. prefers the native profile supplied by the desktop shell via
     THINKSTACK_HW_PROFILE; only when that is absent does it detect locally
-    (which imports torch for the gpu probe).
+    (which probes nvidia-smi and the platform, never torch).
 
     returns:
         a populated HardwareProfile instance.
@@ -151,7 +215,7 @@ def profile_system() -> HardwareProfile:
 
     total_ram, avail_ram = _detect_ram()
     cores = _detect_cpu_cores()
-    gpu_name, vram, has_cuda = _detect_gpu()
+    gpu_name, gpu_vendor, vram, has_cuda, unified = _detect_gpu()
     tier = _classify_tier(total_ram, vram)
 
     profile = HardwareProfile(
@@ -159,7 +223,9 @@ def profile_system() -> HardwareProfile:
         available_ram_gb=avail_ram,
         cpu_cores=cores,
         gpu_name=gpu_name,
+        gpu_vendor=gpu_vendor,
         vram_gb=vram,
+        unified_memory=unified,
         has_cuda=has_cuda,
         tier=tier,
     )

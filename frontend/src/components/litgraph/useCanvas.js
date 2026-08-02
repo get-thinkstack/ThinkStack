@@ -754,11 +754,35 @@ export default function useCanvas({
       applyCam();
     };
 
+    // Keep the view centred on the same content when the canvas resizes.
+    //
+    // The camera is in SCREEN space: cam.x/y is where world (0,0) sits on
+    // the window. Nothing recomputed it when the container changed size, so
+    // the graph drifted off-centre on any window resize -- and once the
+    // sidebar can collapse, on every toggle. Pointer maths never suffered,
+    // because each event re-reads the rect, which is why this went unseen.
+    //
+    // Holding the centre world point fixed means shifting cam by half the
+    // size delta:  (w/2 - cam.x)/k  is invariant when cam.x += (w1-w0)/2.
+    let lastRect = svg.getBoundingClientRect();
+    const ro = new ResizeObserver(() => {
+      const r = svg.getBoundingClientRect();
+      if (!r.width || !r.height) return;            // hidden: nothing to do
+      if (r.width === lastRect.width && r.height === lastRect.height) return;
+      state.cancelTween();
+      state.cam.x += (r.width - lastRect.width) / 2;
+      state.cam.y += (r.height - lastRect.height) / 2;
+      lastRect = r;
+      applyCam();
+    });
+    ro.observe(svg);
+    
     svg.addEventListener('pointerdown', down);
     svg.addEventListener('pointermove', move);
     svg.addEventListener('pointerup', up);
     svg.addEventListener('wheel', wheel, { passive: false });
     return () => {
+      ro.disconnect();
       svg.removeEventListener('pointerdown', down);
       svg.removeEventListener('pointermove', move);
       svg.removeEventListener('pointerup', up);
