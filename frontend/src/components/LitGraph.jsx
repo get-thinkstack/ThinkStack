@@ -639,6 +639,11 @@ function RunResult({ run }) {
     return (
       <div className="lg-runres">
         <h4>Summary</h4>
+        {/* Set when the paper had to be summarized in pieces because it did not
+            fit this machine's context window. Kept out of summary_text on
+            purpose: it is a fact about the machine, not about the paper, and
+            must not read as the model's view of the research. */}
+        {res.notice && <p className="lg-muted">{res.notice}</p>}
         <p>{res.summary_text}</p>
         {res.key_points?.length > 0 && (
           <ul className="key-points">{res.key_points.map((p, i) => <li key={i}>{p}</li>)}</ul>
