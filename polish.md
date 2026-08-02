@@ -48,9 +48,40 @@ the gestures.
 
 Worth doing together with #1: both are the panel learning to carry more.
 
+## 3. Adding a paper should be a decision, not a surprise
+
+**Asked for 2026-08-02.**
+
+Ingest is fire-and-forget today. A paper is embedded, queued for analysis, and
+when the queue drains LitGraph re-fetches and redraws itself — so the map you
+were reading rearranges under you, and nothing said it was about to. Worse, the
+new paper moves every *other* paper too: positions come from PCA over the whole
+library, so one arrival re-projects the lot.
+
+Two shapes, not exclusive:
+
+- **Ask at upload** what the paper is for — whether it joins the map now, or is
+  just stored to read.
+- **Or leave ingest silent and put the control in LitGraph**: a
+  `2 new papers · rebuild the map` chip that redraws only when pressed.
+
+The second is the better default. It costs no question per upload, it keeps the
+map still while you are reading it, and it has somewhere to put the state that
+is currently invisible: a paper that is ingested but *not yet analysed* shows
+nowhere at all. The chip can carry that too — "1 paper still analysing" — which
+is exactly what was missing when the third paper of the 2026-08-02 packaged test
+never turned up in the cache and there was no way to tell waiting from failed.
+
+The code to change is the falling-edge reload in `LitGraph.jsx` (the `wasBusy`
+ref that calls `loadGraph()` when `jobs.active` goes false). Instead of
+reloading, it would raise the chip and let the reload wait for a click.
+
+Related: #1, since "what changed when the map was rebuilt" is the same question
+as "why is this paper where it is".
+
 ---
 
-## 3. Labels that get hidden have no way back
+## 4. Labels that get hidden have no way back
 
 Today's collision pass (`placeLabels` in `useCanvas.js`) hides a label whose box
 lands on one already placed. That is right for the static picture and wrong for
@@ -59,14 +90,14 @@ the moment you want *that* paper: there is no affordance to reveal it.
 Reveal the hidden label on hover, and let the focused paper always keep its own.
 Both are cheap — the pass already knows which labels lost.
 
-## 4. Level of detail by node count
+## 5. Level of detail by node count
 
 Semantic zoom currently only fades labels below `k = 0.5`. On a large library
 the useful behaviour is to drop to theme territory and hide individual nodes
 entirely when zoomed out, and only resolve papers as you come in. The prototype
 switched on node count; the React version never did.
 
-## 5. Prototype features never ported
+## 6. Prototype features never ported
 
 The original HTML concept (`docs/litgraph-demo.html`, local-only) had these
 working:
@@ -80,13 +111,13 @@ working:
 - Keyboard node-walk, breadcrumb trail of where you have been.
 - Density terrain, and a suggested reading path through the library.
 
-## 6. Gap markers do not check the spot they land on
+## 7. Gap markers do not check the spot they land on
 
 A gap is drawn at the centroid of the papers it cites, offset a flat 70px
 upward, with no test that anything is already there. Node separation fixed the
 papers; this one is still open and is marked in-code in `rebuildModel`.
 
-## 7. Smaller things
+## 8. Smaller things
 
 - **A paper with no title metadata is labelled with its raw hex `doc_id`.**
   Falling back to the filename would be strictly better.
@@ -96,7 +127,7 @@ papers; this one is still open and is marked in-code in `rebuildModel`.
   should say what it will do, or not be there.
 - **The panel disappears below 900px** with no alternative affordance.
 - **Per-node analysis state is invisible.** The header counts "3/5 analysed" but
-  the canvas does not show *which* two are still waiting.
+  the canvas does not show *which* two are still waiting. See #3.
 - **One 811 kB JS chunk.** Monaco, KaTeX and Recharts all load on first paint
   regardless of the section opened. `React.lazy` on the three routes in
   `App.jsx` is the obvious split.
@@ -109,6 +140,7 @@ papers; this one is still open and is marked in-code in `rebuildModel`.
   packaged test analysed 2 of 3 ingested papers and ran themes twice
   automatically, roughly 5 minutes apart — but the third paper never got a
   cache entry, and it is not clear whether it was still queued when the app
-  closed or whether its analysis failed. Worth a clean run with the log kept,
-  because the answer decides whether auto-running a gap scan after *every*
-  ingest is reasonable or has to wait for a threshold.
+  closed or whether its analysis failed — which is itself the argument for #3.
+  Worth a clean run with the log kept, because the answer decides whether
+  auto-running a gap scan after *every* ingest is reasonable or has to wait for
+  a threshold.
