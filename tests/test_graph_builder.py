@@ -14,9 +14,25 @@ import numpy as np
 import pytest
 
 from domain.litgraph import graph_builder as gb
-from domain.litgraph.graph_builder import PAD, build_graph, _edges, _project
+from domain.litgraph.graph_builder import (
+    MIN_SEP,
+    PAD,
+    build_graph,
+    _edges,
+    _project,
+)
 from infrastructure.local_vector_store import VectorStore
 from infrastructure.run_history import RunHistoryStore
+
+
+def _closest_pair(coords: np.ndarray) -> float:
+    """smallest centre-to-centre distance in a layout."""
+    d = np.hypot(
+        coords[:, None, 0] - coords[None, :, 0],
+        coords[:, None, 1] - coords[None, :, 1],
+    )
+    np.fill_diagonal(d, np.inf)
+    return float(d.min())
 
 
 @pytest.fixture
@@ -87,10 +103,41 @@ class TestProject:
         """A library of near-duplicates has no variance to project.
 
         Normalising by a ~zero span would scatter every node to infinity or
-        NaN; the guard must instead place them somewhere finite.
+        NaN; the guard must instead place them somewhere finite. And finite is
+        not enough -- all five used to land on exactly (0.5, 0.5), which this
+        test's name claimed was not happening.
         """
         coords = _project(np.ones((5, 8)))
         assert np.all(np.isfinite(coords))
+        assert _closest_pair(coords) >= MIN_SEP - 1e-6
+
+    def test_near_duplicates_are_pushed_apart(self):
+        """PCA places related papers tightly, which is the point -- but two
+        papers on one pixel read as one paper."""
+        matrix = np.array([
+            [1.0, 0.0, 0.0],
+            [1.0, 1e-7, 0.0],   # a hair from the first
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ])
+        assert _closest_pair(_project(matrix)) >= MIN_SEP - 1e-6
+
+    def test_separation_does_not_escape_the_padded_square(self):
+        rng = np.random.default_rng(1)
+        coords = _project(rng.normal(size=(20, 12)))
+        assert coords.min() >= PAD - 1e-6
+        assert coords.max() <= 1 - PAD + 1e-6
+
+    def test_the_same_library_always_draws_the_same_map(self):
+        """Separation is seeded by PCA and runs a fixed number of passes.
+
+        A layout that converged on a tolerance instead would rearrange itself
+        between two visits to the same library, and a map you cannot learn is
+        not worth drawing.
+        """
+        rng = np.random.default_rng(2)
+        matrix = rng.normal(size=(12, 9))
+        assert np.array_equal(_project(matrix), _project(matrix.copy()))
 
     def test_one_dimensional_library_spreads_along_a_line(self):
         """All papers on a single axis: keep component 1, fan the second."""
