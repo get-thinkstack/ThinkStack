@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from infrastructure.ollama_client import ollama_client
 from infrastructure.hardware import profile_system, recommended_ctx_size
+from infrastructure.jobs import job_queue
 from domain.knowledge_base.repository import get_collection_stats
 from domain.fine_tuning.data_collector import training_stats
 from config import settings
@@ -100,6 +101,21 @@ async def set_model(request: SetModelRequest):
         "provider": settings.llm_provider,
         "available": llm_status.get("model_list", []),
     }
+
+
+@router.get("/jobs")
+async def background_jobs():
+    """what the background analysis queue is doing right now.
+
+    the ui polls this to draw a determinate progress bar: ``done``/``total``
+    describe the current batch, so "analysing paper 2 of 5" is real rather than
+    a spinner that cannot say how far along it is. both are 0 when idle, which
+    is the client's cue to render nothing at all.
+
+    returns:
+        ``{running, label, queued, done, total, last_error}``.
+    """
+    return job_queue.status()
 
 
 @router.get("/stats")

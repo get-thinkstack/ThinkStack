@@ -7,6 +7,9 @@
 Ingest papers, search them, analyse them, chat with them, and write LaTeX.
 No account, no subscription, no network. Nothing you open ever leaves your computer.
 
+Three sections, in the order the work happens:
+**Bibliotekh** (collect) → **LitGraph** (understand) → **Scribe** (write).
+
 [![Release](https://img.shields.io/github/v/release/get-thinkstack/ThinkStack?label=release&color=95ff00)](https://github.com/get-thinkstack/ThinkStack/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/get-thinkstack/ThinkStack/ci.yml?branch=main&label=CI)](https://github.com/get-thinkstack/ThinkStack/actions)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -43,11 +46,12 @@ every feature still works.**
 | | |
 |---|---|
 | **Ingest** | PDF extraction with PyMuPDF and pdfplumber, sentence-transformer embeddings, file-based vector store |
-| **Search** | dense semantic retrieval and BM25 keyword retrieval, combined by reciprocal rank fusion |
-| **Analyse** | summaries, key-claim extraction, thematic clustering |
+| **Search** | dense semantic retrieval across every chunk of every paper, with a small exact-token bonus so rare literal terms stay findable |
+| **LitGraph** | a map of your collection: papers placed by meaning (PCA over embedding centroids), linked by similarity, grouped into theme territory, with research gaps drawn as markers wired to the papers that evidence them. The map is also the selector — lasso a region and run summarize, claims, themes or gap-finding on exactly those papers |
+| **Analyse** | summaries, key-claim extraction, thematic clustering — precomputed at ingest, off the request path |
 | **Gap finder** | surfaces under-explored areas and suggests research directions |
 | **Chat** | a retrieval-grounded assistant over the papers you select |
-| **Paper writer** | AI-assisted LaTeX. Select plain English, press `Ctrl+Enter`, and it becomes LaTeX at your cursor. The compiled PDF is the preview and rebuilds as you type |
+| **Scribe** | AI-assisted LaTeX. Select plain English, press `Ctrl+Enter`, and it becomes LaTeX at your cursor. The compiled PDF is the preview and rebuilds as you type |
 | **Vault** | password-based encryption with Argon2id and AES-256-GCM |
 | **Updates** | signed, and only when you ask for them |
 
@@ -115,9 +119,11 @@ huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct-GGUF \
 main.py            fastapi app: serves the react spa and /api
 config.py          pydantic-settings config (env prefix: THINKSTACK_)
 api/               9 routers, 36 REST endpoints
-domain/            ingestion · knowledge_base · search · analysis · gap_finder
-                   chat · paper_writer · encryption · model_manager · fine_tuning
+domain/            ingestion · knowledge_base · search · litgraph · analysis
+                   gap_finder · chat · paper_writer · encryption · model_manager
+                   fine_tuning
 infrastructure/    llm client · vector store · hardware profiler · file manager
+                   background job queue
 frontend/          react 19 + vite spa
 src-tauri/         tauri 2 desktop shell (rust): diagnosis, supervision, updates
 scripts/           devops: setup, dev, preflight, build, promote, release
@@ -156,7 +162,7 @@ users run an installer.
 ## Tech stack
 
 `Tauri 2` · `Rust` · `React 19` · `Vite` · `Python` · `FastAPI` · `llama.cpp` ·
-`GGUF` · `sentence-transformers` · `PyMuPDF` · `rank_bm25` · `NumPy` ·
+`GGUF` · `sentence-transformers` · `PyMuPDF` · `NumPy` ·
 `Tectonic` · `Argon2id` · `AES-256-GCM` · `PyInstaller`
 
 ## Contributing

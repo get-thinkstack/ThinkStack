@@ -32,19 +32,46 @@ sentence-transformers (all-MiniLM-L6-v2). Two decisions there are deliberate:
 
 ## Search
 
-Three modules under `domain/search/`, exposed through `api/routes_search.py`:
+One module, `domain/search/semantic_search.py`, exposed through
+`api/routes_search.py`:
 
-- `semantic_search.py`: embeds the query and does a cosine-similarity lookup
-  against the vector store, with optional `doc_ids` filtering and a minimum
-  score cutoff.
-- `keyword_search.py`: BM25 over the same chunks (`rank_bm25`), for queries
-  where exact term matching beats embedding similarity (author names, dataset
-  names, acronyms).
-- `hybrid_search.py`: merges both lists with reciprocal rank fusion,
-  `score = sum(1 / (k + rank))` with `k = 60`. RRF ranks on position rather than
-  raw score, which matters here because a cosine score and a BM25 score are not
-  on the same scale and cannot be blended by weighted sum without tuning a
-  constant per corpus.
+- `semantic_search()`: embeds the query and scores it by cosine similarity
+  against **every** chunk in the store -- not a `top_k` candidate pool -- with
+  optional `doc_ids` filtering and a minimum-score cutoff.
+- The **exact-token bonus**: after the cosine score, `+0.05 x (fraction of query
+  tokens appearing verbatim in the chunk)`. Small on purpose. It can lift a
+  literal match over a near-tie, which is what keeps author names, dataset names
+  and acronyms findable; it cannot lift one over a genuinely better semantic
+  match, which is what a keyword leg used to do.
+- `search_papers()`: rolls surviving chunks up to the papers containing them,
+  keeping *every* match per paper in reading order rather than the single best.
+  LitGraph draws this; a flat chunk list cannot answer "which papers does this
+  query touch, and where in each".
+
+This replaced a `keyword_search.py` (BM25) plus `hybrid_search.py` (reciprocal
+rank fusion) pair. RRF ranks on position rather than raw score, which correctly
+sidestepped the cosine-vs-BM25 scale problem -- but it also meant a paraphrase
+query sharing no vocabulary with the passage that answered it was routinely
+out-ranked by lexically similar noise. See `docs/ADR.md`.
+
+## LitGraph
+
+`domain/litgraph/graph_builder.py`, exposed as `GET /api/graph`. Assembles the
+canvas payload out of state that already persists -- no model call:
+
+- **positions**: a document's chunk embeddings are averaged into a centroid, and
+  the centroid matrix is projected to 2D by PCA (`numpy.linalg.svd`; numpy is
+  already a dependency, so no sklearn). Fewer than three papers cannot define two
+  axes, so those fall back to a circle; an all-identical or one-dimensional
+  library is guarded rather than divided by ~zero.
+- **edges**: cosine between centroids above a threshold, additionally capped to
+  each paper's strongest few neighbours. The threshold alone is not enough --
+  academic text embeds into a narrow cone, so a focused library clears it
+  pairwise and renders as a hairball.
+- **themes / gaps / claims**: read from the newest theme run, the newest gap
+  scan, and the per-document analysis cache. Ids referring to deleted papers are
+  filtered out, and suggestions are matched to gaps by `related_gaps` server-side
+  rather than by list position.
 
 ## Analysis
 

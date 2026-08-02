@@ -52,6 +52,25 @@ class DocAnalysisCache:
         self._entries[doc_id] = {"summary": summary, "claims": claims}
         atomic_write_json(self._path, self._entries)
 
+    def merge(
+        self,
+        doc_id: str,
+        summary: Optional[str] = None,
+        claims: Optional[list] = None,
+    ) -> None:
+        """store only the halves that were passed, keeping the rest.
+
+        the analysis routes produce one half at a time -- ``/summarize`` has no
+        claims and ``/claims`` has no summary -- so ``put`` would erase whatever
+        the other one, or the ingest-time precompute, had already written.
+        """
+        entry = self._entries.setdefault(doc_id, {"summary": "", "claims": []})
+        if summary is not None:
+            entry["summary"] = summary
+        if claims is not None:
+            entry["claims"] = claims
+        atomic_write_json(self._path, self._entries)
+
     def delete(self, doc_id: str) -> None:
         """remove the cached analysis for ``doc_id`` if present, and persist."""
         if doc_id in self._entries:

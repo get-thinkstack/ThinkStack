@@ -14,9 +14,10 @@ pdfplumber==0.11.10
 # ── local embeddings (pulls in torch) ────────────────────
 sentence-transformers==5.6.1
 
-# ── keyword search / text ────────────────────────────────
-rank-bm25==0.2.2
-# Pinned, not floored. 3.10.1 added a security hook (nltk/inisec.py) that
+# ── text ─────────────────────────────────────────────────
+# rank-bm25 removed with the hybrid/RRF search path: search is now purely
+# semantic (see domain/search/semantic_search.py and docs/ADR.md).
+# nltk pinned, not floored. 3.10.1 added a security hook (nltk/inisec.py) that
 # refuses to import xml.etree when the working directory is importable,
 # which killed the frozen backend on all three platforms during startup --
 # from a release, with no change on our side. The build is now reproducible

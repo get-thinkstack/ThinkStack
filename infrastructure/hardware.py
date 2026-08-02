@@ -29,13 +29,24 @@ class HardwareProfile:
 
 
 def _detect_ram() -> tuple[float, float]:
-    """return (total_gb, available_gb) using psutil."""
+    """return (total_gb, available_gb) using psutil.
+
+    a failure here is not cosmetic: 0.0 total ram classifies the machine as the
+    "low" tier, which pins context size and model choice to the most
+    conservative settings for the life of the process. so it is logged at error
+    level with the real exception -- the previous warning said only "psutil not
+    installed", which was a guess that sent the packaged-build investigation
+    after the wrong cause.
+    """
     try:
         import psutil
         mem = psutil.virtual_memory()
         return round(mem.total / (1024 ** 3), 1), round(mem.available / (1024 ** 3), 1)
-    except ImportError:
-        logger.warning("psutil not installed; ram detection unavailable")
+    except Exception as e:  # noqa: BLE001 - never let hardware probing kill startup
+        logger.error(
+            "ram detection failed (%s: %s); falling back to the low tier",
+            type(e).__name__, e, exc_info=True,
+        )
         return 0.0, 0.0
 
 
@@ -54,10 +65,15 @@ def _detect_gpu() -> tuple[str, float, bool]:
         import torch
         if torch.cuda.is_available():
             name = torch.cuda.get_device_name(0)
-            vram = round(torch.cuda.get_device_properties(0).total_mem / (1024 ** 3), 1)
+            # total_memory, not total_mem. the misspelling raised
+            # AttributeError -- which was not caught below -- so on a machine
+            # that actually HAS cuda, probing the gpu crashed the caller
+            # instead of degrading to "no gpu". AttributeError is caught now
+            # so a future torch rename cannot do the same thing again.
+            vram = round(torch.cuda.get_device_properties(0).total_memory / (1024 ** 3), 1)
             return name, vram, True
-    except (ImportError, RuntimeError, AssertionError):
-        pass
+    except (ImportError, RuntimeError, AssertionError, AttributeError) as e:
+        logger.warning("gpu detection failed, assuming none: %s", e)
     return "", 0.0, False
 
 

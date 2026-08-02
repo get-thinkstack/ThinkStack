@@ -14,6 +14,7 @@ from api.routes_analysis import (
     delete_analysis_run,
 )
 from domain.analysis.models import Summary, Claim, Theme
+from infrastructure.analysis_cache import DocAnalysisCache
 from infrastructure.run_history import RunHistoryStore
 
 
@@ -21,6 +22,13 @@ from infrastructure.run_history import RunHistoryStore
 def wired(monkeypatch, tmp_path):
     history = RunHistoryStore(tmp_path / "analysis_history.json")
     monkeypatch.setattr(routes_analysis, "analysis_history", history)
+    # summarize and claims also write through to the per-document cache the
+    # canvas reads. The module-level singleton is bound to the real data dir,
+    # so without this the suite leaves entries in the developer's library.
+    monkeypatch.setattr(
+        routes_analysis, "doc_analysis_cache",
+        DocAnalysisCache(tmp_path / "doc_analysis.json"),
+    )
     monkeypatch.setattr(routes_analysis, "_get_doc_text", lambda did, pw=None: f"text {did}")
 
     async def fake_single(doc_id, text):
