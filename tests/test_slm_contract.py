@@ -7,7 +7,6 @@ layer existed.
 """
 
 import numpy as np
-import pytest
 
 from domain.analysis.parsing import as_dict, as_items, as_str_list, one_of
 from domain.analysis.theme_clusterer import _components

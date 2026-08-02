@@ -7,10 +7,16 @@ embeddings and metadata for efficient vector search.
 """
 
 import logging
+from typing import TYPE_CHECKING
 
 from infrastructure.local_vector_store import get_vector_store
 from domain.knowledge_base.embedding_service import generate_embeddings
 from domain.ingestion.models import TextChunk, DocumentMetadata
+
+if TYPE_CHECKING:
+    # numpy stays a deferred import at the one call site that needs it; this is
+    # only so the "np.ndarray" annotation below resolves for linters.
+    import numpy as np
 
 logger = logging.getLogger(__name__)
 
