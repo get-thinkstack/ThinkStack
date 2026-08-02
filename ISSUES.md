@@ -391,37 +391,44 @@ obvious split.
 
 ---
 
-## Status of the packaged build (2026-08-01)
-
-Stopped mid-way, deliberately — resume from here:
+## Status of the packaged build (2026-08-02)
 
 | Step | State |
 | --- | --- |
-| CPU llama.cpp swap | done — `llama_cpp/lib` 1,441 MB → 7.9 MB |
-| Assets fetched | GGUF 469 MB, MiniLM 88 MB, TeX 71 MB |
+| CPU llama.cpp swap | done — `llama_cpp/lib` 1,441 MB → 7.9 MB, `ggml-cpu.dll` only |
+| Assets | GGUF 469 MB, MiniLM 88 MB, TeX 71 MB — all staged from `release.config.json` |
 | Frontend build | done |
-| PyInstaller freeze | done — `dist/thinkstack-api` = 1.4 GB |
-| Frozen-backend smoke test | **passed** — healthy in 7s, `/api/graph` works |
-| Rust compile | done — `tauri-app.exe`, 12 MB |
-| MSI packaging | **not finished — stopped here** |
+| Dependency preflight | passed — every runtime import resolves in `.venv-build` |
+| PyInstaller freeze | done — `dist/thinkstack-api` = 1.4 GB, exe 70 MB |
+| Bundled-UI integrity check | passed |
+| Frozen-backend smoke test | passed — answered `/api/system/health` |
+| Rust compile | done — `tauri-app.exe`, 15 MB, 5m10s |
+| MSI packaging | done 2026-08-01 at 856 MB; not re-run, `--no-bundle` is enough to test |
 
-Uncompressed payload is 1.4 GB. CI compresses a comparable payload to an 800 MB
-`.msi`, so the <1 GB target looks reachable, but **it has not been measured yet**.
+### A stale `.env` survived every rebuild for a week
 
-To resume:
+Worth its own entry, because it would have shipped.
 
-```bash
-export PATH="/e/dev/cargo/bin:$PATH"
-export RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-msvc
-export TMP=D:/ts-tmp TEMP=D:/ts-tmp     # C: lacks headroom
-npm run tauri build -- --bundles msi
-```
+Tauri copies `bundle.resources` into `<target>/release/` and does **not** remove
+what is already there. A `.env` staged on 24 July stayed in `release/api/`
+through every build since. `config.py` reads the `.env` beside the executable
+**last**, so it won over everything: a freshly built, CPU-only, 0.5B-bundled app
+reported `model_path: E:/odysseus/data/models/Qwen3-4B-...` with
+`GPU_LAYERS=-1` — a path on exactly one machine, and a setting the loader
+refuses to run on CPU.
 
-Two things to keep in mind when resuming:
+The reason nobody caught it: `scripts/build.sh` cleared
+`src-tauri/target/release/bundle`, but this machine sets `CARGO_TARGET_DIR` to
+keep build output off a full `C:`, so cargo writes to `E:/dev/cargo-target` and
+every clearing step had been a no-op. `build.sh` now resolves `CARGO_TARGET_DIR`
+and clears the staged `api/` resource directory too.
 
-- Do **not** restore `dist/thinkstack-api/.env`. The dev `.env` pins
-  `THINKSTACK_LLM_MODEL_PATH=E:/odysseus/...`, which exists only on this machine;
-  a shipped artifact must use the bundled 0.5B instead.
+### Notes
+
 - The bundle is CPU-only by decision (matching CI). GPU remains available to users
   through Ollama/LM Studio discovery, and to developers through the CUDA-wheel
   swap documented in `requirements.txt`.
+- `--no-bundle` produces a runnable `tauri-app.exe` without paying for an
+  installer, but it must be launched **from the repo root**: with no installer
+  there is no resource dir of its own, and `sidecar_path()` falls back to
+  `project_dir()/dist/thinkstack-api`, which resolves from the working directory.

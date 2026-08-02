@@ -83,17 +83,34 @@ echo -e "  target triple: ${GREEN}${TRIPLE}${NC}"
 # accumulates them, and anything copying "the installers" out of there picks up
 # a mix of old and new. A stale binary in local/ is worse than none -- you
 # validate it, it passes, and you ship something else.
+#
+# Where cargo writes is not always src-tauri/target: CARGO_TARGET_DIR redirects
+# it, and on a machine that sets it (to keep build output off a full C: drive)
+# every `rm -rf src-tauri/target/...` here cleared a path that did not exist.
+# Resolve it first, or the clearing step silently does nothing.
 echo ""
 echo -e "${CYAN}[0] clearing previous build outputs...${NC}"
-rm -rf src-tauri/target/release/bundle
+TARGET_DIR="${CARGO_TARGET_DIR:-src-tauri/target}"
+echo -e "  cargo target dir: ${GREEN}${TARGET_DIR}${NC}"
+rm -rf "$TARGET_DIR/release/bundle"
+
+# Tauri copies bundle.resources into <target>/release/ and does NOT remove what
+# is already there, so anything staged by an earlier build survives forever.
+# A .env from July lived in release/api/ for weeks: config.py reads the one
+# beside the executable LAST, so it overrode everything and pinned the app to a
+# 4B model at a path that exists on exactly one machine, with GPU_LAYERS=-1 --
+# which the loader refuses to run on CPU. That would have shipped inside the
+# installer and failed at model load for every user.
+rm -rf "$TARGET_DIR/release/api"
+
 if [ "$SKIP_PYINSTALLER" = true ]; then
     # --skip-pyinstaller means "reuse the backend I already froze". Clearing it
     # here would delete the very thing the flag says to keep, and the build
     # would then fail at step 3 with a missing binary.
-    echo -e "  ${GREEN}cleared${NC} src-tauri/target/release/bundle (kept dist/thinkstack-api)"
+    echo -e "  ${GREEN}cleared${NC} $TARGET_DIR/release/{bundle,api} (kept dist/thinkstack-api)"
 else
     rm -rf dist/thinkstack-api
-    echo -e "  ${GREEN}cleared${NC} src-tauri/target/release/bundle, dist/thinkstack-api"
+    echo -e "  ${GREEN}cleared${NC} $TARGET_DIR/release/{bundle,api}, dist/thinkstack-api"
 fi
 
 # Warn (never block) when the checkout is behind its remote. Building an
@@ -389,7 +406,7 @@ else
 
     if [ "$(uname -s)" = "Linux" ]; then
         npm run tauri build || echo -e "  ${YELLOW}linuxdeploy failed (expected) - packaging the AppDir directly${NC}"
-        if [ -d src-tauri/target/release/bundle/appimage ]; then
+        if [ -d "$TARGET_DIR/release/bundle/appimage" ]; then
             bash scripts/package-appimage.sh
         fi
     else
@@ -404,7 +421,7 @@ fi
 # are worse than none, because a validation pass against last week's build tells
 # you nothing about the one you are tagging.
 LOCAL_DIR="local"
-if [ -d "src-tauri/target/release/bundle" ]; then
+if [ -d "$TARGET_DIR/release/bundle" ]; then
     echo ""
     echo -e "${CYAN}[5/5] publishing installers to ${LOCAL_DIR}/...${NC}"
     mkdir -p "$LOCAL_DIR"
@@ -417,7 +434,7 @@ if [ -d "src-tauri/target/release/bundle" ]; then
     while IFS= read -r artifact; do
         cp -f "$artifact" "$LOCAL_DIR/" && COPIED=$((COPIED + 1))
         echo -e "    ${GREEN}$(basename "$artifact")${NC} ($(du -h "$artifact" | cut -f1))"
-    done < <(find src-tauri/target/release/bundle -maxdepth 2 -type f \
+    done < <(find "$TARGET_DIR/release/bundle" -maxdepth 2 -type f \
         \( -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \
            -o -name '*.dmg' -o -name '*.msi' -o -name '*.exe' \) 2>/dev/null)
 
@@ -441,8 +458,8 @@ echo -e "${GREEN}  build complete.${NC}"
 echo ""
 echo -e "  artifacts:"
 [ -d "dist/thinkstack-api" ] && echo -e "    frozen backend: ${GREEN}dist/thinkstack-api/ (onedir)${NC}"
-if [ -d "src-tauri/target/release/bundle" ]; then
-    echo -e "    desktop app:    ${GREEN}src-tauri/target/release/bundle/${NC}"
+if [ -d "$TARGET_DIR/release/bundle" ]; then
+    echo -e "    desktop app:    ${GREEN}$TARGET_DIR/release/bundle/${NC}"
 fi
 if [ -d "$LOCAL_DIR" ] && [ -n "$(ls -A "$LOCAL_DIR" 2>/dev/null)" ]; then
     echo -e "    installers:     ${GREEN}${LOCAL_DIR}/${NC}  <- validate THIS before releasing"
