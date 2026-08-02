@@ -18,6 +18,35 @@ def test_get_missing_returns_none(tmp_path):
     assert cache.get("nope") is None
 
 
+def test_merge_keeps_the_half_it_was_not_given(tmp_path):
+    """the whole point of merge: /claims must not erase the summary.
+
+    the analysis routes produce one half at a time, so a plain put from either
+    of them wipes what ingest-time precompute -- or the other route -- wrote.
+    """
+    cache = DocAnalysisCache(tmp_path / "doc_analysis.json")
+    claims = [{"text": "c1", "type": "finding"}]
+    cache.put("doc1", summary="a summary", claims=claims)
+
+    cache.merge("doc1", claims=[{"text": "c2", "type": "limitation"}])
+    assert cache.get("doc1")["summary"] == "a summary"
+
+    cache.merge("doc1", summary="a better summary")
+    assert cache.get("doc1")["claims"] == [{"text": "c2", "type": "limitation"}]
+
+
+def test_merge_into_nothing_starts_an_entry(tmp_path):
+    cache = DocAnalysisCache(tmp_path / "doc_analysis.json")
+    cache.merge("doc1", claims=[{"text": "c1"}])
+    assert cache.get("doc1") == {"summary": "", "claims": [{"text": "c1"}]}
+
+
+def test_merge_persists(tmp_path):
+    path = tmp_path / "doc_analysis.json"
+    DocAnalysisCache(path).merge("doc1", summary="s")
+    assert DocAnalysisCache(path).get("doc1")["summary"] == "s"
+
+
 def test_entries_persist_across_instances(tmp_path):
     path = tmp_path / "doc_analysis.json"
     DocAnalysisCache(path).put("doc1", summary="s", claims=[])

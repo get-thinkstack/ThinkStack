@@ -144,7 +144,84 @@
 }
 .lg-hint b { color: var(--accent); font-weight: 500; }
 
-.lg-zoom { position: absolute; right: 14px; bottom: 14px; }
+/* what the map is made of, readable before you touch anything */
+.lg-stats {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  margin-left: auto;
+  padding: 7px 12px;
+  white-space: nowrap;
+  font-size: 0.7rem;
+  color: var(--text-3);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+.lg-stats b {
+  margin-right: 3px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.lg-stats .lg-amber-t b { color: var(--warning); }
+.lg-stat-sep { opacity: 0.35; }
+/* the search box and the layer chips are what you act with; the counts are
+   what you read. The counts go first when the window gets tight. */
+@media (max-width: 1180px) { .lg-stats { display: none; } }
+
+/* result count, in the box where the query is */
+.lg-qcount {
+  padding: 1px 6px;
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-radius: 999px;
+}
+
+/* where you are in a map bigger than the window */
+.lg-minimap {
+  position: absolute;
+  right: 14px;
+  bottom: 136px;
+  width: 132px;
+  height: 92px;
+  padding: 5px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+.lg-minimap svg { width: 100%; height: 100%; }
+
+.lg-zoom {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: stretch;
+  padding: 4px;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  backdrop-filter: blur(6px);
+}
+.lg-zoom-readout {
+  padding-bottom: 2px;
+  font-size: 0.64rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  text-align: center;
+}
+.lg-zoom button { border-color: transparent; background: transparent; }
 .lg-zoom button {
   display: grid;
   place-items: center;

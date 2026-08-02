@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Search as SearchIcon, Brain, Lightbulb, Layers, Target, Clock, X,
-  Lock, Eye, EyeOff, Maximize2, BookOpen,
+  Lock, Eye, EyeOff, Maximize2, Plus, Minus, BookOpen,
 } from 'lucide-react';
 import {
   documentsApi, searchApi, graphApi, analysisApi, gapsApi, useLlmBusy, useJobs,
@@ -62,6 +62,14 @@ export default function LitGraph() {
   const [showPw, setShowPw] = useState(false);
 
   const selection = useMemo(() => [...matches.keys()], [matches]);
+
+  // How much of the library the model has actually been through. Papers are
+  // analysed at ingest, so on a fresh library this is what says "still working"
+  // rather than "there is nothing here".
+  const analysed = useMemo(
+    () => (graph?.nodes || []).filter((n) => n.summary || n.claims?.length).length,
+    [graph],
+  );
 
   const loadGraph = useCallback(async () => {
     try {
@@ -263,6 +271,9 @@ export default function LitGraph() {
               spellCheck="false"
             />
             {searching && <div className="spinner" />}
+            {!searching && !!results.length && (
+              <span className="lg-qcount">{results.length}</span>
+            )}
             {!!query && (
               <button className="lg-x" onClick={clearSelection} title="Clear">
                 <X size={14} />
@@ -284,6 +295,20 @@ export default function LitGraph() {
             <button className="lg-chip" onClick={() => { setRunsOpen(true); }}>
               <Clock size={13} /> Runs
             </button>
+          </div>
+
+          {/* the library at a glance -- what the map is made of, before you
+              touch anything. Sits up here because the bottom of the stage
+              belongs to the action bar once anything is selected. */}
+          <div className="lg-stats" aria-label="Library at a glance">
+            <span><b>{graph.nodes.length}</b> paper{graph.nodes.length === 1 ? '' : 's'}</span>
+            <span><b>{graph.edges.length}</b> link{graph.edges.length === 1 ? '' : 's'}</span>
+            <span><b>{graph.themes.length}</b> theme{graph.themes.length === 1 ? '' : 's'}</span>
+            <span className={graph.gaps.length ? 'lg-amber-t' : ''}>
+              <b>{graph.gaps.length}</b> gap{graph.gaps.length === 1 ? '' : 's'}
+            </span>
+            <span className="lg-stat-sep">·</span>
+            <span><b>{analysed}</b>/{graph.nodes.length} analysed</span>
           </div>
         </div>
 
@@ -316,7 +341,8 @@ export default function LitGraph() {
         {/* ---------- hint ---------- */}
         {!matches.size && !focus && (
           <div className="lg-hint">
-            <b>drag</b> pan · <b>wheel</b> zoom · <b>shift-drag</b> lasso a region to act on it
+            <b>drag</b> pan · <b>wheel</b> zoom · <b>click</b> a paper to open it ·
+            {' '}<b>shift-drag</b> lasso a region to act on it
           </div>
         )}
 
@@ -377,8 +403,48 @@ export default function LitGraph() {
           </div>
         )}
 
+        {/* ---------- where you are ----------
+            The dots are static: node coordinates only move when the graph
+            payload does. The viewport rectangle is written by the canvas's own
+            paint, so panning never re-renders this component. */}
+        {graph.nodes.length > 1 && (
+          <div className="lg-minimap" aria-hidden="true">
+            <svg viewBox={`0 0 ${canvas.W} ${canvas.H}`} preserveAspectRatio="xMidYMid meet">
+              {graph.nodes.map((n) => {
+                const lit = matches.has(n.doc_id) || focus === n.doc_id;
+                return (
+                  <circle
+                    key={n.doc_id}
+                    cx={n.x * canvas.W} cy={n.y * canvas.H} r={lit ? 30 : 22}
+                    fill={lit ? colors.accent : colors['text-3']}
+                    fillOpacity={lit ? 0.95 : 0.4}
+                  />
+                );
+              })}
+              {graph.gaps.map((g) => {
+                const p = canvas.pos[g.gap_id];
+                return p ? (
+                  <circle key={g.gap_id} cx={p.x} cy={p.y} r="20"
+                    fill={colors.warning} fillOpacity="0.75" />
+                ) : null;
+              })}
+              <rect
+                id="lg-mm-vp" stroke={colors.accent} strokeWidth="11"
+                fill={colors.accent} fillOpacity="0.07"
+              />
+            </svg>
+          </div>
+        )}
+
         {/* ---------- zoom ---------- */}
         <div className="lg-zoom">
+          <span className="lg-zoom-readout" id="lg-zoom-readout">1.00×</span>
+          <button onClick={() => canvas.zoomBy(1.25)} title="Zoom in">
+            <Plus size={14} />
+          </button>
+          <button onClick={() => canvas.zoomBy(1 / 1.25)} title="Zoom out">
+            <Minus size={14} />
+          </button>
           <button onClick={() => canvas.fit()} title="Fit everything on screen">
             <Maximize2 size={14} />
           </button>
@@ -399,7 +465,16 @@ export default function LitGraph() {
               <div className="lg-authors">{panel.node.authors} {panel.node.year}</div>
               {panel.node.summary
                 ? <p>{panel.node.summary}</p>
-                : <p className="lg-muted">Not analyzed yet. Select it and run Summarize.</p>}
+                : (
+                  // Claims without a summary is a real state -- you can run
+                  // either one alone -- so this must not claim the paper is
+                  // untouched when its claims are listed directly below.
+                  <p className="lg-muted">
+                    {panel.node.claims?.length
+                      ? 'No summary yet. Select it and run Summarize.'
+                      : 'Not analyzed yet. Select it and run Summarize.'}
+                  </p>
+                )}
 
               {matches.get(panel.node.doc_id)?.hits?.length > 0 && (
                 <>
