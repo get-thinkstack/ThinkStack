@@ -794,7 +794,7 @@ class OllamaClient:
                 json_mode=True,
                 task_type=task_type,
             )
-            return _extract_json_text(raw)
+            return _repair_json(_extract_json_text(raw))
 
         raw = await self._generate_ollama(
             prompt=prompt,
@@ -803,7 +803,7 @@ class OllamaClient:
             max_tokens=max_tokens,
             json_mode=True,
         )
-        return _extract_json_text(raw)
+        return _repair_json(_extract_json_text(raw))
 
     def _models_dir(self) -> Path:
         """the directory holding the gguf model files."""
