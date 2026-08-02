@@ -210,6 +210,20 @@ export default function useCanvas({
     state.paint.labels.forEach((t) => {
       t.style.opacity = o;
     });
+
+    // The HUD readouts join this paint rather than React state: a pan would
+    // otherwise re-render the whole panel sixty times a second to move a
+    // rectangle. Both elements are looked up once, when the scene is built.
+    const { zoomEl, mmVp } = state.paint;
+    if (zoomEl) zoomEl.textContent = `${k.toFixed(2)}×`;
+    if (mmVp) {
+      // What the window currently shows, in world units.
+      const r = svg.getBoundingClientRect();
+      mmVp.setAttribute('x', (-x / k).toFixed(1));
+      mmVp.setAttribute('y', (-y / k).toFixed(1));
+      mmVp.setAttribute('width', (r.width / k).toFixed(1));
+      mmVp.setAttribute('height', (r.height / k).toFixed(1));
+    }
   }, [svgRef, state]);
 
   /**
@@ -265,6 +279,21 @@ export default function useCanvas({
     const ids = model.nodes.map((n) => n.doc_id);
     if (ids.length) fitTo(ids, 130, 620);
   }, [model, fitTo]);
+
+  /** Zoom about the middle of the window, the way the buttons imply. */
+  const zoomBy = useCallback(
+    (f) => {
+      const svg = svgRef.current;
+      if (!svg) return;
+      const r = svg.getBoundingClientRect();
+      const k = Math.min(6, Math.max(0.15, state.cam.k * f));
+      // the world point currently under the centre of the window
+      const wx = (r.width / 2 - state.cam.x) / state.cam.k;
+      const wy = (r.height / 2 - state.cam.y) / state.cam.k;
+      flyTo(wx, wy, k, 220);
+    },
+    [svgRef, state, flyTo],
+  );
 
   /**
    * Everything a selection changes, written onto the scene that already exists.
@@ -354,6 +383,8 @@ export default function useCanvas({
     paint.gapEdges = [];
     paint.gapNodes = [];
     paint.labels = [];
+    paint.zoomEl = document.getElementById('lg-zoom-readout');
+    paint.mmVp = document.getElementById('lg-mm-vp');
 
     // theme hulls
     if (state.layers.themes) {
@@ -714,8 +745,8 @@ export default function useCanvas({
   /* eslint-disable react-hooks/refs -- state is the in-place container
      documented at the top of the hook; its identity never changes */
   return useMemo(
-    () => ({ fit, flyTo, fitTo, pos: state.pos, setLayer, W, H }),
-    [fit, flyTo, fitTo, setLayer, state],
+    () => ({ fit, flyTo, fitTo, zoomBy, pos: state.pos, setLayer, W, H }),
+    [fit, flyTo, fitTo, zoomBy, setLayer, state],
   );
   /* eslint-enable react-hooks/refs */
 }
