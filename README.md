@@ -8,7 +8,8 @@ Ingest papers, search them, analyse them, chat with them, and write LaTeX.
 No account, no subscription, no network. Nothing you open ever leaves your computer.
 
 Three sections, in the order the work happens:
-**Library** (collect) → **LitGraph** (understand) → **Scribe** (write).
+**Library** (collect) → **LitGraph** (understand) → **Scribe** (write), with
+**Bench** for what your machine can run and what it runs it with.
 
 [![Release](https://img.shields.io/github/v/release/get-thinkstack/ThinkStack?label=release&color=95ff00)](https://github.com/get-thinkstack/ThinkStack/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/get-thinkstack/ThinkStack/ci.yml?branch=main&label=CI)](https://github.com/get-thinkstack/ThinkStack/actions)

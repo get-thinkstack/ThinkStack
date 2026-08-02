@@ -34,6 +34,19 @@ Work merged but not yet tagged.
   Results may be ordered differently than before. See `docs/ADR.md`.
 
 ### Added
+- **Bench** — a fourth section: what this machine can run, and the models it
+  runs it with. `Diagnose my machine` and `Add better models` were two sidebar
+  buttons opening modals; they are two halves of one question, and a modal is
+  the wrong shape for something consulted while deciding. Deliberately thin —
+  model acquisition, per-task suggestions and the registry land here later
+  rather than being mocked up now.
+- **`POST /api/system/diagnose`** re-examines the machine on request. The
+  profile is cached at startup, which is right, but a user who frees memory or
+  upgraded from a build predating this had no way to make the app look again.
+- **`infrastructure/capability.py`** — one place that answers "what can this
+  machine do". Rust detects, Python decides; every derived number (tier,
+  context, GPU layers, token budgets) comes from here instead of ten places.
+
 
 - **LitGraph** — a spatial map of your library. Papers are positioned by meaning
   (PCA over embedding centroids), linked by similarity, grouped into theme

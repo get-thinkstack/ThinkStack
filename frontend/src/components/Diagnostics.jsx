@@ -121,6 +121,54 @@ export default function Diagnostics({ open, onClose }) {
   );
 }
 
+/**
+ * The machine, rendered. Shared by the modal above and the Forge page, so the
+ * two can never drift into describing the same hardware differently.
+ */
+export function MachineReport({ report }) {
+  const m = report?.machine;
+  const e = report?.engine;
+  const l = report?.limits;
+  if (!m || !l) return null;
+
+  // A GPU that exists but cannot be used is the single most confusing state,
+  // so it is named rather than left for the user to infer from two numbers.
+  const gpuLine = m.gpu_name
+    ? `${m.gpu_name}${e?.gpu_offload_supported ? '' : ' (not usable by this build)'}`
+    : 'none detected';
+
+  return (
+    <>
+      <div style={{ display: 'grid', gap: '0.6rem', margin: '1rem 0' }}>
+        <Row icon={<HardDrive size={15} />} label="Memory"
+             value={`${m.available_ram_gb} GB free of ${m.total_ram_gb} GB`} />
+        <Row icon={<Cpu size={15} />} label="Processor"
+             value={`${m.cpu_cores} cores · ${m.tier} tier`} />
+        <Row icon={<Gauge size={15} />} label="Graphics" value={gpuLine} />
+        <Row icon={<Gauge size={15} />} label="Reads at once"
+             value={`about ${Math.round(l.input_chars / 1000)}k characters`} />
+      </div>
+
+      {report.advice?.length > 0 && (
+        <div style={{ marginTop: '0.5rem' }}>
+          <h3 style={{
+            fontSize: '0.9rem', display: 'flex', alignItems: 'center',
+            gap: '0.4rem', marginBottom: '0.5rem',
+          }}>
+            <Lightbulb size={15} /> What this means
+          </h3>
+          <ul style={{
+            color: 'var(--text-secondary)', fontSize: '0.88rem',
+            lineHeight: 1.7, paddingLeft: '1.1rem',
+          }}>
+            {report.advice.map((a, i) => <li key={i}>{a}</li>)}
+          </ul>
+        </div>
+      )}
+    </>
+  );
+}
+
 function Row({ icon, label, value }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '0.9rem' }}>

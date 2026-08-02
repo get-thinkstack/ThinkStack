@@ -105,6 +105,12 @@ memory, or who upgraded from a build predating this, had no way to make the app
 look again. The button is that way. It reads the local machine, sends nothing,
 and changes no setting, so the click is the consent.
 
+**Bench** is where this surfaces. The capability report and the model picker
+were two sidebar buttons opening modals; they answer two halves of one question,
+so they are one section now. It is deliberately thin: HuggingFace acquisition,
+per-task model suggestions and the registry are being built separately and land
+here, rather than being mocked up against a data shape that does not exist yet.
+
 `tests/test_capability.py` covers it against fabricated machines rather than
 real ones, so an 8 GB M1 and a 64 GB workstation are both testable on CI with no
 GPU present.
