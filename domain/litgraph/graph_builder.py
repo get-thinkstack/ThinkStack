@@ -41,6 +41,24 @@ MAX_EDGES_PER_NODE = 4
 # of the world box where the client's hull padding would clip them.
 PAD = 0.08
 
+# Closest two node centres may sit, in normalised units.
+#
+# PCA places related papers tightly by design, which is the point -- but nothing
+# stopped two near-duplicates landing on the same pixel, and a library of
+# identical papers stacked every node at the centre. The client draws a node at
+# radius 11 + min(chunks,200)/14, so 25 px at worst, in a 1100x760 world: two
+# nodes need ~60 px between centres to read as two things. 60/1100 = 0.055.
+#
+# This spaces NODES. It cannot make a 26-character label fit beside its
+# neighbour -- labels are handled by the collision pass in useCanvas.js.
+MIN_SEP = 0.055
+
+# How many relaxation passes to run. Each pass resolves every pair that is too
+# close; a handful is enough to settle the clusters PCA actually produces, and
+# capping it keeps the layout a deterministic function of the input rather than
+# something that runs until it feels done.
+SEPARATION_PASSES = 24
+
 
 def _collect() -> tuple[list[str], np.ndarray, dict]:
     """one pass over the store: centroid, chunk count and metadata per doc.
@@ -103,6 +121,70 @@ def _normalise(coords: np.ndarray) -> np.ndarray:
     return out
 
 
+def _separate(coords: np.ndarray) -> np.ndarray:
+    """push crowded nodes apart, towards a centre-to-centre gap of ``MIN_SEP``.
+
+    seeded by the PCA positions and run for a fixed number of passes, so this
+    stays a pure function of the input: the same library always draws the same
+    map. a force layout with a convergence test would not -- and a map that
+    rearranges itself between two visits is one you cannot learn.
+
+    each pass sums the push from every crowding neighbour at once rather than
+    resolving pairs one at a time, which settles a tight cluster in far fewer
+    passes than sequential relaxation.
+
+    the pass cap means crowded libraries are improved rather than guaranteed:
+    60 papers reach the full gap, 200 get from 0.003 to 0.026 -- the padded
+    square cannot hold much more than 230 nodes at this spacing anyway. Ten
+    times the separation is what stops two papers reading as one; chasing the
+    last of it would cost time on every graph build.
+    """
+    n = coords.shape[0]
+    if n < 2:
+        return coords
+
+    out = coords.copy()
+    lo, hi = PAD, 1.0 - PAD
+
+    # Two documents can land on exactly the same point -- identical papers
+    # normalise to the centre -- and a zero-length vector has no direction to
+    # push along. Give every node a fixed angle by index so the tie is broken
+    # the same way every time.
+    ring = np.stack(
+        [np.cos(2 * np.pi * np.arange(n) / n), np.sin(2 * np.pi * np.arange(n) / n)],
+        axis=1,
+    ).astype(out.dtype)
+
+    for _ in range(SEPARATION_PASSES):
+        # ponytail: O(n^2) per pass. At 200 papers that is a 200x200x2 array,
+        # which is nothing; revisit if libraries reach the thousands.
+        diff = out[:, None, :] - out[None, :, :]
+        dist = np.hypot(diff[..., 0], diff[..., 1])
+        np.fill_diagonal(dist, np.inf)
+
+        crowded = dist < MIN_SEP
+        if not crowded.any():
+            break
+
+        coincident = dist < 1e-9
+        safe = np.where(coincident, 1.0, dist)
+        unit = diff / safe[..., None]
+
+        # where two nodes coincide, push along the difference of their ring
+        # angles instead of their (zero) separation
+        ring_diff = ring[:, None, :] - ring[None, :, :]
+        ring_len = np.hypot(ring_diff[..., 0], ring_diff[..., 1])
+        ring_unit = ring_diff / np.where(ring_len < 1e-9, 1.0, ring_len)[..., None]
+        unit = np.where(coincident[..., None], ring_unit, unit)
+
+        # half the shortfall each, so a pair meets in the middle
+        overlap = np.where(crowded, (MIN_SEP - dist) / 2.0, 0.0)
+        out += (unit * overlap[..., None]).sum(axis=1)
+        np.clip(out, lo, hi, out=out)
+
+    return out
+
+
 def _project(matrix: np.ndarray) -> np.ndarray:
     """project embedding centroids to 2D positions in the unit square.
 
@@ -138,7 +220,12 @@ def _project(matrix: np.ndarray) -> np.ndarray:
             [coords[:, 0], np.linspace(-1, 1, n).astype(coords.dtype)], axis=1
         )
 
-    return _normalise(coords.astype(np.float32))
+    # normalise first: MIN_SEP is defined in the normalised unit square, and
+    # separating raw PCA coordinates would mean a different spacing for every
+    # library. Separation clips back into the padded square itself, so it is
+    # not re-normalised afterwards -- that would rescale the gaps it just made
+    # straight back out again.
+    return _separate(_normalise(coords.astype(np.float32)))
 
 
 def _edges(ids: list[str], matrix: np.ndarray) -> list[dict]:

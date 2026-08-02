@@ -116,6 +116,37 @@ export function makeAlpha(matches, focus, neighbours) {
  */
 export const lassoFar = (a, b, k) => Math.hypot(b.x - a.x, b.y - a.y) >= 4 / k;
 
+/** Do two label boxes touch? Boxes that only share an edge do not. */
+export const boxesHit = (a, b) =>
+  a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+
+/**
+ * Decide which labels can be shown without landing on one already placed.
+ *
+ * The server spaces the NODES; it cannot know that a 26-character title is
+ * ~160px wide. Boxes are estimated from the text length rather than measured
+ * with getBBox(), which would force a layout pass per label -- an estimate is
+ * the right precision for a show/hide decision.
+ *
+ * Earlier entries win, so callers pass them in priority order. World units, so
+ * the answer holds at every zoom: labels scale with the viewport.
+ */
+export function placeLabels(entries) {
+  const placed = [];
+  return entries.map(({ text, x, y, anchor = 'middle' }) => {
+    const w = text.length * 6.2;
+    const box = {
+      x: anchor === 'middle' ? x - w / 2 : x,
+      y: y - 10,
+      w,
+      h: 13,
+    };
+    if (placed.some((p) => boxesHit(box, p))) return false;
+    placed.push(box);
+    return true;
+  });
+}
+
 export default function useCanvas({
   svgRef,
   graph,
@@ -386,6 +417,11 @@ export default function useCanvas({
     paint.zoomEl = document.getElementById('lg-zoom-readout');
     paint.mmVp = document.getElementById('lg-mm-vp');
 
+    // Every label, in world coordinates, in the order it is drawn -- which is
+    // also the order it gets to claim its space. Resolved in one pass at the
+    // end, because a label cannot know what will be drawn after it.
+    const slots = [];
+
     // theme hulls
     if (state.layers.themes) {
       model.themes.forEach((t) => {
@@ -413,6 +449,9 @@ export default function useCanvas({
           fill: colors.accent,
         });
         lb.textContent = t.label;
+        // first in the list: a theme is the macro read, and losing its label
+        // costs more than losing one paper title.
+        slots.push({ el: lb, text: t.label, x: cx, y: cy + R * 0.82 + 18 });
         L.hulls.appendChild(lb);
       });
     }
@@ -495,6 +534,7 @@ export default function useCanvas({
       t.textContent = n.title.length > 26 ? n.title.slice(0, 25) + '…' : n.title;
       g.appendChild(t);
       paint.labels.push(t);
+      slots.push({ el: t, text: t.textContent, x: p.x, y: p.y + r + 13 });
       paint.nodes.push({ id: n.doc_id, g, circle, arc, label: t });
       outer.appendChild(g);
       L.nodes.appendChild(outer);
@@ -522,6 +562,7 @@ export default function useCanvas({
         t.style.fill = colors.warning;
         g.appendChild(t);
         paint.labels.push(t);
+        slots.push({ el: t, text: 'gap', x: p.x, y: p.y + s + 15 });
         paint.gapNodes.push({ id: gp.gap_id, g, path: tri, doc_ids: gp.doc_ids });
         outer.appendChild(g);
         L.nodes.appendChild(outer);
@@ -575,6 +616,7 @@ export default function useCanvas({
           t.style.fill = colors['text-3'];
           g.appendChild(t);
           paint.labels.push(t);
+          slots.push({ el: t, text: t.textContent, x, y: y + 18 });
           outer.appendChild(g);
           L.nodes.appendChild(outer);
         });
@@ -609,6 +651,12 @@ export default function useCanvas({
         ev.stopPropagation();
         onSelect(id, g.dataset.claim ? Number(g.dataset.claim) : null, !!g.dataset.gap);
       });
+    });
+
+    // Hide any label that would land on one already placed. The server spaces
+    // the nodes (graph_builder.MIN_SEP); it cannot know how wide a title is.
+    placeLabels(slots).forEach((ok, i) => {
+      slots[i].el.style.display = ok ? '' : 'none';
     });
 
     // The scene is built unstyled; this is what colours and dims it.
