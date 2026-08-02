@@ -312,10 +312,16 @@ for u in json.load(open('release.config.json')).get('models', []):
     [ -d "$FE" ] || FE="dist/thinkstack-api/frontend/dist"
     if [ -f "$FE/index.html" ]; then
         MISSING_ASSETS=""
-        for asset in $(grep -oE '(src|href)="[^"]*/assets/[^"]+"' "$FE/index.html" \
-                       | sed 's/.*assets\///; s/"$//'); do
+        # read line by line rather than iterating $(...): a for loop splits on
+        # every space, so one asset whose name contained a space would be
+        # checked as two names that both "do not exist" and the build would
+        # fail with a confusing message. shellcheck SC2013.
+        while IFS= read -r asset; do
+            [ -n "$asset" ] || continue
             [ -f "$FE/assets/$asset" ] || MISSING_ASSETS="$MISSING_ASSETS $asset"
-        done
+        done <<EOF
+$(grep -oE '(src|href)="[^"]*/assets/[^"]+"' "$FE/index.html" | sed 's/.*assets\///; s/"$//')
+EOF
         if [ -n "$MISSING_ASSETS" ]; then
             echo -e "  ${RED}error: the frozen bundle is missing assets its index.html needs:${NC}"
             echo -e "  ${RED} ${MISSING_ASSETS}${NC}"
