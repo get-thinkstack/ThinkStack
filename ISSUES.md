@@ -2,7 +2,64 @@
 
 Open problems, newest first. Written 2026-08-01 after the
 Bibliotekh · LitGraph · Scribe consolidation, revised the same day after
-investigating the analysis pipeline.
+investigating the analysis pipeline, and again on 2026-08-02 after merging
+`dev` and clearing both BLOCKING items.
+
+---
+
+## Resolved 2026-08-02
+
+### The canvas was laggy — issue 1 below
+
+All four causes, in `useCanvas.js`. Hovering off a node and selecting a node
+both called `render()`, which cleared and re-created every hull, edge, node,
+label and sub-node and re-attached a listener to each. Both are `restyle()`
+now, which writes opacity, fill and the relevance arc onto elements that
+already exist.
+
+Measured in the browser: hovering, selecting and searching produce **zero**
+structural mutations. 60 pointermoves produce **one** transform write (was 60,
+each also sweeping every label in the document). A slow 150 px lasso keeps 38
+points out of 300 events.
+
+The split exposed two more. `render` never depended on `graph` — `model` and
+`state` are mutated in place so their identity never changes — which meant a
+reload after ingest updated the model and left the canvas drawing the previous
+library. And the hover handler closed over `matches`; listeners are attached
+once per structural rebuild, so once selection stopped rebuilding, that value
+would have gone stale.
+
+### Nodes and labels overlapped — issue 2 below
+
+`graph_builder._separate()` relaxes the PCA projection until crowded pairs are
+`MIN_SEP` (0.055 of the unit square ≈ 60 px between centres) apart, seeded by
+the PCA positions and capped at a fixed pass count so the same library always
+draws the same map. 60 papers reach the full gap; 200 go from 0.003 to 0.026,
+and the padded square cannot hold much beyond 230 at this spacing.
+
+Labels are a separate problem — spacing nodes cannot make a 26-character title
+fit beside its neighbour — so `placeLabels()` walks them in draw order and hides
+any whose box lands on one already placed. Draw order is priority order: a theme
+label outranks a paper title.
+
+`tests/test_graph_builder.py` had a test named
+`test_identical_documents_do_not_stack_or_blow_up` that asserted only that the
+coordinates were finite. They were; all five were also `(0.5, 0.5)`. It asserts
+the spacing now.
+
+Still open, deliberately: a gap marker is drawn at its evidence centroid offset
+a flat 70 px upward with no check that the spot is free. Marked in-code.
+
+### Claims and summaries run by hand never reached the canvas
+
+The canvas reads `doc_analysis_cache`, and only the ingest-time precompute ever
+wrote to it. Pressing Claims or Summarize recorded a run in the history and
+nothing else, so the work was done, paid for, and invisible: no sub-nodes to fan
+out, and the node still labelled unanalyzed.
+
+Both routes write through now, via a new `DocAnalysisCache.merge()` — `put()`
+takes both halves, so the claims route would have erased the summary. A
+comparative summary over several papers is deliberately not cached per document.
 
 ---
 
@@ -141,7 +198,10 @@ medium. **The frozen-build half of issue 6 is still open** — see below.
 
 ## LitGraph
 
-### 1. The canvas is laggy — BLOCKING
+> Issues 1 and 2 are **resolved** — see the top of this file. The original text
+> is kept because it is the record of what was measured and where.
+
+### 1. ~~The canvas is laggy~~ — RESOLVED
 
 Reported on a 3-paper library, so this is not a scale problem. It is several
 compounding causes, all in `frontend/src/components/litgraph/useCanvas.js`:
@@ -167,7 +227,7 @@ compounding causes, all in `frontend/src/components/litgraph/useCanvas.js`:
   and an increasingly long `d` attribute rewritten each event. **Fix:** skip
   points closer than ~4px to the previous one.
 
-### 2. Nodes and labels overlap — BLOCKING
+### 2. ~~Nodes and labels overlap~~ — RESOLVED
 
 There is no collision handling anywhere in the layout:
 
@@ -263,17 +323,12 @@ spec to match, or delete it** so there is one build path.
 selection, every packaged install is likely being pushed to the most conservative
 settings.
 
-**Partly resolved** — see "Resolved" above. The `total_mem` / `total_memory`
-crash is fixed and `_detect_ram` now logs the real exception instead of guessing
-"psutil not installed". From source this machine reports correctly.
-
-**Still open:** why the *frozen* build reports zeros. `psutil` is a
-`--hidden-import` in both `.github/workflows/_build-desktop.yml:342` and
-`thinkstack-api.spec:6`, so the obvious explanation is ruled out; the remaining
-candidate is psutil's Windows C extension (`psutil._psutil_windows`) not being
-collected, which still raises `ImportError`. The error-level logging added above
-is what will name it — re-run the frozen binary and read the log rather than
-guessing again.
+**Fully resolved.** Two separate faults wore one symptom. The `total_mem` /
+`total_memory` crash is fixed, and the frozen build's zeros were `psutil` being
+absent from `.venv-build` — a `--hidden-import` names a module to bundle, it does
+not install one. Both the source run and the frozen build now report 15.2 GB and
+tier medium on this machine. `scripts/build.sh` gained the dependency preflight
+that makes this class of drift a build error rather than a degraded app.
 
 ### 7. ~~`scripts/build.sh` cannot run on Windows~~ — RESOLVED
 
