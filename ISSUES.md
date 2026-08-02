@@ -1,7 +1,7 @@
 # Known issues
 
 Open problems, newest first. Written 2026-08-01 after the
-Bibliotekh · LitGraph · Scribe consolidation, revised the same day after
+Library · LitGraph · Scribe consolidation, revised the same day after
 investigating the analysis pipeline, and again on 2026-08-02 after merging
 `dev` and clearing both BLOCKING items.
 

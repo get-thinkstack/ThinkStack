@@ -236,7 +236,7 @@ export default function LitGraph() {
         <BookOpen size={44} />
         <h3>Nothing to map yet</h3>
         <p>LitGraph draws your collection in embedding space — papers that argue
-          about the same things sit together. Upload a few papers in Bibliotekh
+          about the same things sit together. Upload a few papers in Library
           and the map builds itself.</p>
       </div>
     );

@@ -100,10 +100,10 @@ available for testers.
 
 ## Using the features
 
-The app has three sections, in the order the work happens: **Bibliotekh** →
+The app has three sections, in the order the work happens: **Library** →
 **LitGraph** → **Scribe**. Collect, understand, write.
 
-### Bibliotekh — your collection
+### Library — your collection
 Import PDFs, encrypt the sensitive ones, and manage what is in the library.
 
 ### LitGraph — the map

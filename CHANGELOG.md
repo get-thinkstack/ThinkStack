@@ -20,7 +20,7 @@ Work merged but not yet tagged.
 ### Changed — breaking
 
 - **The app is now three sections instead of five.** Library, Search, Analysis,
-  Gap Finder and Paper Writer became **Bibliotekh** → **LitGraph** → **Scribe**
+  Gap Finder and Paper Writer became **Library** → **LitGraph** → **Scribe**
   (collect, understand, write). Search, Analysis and Gap Finder were three views
   onto one question, so they are now one canvas. `/search`, `/analysis` and
   `/gaps` redirect to `/litgraph`; any bookmark to them still lands somewhere

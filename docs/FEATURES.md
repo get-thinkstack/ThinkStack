@@ -12,7 +12,7 @@ The app has three sections, in the order the work happens:
 
 | Section | What it does |
 | --- | --- |
-| **Bibliotekh** | Collect — upload, encrypt and manage papers. |
+| **Library** | Collect — upload, encrypt and manage papers. |
 | **LitGraph** | Understand — the map of your collection, and every analysis run. |
 | **Scribe** | Write — AI-assisted LaTeX drafting and compilation. |
 

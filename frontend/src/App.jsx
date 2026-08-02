@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { BookOpen, Waypoints, PenLine, Sun, Moon, HardDrive, RefreshCw, Check, AlertCircle, Gauge } from 'lucide-react';
 import { systemApi } from './utils/api';
 import { checkForUpdatesInteractive, APP_VERSION } from './utils/updater';
-import Bibliotekh from './components/Bibliotekh';
+import Library from './components/Library';
 import LitGraph from './components/LitGraph';
 import Scribe from './components/Scribe';
 import ModelSetup, { OPEN_MODEL_SETUP } from './components/ModelSetup';
@@ -45,7 +45,7 @@ function AnimatedRoutes() {
   return (
     <AnimatePresence mode="wait">
       <Routes location={location} key={location.pathname}>
-        <Route path="/" element={<Page><Bibliotekh /></Page>} />
+        <Route path="/" element={<Page><Library /></Page>} />
         <Route path="/litgraph" element={<Page><LitGraph /></Page>} />
         <Route path="/write" element={<Page><Scribe /></Page>} />
         {/* Search, Analysis and Gap Finder all became LitGraph. This is a
@@ -137,7 +137,7 @@ export default function App() {
   // three sections, in the order the work actually happens:
   // collect -> understand -> write.
   const navItems = [
-    { to: '/', icon: BookOpen, label: 'Bibliotekh' },
+    { to: '/', icon: BookOpen, label: 'Library' },
     { to: '/litgraph', icon: Waypoints, label: 'LitGraph' },
     { to: '/write', icon: PenLine, label: 'Scribe' },
   ];

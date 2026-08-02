@@ -498,7 +498,7 @@ export default function Scribe() {
               {showContext && (
                 <div className="pw-context-list">
                   {docs.length === 0 ? (
-                    <span className="pw-hint">no papers yet - upload in Bibliotekh</span>
+                    <span className="pw-hint">no papers yet - upload in Library</span>
                   ) : (
                     docs.map((d) => (
                       <button
