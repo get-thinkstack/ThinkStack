@@ -153,6 +153,9 @@ export const documentsApi = {
   get: (docId) => request(`/documents/${docId}`),
 
   delete: (docId) => request(`/documents/${docId}`, { method: 'DELETE' }),
+
+  /** the originally uploaded pdf, served inline for the litgraph reader */
+  pdfUrl: (docId) => `${BASE_URL}/documents/${docId}/pdf`,
 };
 
 export const searchApi = {

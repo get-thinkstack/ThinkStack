@@ -514,6 +514,11 @@
 .lg-fact { margin: 0; font-size: 0.8rem; line-height: 1.6; color: var(--text-2); }
 
 /* ---------- the reader ---------- */
+/* The pdf scrolls inside its own viewer; the tabbody must not add a second
+   scrollbar or any padding around the page. */
+.lg-reader-pdf { padding: 0; overflow: hidden; display: flex; }
+.lg-pdf { flex: 1; width: 100%; border: 0; }
+
 .lg-reader-head {
   position: sticky;
   top: 0;

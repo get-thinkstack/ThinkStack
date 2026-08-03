@@ -36,6 +36,10 @@ const fetchPaper = (id) => {
   return textCache.get(id);
 };
 
+// Whether the original pdf exists for a doc, probed once with a HEAD request.
+// 403 (encrypted) and 404 (file gone) both mean "show the text fallback".
+const pdfOkCache = new Map();
+
 export default function PaperPanel({
   node, graph, matches, tab, onTab, onSelect, expanded, onExpand,
 }) {
@@ -87,6 +91,7 @@ export default function PaperPanel({
       {tab === 'read'
         ? (
           <Reader
+            key={node.doc_id}  /* a claim-jump page must not follow you to the next paper */
             node={node} doc={doc} error={error}
             hits={hits} claims={node.claims} theme={theme}
             seek={seek} onSeeked={() => setSeek(null)}
@@ -221,18 +226,54 @@ function usePaperText(node) {
   return { doc, error };
 }
 
-/** The paper, whole, in reading order, with the passages worth seeing marked. */
-function Reader({ node, doc, error, hits, claims, theme, seek, onSeeked }) {
-  const bodyRef = useRef(null);
-  const target = seek && locateQuote(doc?.chunks, seek);
+/** Same read-through shape as usePaperText: state is only trusted for the
+ *  current doc_id, so switching papers never shows the previous answer. */
+function usePdfOk(node) {
+  const [probed, setProbed] = useState(null);
+  const ok = pdfOkCache.has(node.doc_id)
+    ? pdfOkCache.get(node.doc_id)
+    : probed?.id === node.doc_id ? probed.ok : null;
 
   useEffect(() => {
-    if (!target) return;
+    if (node.is_encrypted || pdfOkCache.has(node.doc_id)) return;
+    let live = true;
+    fetch(documentsApi.pdfUrl(node.doc_id), { method: 'HEAD' })
+      .then((r) => {
+        pdfOkCache.set(node.doc_id, r.ok);
+        if (live) setProbed({ id: node.doc_id, ok: r.ok });
+      })
+      .catch(() => live && setProbed({ id: node.doc_id, ok: false }));
+    return () => { live = false; };
+  }, [node.doc_id, node.is_encrypted]);
+
+  return ok;
+}
+
+/**
+ * The paper. The original pdf when it exists; the extracted text with its
+ * marks only as the fallback (encrypted paper, file gone). Chunking never
+ * mattered here -- the uploaded file was on disk all along.
+ */
+function Reader({ node, doc, error, hits, claims, theme, seek, onSeeked }) {
+  const bodyRef = useRef(null);
+  const pdfOk = usePdfOk(node);
+  const target = seek && locateQuote(doc?.chunks, seek);
+
+  // In pdf mode the page is derived, not stored, and seek is deliberately NOT
+  // cleared: clearing it would change the iframe src back and reload the
+  // viewer to page 1. The next claim click replaces it.
+  const page = pdfOk
+    ? (target && doc?.chunks?.find((c) => c.chunk_id === target)?.metadata?.page_number) || null
+    : null;
+
+  // Text mode scrolls once and clears, so returning to the tab does not jump.
+  useEffect(() => {
+    if (!target || pdfOk) return;
     const el = bodyRef.current?.querySelector(`[data-chunk-id="${CSS.escape(target)}"]`);
     el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     el?.classList.add('lg-chunk-landed');
     onSeeked();
-  }, [target, onSeeked]);
+  }, [target, pdfOk, onSeeked]);
 
   // Encryption is not an error and must not read like one. Library owns the
   // decrypt flow; a second one here would be a second place to get it wrong.
@@ -243,6 +284,23 @@ function Reader({ node, doc, error, hits, claims, theme, seek, onSeeked }) {
       </div>
     );
   }
+
+  if (pdfOk) {
+    return (
+      <div className="lg-tabbody lg-reader-pdf">
+        <iframe
+          className="lg-pdf"
+          title={node.title}
+          src={documentsApi.pdfUrl(node.doc_id) + (page ? `#page=${page}` : '')}
+        />
+      </div>
+    );
+  }
+  if (pdfOk === null) {
+    return <div className="lg-tabbody lg-muted"><p>Loading the paper…</p></div>;
+  }
+
+  // ---- no pdf: the extracted text, marked ----
   if (error) return <div className="lg-tabbody lg-muted"><p>{error}</p></div>;
   if (!doc) return <div className="lg-tabbody lg-muted"><p>Loading the paper…</p></div>;
   if (!doc.chunks?.length) {

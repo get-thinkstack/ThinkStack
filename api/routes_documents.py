@@ -10,6 +10,7 @@ import logging
 from dataclasses import asdict
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi.responses import FileResponse
 
 from infrastructure.file_manager import (
     save_uploaded_pdf,
@@ -188,6 +189,38 @@ async def get_document(doc_id: str):
         "total_chunks": len(chunks["ids"]),
         "full_text": " ".join(texts),
     }
+
+
+# HEAD as well as GET: the reader probes for the pdf's existence before
+# mounting an <iframe>, and fastapi does not add HEAD to a GET route on its
+# own -- the probe got 405 and every paper fell back to the text view.
+@router.api_route("/{doc_id}/pdf", methods=["GET", "HEAD"])
+async def get_document_pdf(doc_id: str):
+    """serve the originally uploaded pdf, for the litgraph reader.
+
+    served ``inline`` so the panel's <iframe> renders it -- an ``attachment``
+    disposition downloads the file and leaves the iframe blank, the same trap
+    the paper-writer preview hit.
+    """
+    path = get_pdf_path(doc_id)
+    if not path:
+        raise HTTPException(status_code=404, detail="document not found")
+
+    # the stored pdf is NOT encrypted at rest: encryption covers the chunk
+    # text in the vector store, and the original file sits in papers_dir as
+    # plaintext. refusing here is what makes "encrypt" mean anything for the
+    # reader -- otherwise this route hands back everything it withholds.
+    chunks = get_chunks_by_doc_id(doc_id)
+    meta = (chunks.get("metadatas") or [{}])[0]
+    if meta.get("is_encrypted") in ("true", True):
+        raise HTTPException(status_code=403, detail="document is encrypted")
+
+    return FileResponse(
+        path=str(path),
+        media_type="application/pdf",
+        filename=path.name,
+        content_disposition_type="inline",
+    )
 
 
 @router.delete("/{doc_id}")
