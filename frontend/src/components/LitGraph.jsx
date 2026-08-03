@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import {
   Search as SearchIcon, Brain, Lightbulb, Layers, Target, Clock, X,
   Lock, Eye, EyeOff, Maximize2, Plus, Minus, BookOpen,
@@ -7,7 +7,6 @@ import {
   documentsApi, searchApi, graphApi, analysisApi, gapsApi, useLlmBusy, useJobs,
 } from '../utils/api';
 import useThemeColors from './charts/useThemeColors';
-import GapSeverityChart from './charts/GapSeverityChart';
 import useCanvas from './litgraph/useCanvas';
 import { clampPanel } from './litgraph/panel';
 import PaperPanel from './litgraph/PaperPanel';
@@ -29,6 +28,11 @@ import './litgraph/litgraph.css';
 
 const RUN_LABELS = { summarize: 'Summary', claims: 'Claims', themes: 'Themes' };
 const PANEL_W_KEY = 'lg-panel-w';
+
+// Recharts is 300 kB and this chart only appears inside the runs drawer when
+// a gap scan has actually produced gaps. Importing it at the top pulled all
+// of Recharts into the first paint of the map, which draws its own graph.
+const GapSeverityChart = lazy(() => import('./charts/GapSeverityChart'));
 
 export default function LitGraph() {
   const svgRef = useRef(null);
@@ -748,7 +752,9 @@ function RunResult({ run }) {
   const gaps = res.gaps || [];
   return (
     <div className="lg-runres">
-      {gaps.length > 0 && <GapSeverityChart gaps={gaps} />}
+      {gaps.length > 0 && (
+        <Suspense fallback={null}><GapSeverityChart gaps={gaps} /></Suspense>
+      )}
       <h4>Gaps · {gaps.length}</h4>
       {gaps.map((g, i) => (
         <div key={i} className="lg-sugg">

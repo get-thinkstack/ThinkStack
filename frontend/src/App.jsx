@@ -1,15 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, useLocation, Navigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { BookOpen, Waypoints, PenLine, Sun, Moon, RefreshCw, Check, AlertCircle, Gauge } from 'lucide-react';
 import { systemApi } from './utils/api';
 import { checkForUpdatesInteractive, APP_VERSION } from './utils/updater';
-import Library from './components/Library';
-import LitGraph from './components/LitGraph';
-import Scribe from './components/Scribe';
-import Bench from './components/Bench';
 import ModelSetup from './components/ModelSetup';
 import './index.css';
+
+// One page is on screen at a time, so one page is worth downloading at a
+// time. Loading all four eagerly meant Recharts and the whole canvas engine
+// landed before the first paint of whichever page you actually opened.
+const Library = lazy(() => import('./components/Library'));
+const LitGraph = lazy(() => import('./components/LitGraph'));
+const Scribe = lazy(() => import('./components/Scribe'));
+const Bench = lazy(() => import('./components/Bench'));
 
 const THEME_KEY = 'ts-theme';
 const SIDEBAR_KEY = 'ts-sidebar-collapsed';
@@ -54,17 +58,21 @@ function AnimatedRoutes() {
   const location = useLocation();
   return (
     <AnimatePresence mode="wait">
-      <Routes location={location} key={location.pathname}>
-        <Route path="/" element={<Page><Library /></Page>} />
-        <Route path="/litgraph" element={<Page><LitGraph /></Page>} />
-        <Route path="/write" element={<Page><Scribe /></Page>} />
-        <Route path="/bench" element={<Page><Bench /></Page>} />
-        {/* Search, Analysis and Gap Finder all became LitGraph. This is a
-            desktop shell, so a stale deep link would otherwise be a dead end. */}
-        <Route path="/search" element={<Navigate to="/litgraph" replace />} />
-        <Route path="/analysis" element={<Navigate to="/litgraph" replace />} />
-        <Route path="/gaps" element={<Navigate to="/litgraph" replace />} />
-      </Routes>
+      {/* No spinner: a chunk off local disk arrives in a frame or two, and a
+          spinner that flashes for one frame reads as a glitch. */}
+      <Suspense fallback={null}>
+        <Routes location={location} key={location.pathname}>
+          <Route path="/" element={<Page><Library /></Page>} />
+          <Route path="/litgraph" element={<Page><LitGraph /></Page>} />
+          <Route path="/write" element={<Page><Scribe /></Page>} />
+          <Route path="/bench" element={<Page><Bench /></Page>} />
+          {/* Search, Analysis and Gap Finder all became LitGraph. This is a
+              desktop shell, so a stale deep link would otherwise be a dead end. */}
+          <Route path="/search" element={<Navigate to="/litgraph" replace />} />
+          <Route path="/analysis" element={<Navigate to="/litgraph" replace />} />
+          <Route path="/gaps" element={<Navigate to="/litgraph" replace />} />
+        </Routes>
+      </Suspense>
     </AnimatePresence>
   );
 }
