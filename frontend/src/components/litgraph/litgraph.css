@@ -519,10 +519,10 @@
   z-index: 1;
   padding: 8px 0;
   background: var(--surface);
+  /* A filename is not a heading -- uppercasing one makes it unreadable. */
   font-size: 0.68rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--text-3);
+  overflow-wrap: anywhere;
 }
 .lg-chunk {
   position: relative;
@@ -540,6 +540,56 @@
   font-variant-numeric: tabular-nums;
   color: var(--text-3);
 }
+
+/* Three marks, three CSS properties, so a passage that is all three stays
+   readable instead of stacking three backgrounds on top of each other. */
+.lg-chunk.is-match {
+  padding-left: 0.7em;
+  border-left: 2px solid var(--accent);
+}
+.lg-chunk.is-claim {
+  padding: 0.35em 0.6em;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+.lg-chunk.is-claim.is-match { padding-left: 0.7em; }
+.lg-chunk.is-theme {
+  text-decoration: underline dotted var(--text-3);
+  text-underline-offset: 0.28em;
+}
+
+/* Where a claim jump landed. Fades on its own -- a permanent mark would
+   compete with the three that mean something. */
+.lg-chunk-landed { animation: lg-land 1.6s ease-out; }
+@keyframes lg-land {
+  from { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lg-chunk-landed { animation: none; }
+}
+
+.lg-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.9rem;
+  margin-bottom: 1.1em;
+  font-size: 0.68rem;
+  color: var(--text-3);
+}
+.lg-key::before {
+  display: inline-block;
+  width: 1.4em;
+  margin-right: 0.4em;
+  vertical-align: middle;
+  content: '';
+}
+.lg-key-match::before { border-top: 2px solid var(--accent); }
+.lg-key-claim::before {
+  height: 0.7em;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.lg-key-theme::before { border-top: 2px dotted var(--text-3); }
 
 .lg-quote {
   margin-bottom: 8px;

@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { documentsApi } from '../../utils/api';
 import { neighbours, nearestFurthest } from './panel';
+import { markChunks, locateQuote } from './highlight';
 
 /**
  * The paper panel: what the map knows, and the paper itself.
@@ -14,10 +15,26 @@ import { neighbours, nearestFurthest } from './panel';
  * holds. None of it is a new request; it was simply never shown.
  */
 
-// Chunk text, kept between tab switches. A library is a few dozen papers on
-// one desktop, so there is nothing to evict.
-// ponytail: unbounded map, add an LRU if a library ever gets big enough to notice.
+/**
+ * Chunk text by doc_id, kept between tab switches and panel opens.
+ *
+ * It holds the in-flight PROMISE, not the resolved document. Caching the
+ * result instead deadlocks under StrictMode's double-invoked effects: the
+ * first run's cleanup cancels its own setState, the second run finds the
+ * cache already warm and returns without setting anything, and the reader
+ * sits on "Loading the paper" forever with the text sitting in the cache
+ * beside it. Awaiting one shared promise also means one request per paper
+ * however many times the panel is opened.
+ *
+ * ponytail: unbounded map. A library is a few dozen papers on one desktop --
+ * add an LRU if that ever stops being true.
+ */
 const textCache = new Map();
+
+const fetchPaper = (id) => {
+  if (!textCache.has(id)) textCache.set(id, documentsApi.get(id));
+  return textCache.get(id);
+};
 
 export default function PaperPanel({
   node, graph, matches, tab, onTab, onSelect, expanded, onExpand,
@@ -28,6 +45,21 @@ export default function PaperPanel({
   const place = nearestFurthest(node, graph.nodes);
   const titleOf = (id) => graph.nodes.find((n) => n.doc_id === id)?.title || 'a deleted paper';
   const hits = matches.get(node.doc_id)?.hits;
+  const { doc, error } = usePaperText(node);
+
+  // Which passage the reader should scroll to when it opens. Set by clicking a
+  // claim; cleared once used, so returning to the tab does not jump again.
+  const [seek, setSeek] = useState(null);
+  const openAtClaim = (claim, i) => {
+    // Falls back to the claim's own panel when the quote cannot be located --
+    // a jump that silently lands at the top of the paper reads as broken.
+    if (locateQuote(doc?.chunks, claim.supporting_text)) {
+      setSeek(claim.supporting_text);
+      onTab('read');
+    } else {
+      onSelect(node.doc_id, i);
+    }
+  };
 
   return (
     <>
@@ -53,7 +85,13 @@ export default function PaperPanel({
       </div>
 
       {tab === 'read'
-        ? <Reader node={node} />
+        ? (
+          <Reader
+            node={node} doc={doc} error={error}
+            hits={hits} claims={node.claims} theme={theme}
+            seek={seek} onSeeked={() => setSeek(null)}
+          />
+        )
         : (
           <div className="lg-tabbody">
             {node.summary
@@ -133,8 +171,7 @@ export default function PaperPanel({
               <>
                 <h4>Claims · {node.claims.length}</h4>
                 {node.claims.map((c, i) => (
-                  <button key={i} className="lg-claim"
-                    onClick={() => onSelect(node.doc_id, i)}>
+                  <button key={i} className="lg-claim" onClick={() => openAtClaim(c, i)}>
                     <span className="lg-tag">{(c.type || c.claim_type || '').replace(/_/g, ' ')}</span>
                     {c.text || c.claim_text}
                   </button>
@@ -155,28 +192,47 @@ export default function PaperPanel({
   );
 }
 
-/** The paper, whole, in reading order. */
-function Reader({ node }) {
+/**
+ * The paper's text, fetched when the panel opens rather than when the Read
+ * tab does: About needs it too, to know whether a claim can be jumped to.
+ */
+function usePaperText(node) {
   const [fetched, setFetched] = useState(null);
   const [failed, setFailed] = useState(null);
 
-  // Both are read through the current doc_id rather than reset when it
+  // Both are read through the current doc_id rather than cleared when it
   // changes: clearing them in the effect would be a synchronous setState on
-  // every cache hit, and would flash the previous paper's text in between.
-  const doc = textCache.get(node.doc_id) || (fetched?.doc_id === node.doc_id ? fetched : null);
+  // every switch, and would flash the previous paper's text in between.
+  const doc = fetched?.doc_id === node.doc_id ? fetched : null;
   const error = failed?.id === node.doc_id ? failed.msg : '';
 
   useEffect(() => {
-    if (node.is_encrypted || textCache.has(node.doc_id)) return;
+    if (node.is_encrypted) return;
     let live = true;
-    documentsApi.get(node.doc_id)
-      .then((d) => {
-        textCache.set(node.doc_id, d);
-        if (live) setFetched(d);
-      })
-      .catch((e) => live && setFailed({ id: node.doc_id, msg: e.message || 'could not load the text' }));
+    fetchPaper(node.doc_id)
+      .then((d) => live && setFetched(d))
+      .catch((e) => {
+        textCache.delete(node.doc_id);   // a failure must not cache as one
+        if (live) setFailed({ id: node.doc_id, msg: e.message || 'could not load the text' });
+      });
     return () => { live = false; };
   }, [node.doc_id, node.is_encrypted]);
+
+  return { doc, error };
+}
+
+/** The paper, whole, in reading order, with the passages worth seeing marked. */
+function Reader({ node, doc, error, hits, claims, theme, seek, onSeeked }) {
+  const bodyRef = useRef(null);
+  const target = seek && locateQuote(doc?.chunks, seek);
+
+  useEffect(() => {
+    if (!target) return;
+    const el = bodyRef.current?.querySelector(`[data-chunk-id="${CSS.escape(target)}"]`);
+    el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    el?.classList.add('lg-chunk-landed');
+    onSeeked();
+  }, [target, onSeeked]);
 
   // Encryption is not an error and must not read like one. Library owns the
   // decrypt flow; a second one here would be a second place to get it wrong.
@@ -193,11 +249,38 @@ function Reader({ node }) {
     return <div className="lg-tabbody lg-muted"><p>No text stored for this paper.</p></div>;
   }
 
+  const marks = markChunks(doc.chunks, { hits, claims, theme });
+
   return (
-    <div className="lg-tabbody lg-reader">
-      <div className="lg-reader-head">{doc.filename} · {doc.total_chunks} chunks</div>
+    <div className="lg-tabbody lg-reader" ref={bodyRef}>
+      {/* The stored filename is prefixed with the doc_id. That is storage's
+          business, not the reader's. */}
+      <div className="lg-reader-head">
+        {doc.filename.replace(/^[0-9a-f]{8,}_/, '')} · {doc.total_chunks} chunks
+      </div>
+
+      {/* An unexplained highlight is noise, so the marks name themselves --
+          and only the ones actually on the page are listed. */}
+      {marks.size > 0 && (
+        <div className="lg-legend">
+          {[
+            ['match', 'matched your search'],
+            ['claim', 'supports a claim'],
+            ['theme', 'theme keyword'],
+          ]
+            .filter(([kind]) => [...marks.values()].some((s) => s.has(kind)))
+            .map(([kind, label]) => (
+              <span key={kind} className={`lg-key lg-key-${kind}`}>{label}</span>
+            ))}
+        </div>
+      )}
+
       {doc.chunks.map((c) => (
-        <p key={c.chunk_id} className="lg-chunk" data-chunk-id={c.chunk_id}>
+        <p
+          key={c.chunk_id}
+          className={['lg-chunk', ...[...(marks.get(c.chunk_id) || [])].map((k) => `is-${k}`)].join(' ')}
+          data-chunk-id={c.chunk_id}
+        >
           {c.metadata?.page_number != null && (
             <span className="lg-page">p{c.metadata.page_number}</span>
           )}
