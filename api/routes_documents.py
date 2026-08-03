@@ -174,13 +174,17 @@ async def get_document(doc_id: str):
     return {
         "doc_id": doc_id,
         "filename": path.name,
-        "metadata": metadata,
+        # whole chunks, not a 500-char preview of each: litgraph's reader shows
+        # the paper itself, and it marks passages per chunk -- a truncated chunk
+        # would drop the marked sentence as often as it kept it. this costs
+        # nothing on the wire that full_text below was not already sending.
         "chunks": [
-            {"chunk_id": cid, "text": txt[:500], "metadata": meta}
+            {"chunk_id": cid, "text": txt, "metadata": meta}
             for cid, txt, meta in zip(
                 chunks["ids"], texts, chunks["metadatas"]
             )
         ],
+        "metadata": metadata,
         "total_chunks": len(chunks["ids"]),
         "full_text": " ".join(texts),
     }

@@ -10,6 +10,7 @@ import useThemeColors from './charts/useThemeColors';
 import GapSeverityChart from './charts/GapSeverityChart';
 import useCanvas from './litgraph/useCanvas';
 import { clampPanel } from './litgraph/panel';
+import PaperPanel from './litgraph/PaperPanel';
 import './litgraph/litgraph.css';
 
 /**
@@ -138,7 +139,9 @@ export default function LitGraph() {
       return;
     }
     const node = graph?.nodes.find((n) => n.doc_id === id);
-    if (node) setPanel({ kind: 'paper', node });
+    // Keep whichever tab is open when moving between papers: following a
+    // connection out of the reader is still reading.
+    if (node) setPanel((p) => ({ kind: 'paper', node, tab: p?.kind === 'paper' ? p.tab : 'about' }));
   }, []);
 
   const onLasso = useCallback((picked) => {
@@ -564,54 +567,16 @@ export default function LitGraph() {
           <button className="lg-panel-x" onClick={() => setPanel(null)}><X size={16} /></button>
 
           {panel.kind === 'paper' && (
-            <>
-              <div className="lg-kind">Paper</div>
-              <h3>{panel.node.title}</h3>
-              <div className="lg-authors">{panel.node.authors} {panel.node.year}</div>
-              {panel.node.summary
-                ? <p>{panel.node.summary}</p>
-                : (
-                  // Claims without a summary is a real state -- you can run
-                  // either one alone -- so this must not claim the paper is
-                  // untouched when its claims are listed directly below.
-                  <p className="lg-muted">
-                    {panel.node.claims?.length
-                      ? 'No summary yet. Select it and run Summarize.'
-                      : 'Not analyzed yet. Select it and run Summarize.'}
-                  </p>
-                )}
-
-              {matches.get(panel.node.doc_id)?.hits?.length > 0 && (
-                <>
-                  <h4>Why this matched</h4>
-                  {matches.get(panel.node.doc_id).hits.slice(0, 4).map((h) => (
-                    <div key={h.chunk_id} className="lg-quote">
-                      <q>{h.text}</q>
-                      <span>page {h.page} · {h.score.toFixed(2)}</span>
-                    </div>
-                  ))}
-                </>
-              )}
-
-              {panel.node.claims?.length > 0 && (
-                <>
-                  <h4>Claims · {panel.node.claims.length}</h4>
-                  {panel.node.claims.map((c, i) => (
-                    <button key={i} className="lg-claim"
-                      onClick={() => setPanel({ kind: 'claim', claim: c, node: panel.node })}>
-                      <span className="lg-tag">{(c.type || c.claim_type || '').replace(/_/g, ' ')}</span>
-                      {c.text || c.claim_text}
-                    </button>
-                  ))}
-                </>
-              )}
-
-              <div className="lg-stat"><span>Chunks</span><b>{panel.node.chunks}</b></div>
-              <button className="btn btn-secondary btn-sm" style={{ marginTop: '0.75rem' }}
-                onClick={() => setExpanded(expanded === panel.node.doc_id ? null : panel.node.doc_id)}>
-                {expanded === panel.node.doc_id ? 'Collapse claims' : 'Fan out claims'}
-              </button>
-            </>
+            <PaperPanel
+              node={panel.node}
+              graph={graph}
+              matches={matches}
+              tab={panel.tab}
+              onTab={(tab) => setPanel((p) => ({ ...p, tab }))}
+              onSelect={onSelect}
+              expanded={expanded}
+              onExpand={setExpanded}
+            />
           )}
 
           {panel.kind === 'claim' && (
