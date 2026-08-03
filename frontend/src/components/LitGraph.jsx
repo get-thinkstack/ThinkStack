@@ -9,6 +9,7 @@ import {
 import useThemeColors from './charts/useThemeColors';
 import GapSeverityChart from './charts/GapSeverityChart';
 import useCanvas from './litgraph/useCanvas';
+import { clampPanel } from './litgraph/panel';
 import './litgraph/litgraph.css';
 
 /**
@@ -26,6 +27,7 @@ import './litgraph/litgraph.css';
  */
 
 const RUN_LABELS = { summarize: 'Summary', claims: 'Claims', themes: 'Themes' };
+const PANEL_W_KEY = 'lg-panel-w';
 
 export default function LitGraph() {
   const svgRef = useRef(null);
@@ -207,6 +209,42 @@ export default function LitGraph() {
     return () => clearTimeout(t);
   }, [query, canvas]);
 
+  // ---- panel width ----
+  //
+  // The drag writes the CSS variable straight onto the root and never touches
+  // React state: the canvas is a few hundred imperative SVG nodes, and putting
+  // a pointermove through the reconciler to move one grid track would rebuild
+  // the tree at 60fps to do it. The camera takes care of itself -- the
+  // ResizeObserver in useCanvas already re-centres on a container resize.
+  // A callback ref, not an effect: the loading and empty states return before
+  // .lg-root exists, so an effect keyed on mount would run while the ref is
+  // still null and the saved width would be dropped on every cold load.
+  const rootRef = useRef(null);
+  const setRoot = useCallback((el) => {
+    rootRef.current = el;
+    const saved = el && localStorage.getItem(PANEL_W_KEY);
+    if (saved) el.style.setProperty('--lg-panel-w', saved);
+  }, []);
+
+  const onGrip = (e) => {
+    e.preventDefault();
+    const grip = e.currentTarget;
+    grip.classList.add('is-dragging');
+    const move = (ev) => {
+      const w = clampPanel(window.innerWidth - ev.clientX, window.innerWidth);
+      rootRef.current?.style.setProperty('--lg-panel-w', `${w}px`);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      grip.classList.remove('is-dragging');
+      const w = rootRef.current?.style.getPropertyValue('--lg-panel-w');
+      if (w) localStorage.setItem(PANEL_W_KEY, w);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
   const clearSelection = () => {
     setQuery(''); setResults([]); setMatches(new Map());
     setFocus(null); setExpanded(null); setPanel(null);
@@ -285,10 +323,13 @@ export default function LitGraph() {
   }
 
   return (
-    <div className={`lg-root ${panel ? 'lg-has-panel' : ''}`}>
+    <div ref={setRoot} className={`lg-root ${panel ? 'lg-has-panel' : ''}`}>
       {/* ---------- canvas ---------- */}
       <div className="lg-stage">
-        <svg id="lg-canvas" ref={svgRef} style={{ cursor: 'grab' }}>
+        {/* The cursor lives in CSS (crosshair, because dragging selects). The
+            pointer handlers write it inline from there, which is why there is
+            no style prop here -- one would win over the stylesheet forever. */}
+        <svg id="lg-canvas" ref={svgRef}>
           <g id="lg-viewport">
             <g id="lg-hulls" />
             <g id="lg-edges" />
@@ -509,6 +550,15 @@ export default function LitGraph() {
       </div>
 
       {/* ---------- side panel ---------- */}
+      {panel && (
+        <div
+          className="lg-grip"
+          onPointerDown={onGrip}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize the panel"
+        />
+      )}
       {panel && (
         <aside className="lg-panel">
           <button className="lg-panel-x" onClick={() => setPanel(null)}><X size={16} /></button>

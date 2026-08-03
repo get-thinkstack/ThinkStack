@@ -13,7 +13,21 @@
   grid-template-columns: 1fr;
   height: calc(100vh - 3rem);
 }
-.lg-root.lg-has-panel { grid-template-columns: 1fr 360px; }
+/* The panel width is a variable the grip writes to directly, so a drag never
+   goes through React. --lg-panel-w is set on .lg-root itself; the fallback
+   here is the width it opens at before you have ever dragged it. */
+.lg-root.lg-has-panel {
+  grid-template-columns: 1fr 5px var(--lg-panel-w, 360px);
+}
+
+.lg-grip {
+  cursor: col-resize;
+  background: var(--border);
+  opacity: 0;
+  transition: opacity var(--transition-fast, 140ms ease);
+}
+.lg-grip:hover,
+.lg-grip.is-dragging { opacity: 1; }
 
 .lg-stage {
   position: relative;
@@ -603,4 +617,5 @@
 @media (max-width: 900px) {
   .lg-root.lg-has-panel { grid-template-columns: 1fr; }
   .lg-panel { display: none; }
+  .lg-grip { display: none; }
 }
