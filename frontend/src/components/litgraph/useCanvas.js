@@ -116,6 +116,28 @@ export function makeAlpha(matches, focus, neighbours) {
  */
 export const lassoFar = (a, b, k) => Math.hypot(b.x - a.x, b.y - a.y) >= 4 / k;
 
+/**
+ * Which gesture a pointerdown starts.
+ *
+ * Drag selects. The lasso used to be the only way to select a region and it
+ * sat behind a modifier nothing in the UI mentioned, so on first open there
+ * was no selection and therefore no action bar -- the map looked inert.
+ * Panning is the rarer intent on a canvas that fits itself on load, so it
+ * takes the modifier instead.
+ *
+ * A press that lands on a node is neither: the node has its own click
+ * listener, and starting a one-point lasso under it only flashes the lasso
+ * path before discarding it.
+ *
+ * Exported for its test; `down` below uses it verbatim.
+ */
+export function gestureFor(e, spaceHeld) {
+  if (e.target?.closest?.('.lg-node')) return 'node';
+  if (e.button === 1 || spaceHeld) return 'pan';
+  if (e.button !== 0) return 'none';
+  return 'lasso';
+}
+
 /** Do two label boxes touch? Boxes that only share an edge do not. */
 export const boxesHit = (a, b) =>
   a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
@@ -696,14 +718,30 @@ export default function useCanvas({
       };
     };
 
+    // Space is the pan modifier. Tracked on the window rather than the svg
+    // because a key event needs focus and the canvas is never focused -- you
+    // arrive at it with the pointer, not the keyboard.
+    let space = false;
+    const idle = () => (space ? 'grab' : 'crosshair');
+    const key = (e) => {
+      if (e.code !== 'Space') return;
+      // Space is a character in the search box, not a modifier.
+      if (e.target?.matches?.('input, textarea, [contenteditable]')) return;
+      if (e.type === 'keydown') e.preventDefault();   // or the page scrolls
+      space = e.type === 'keydown';
+      svg.style.cursor = idle();
+    };
+
     const down = (e) => {
       state.cancelTween();
-      if (e.shiftKey) {
-        loop = [toWorld(e)];
-        if (lassoEl) { lassoEl.style.display = ''; lassoEl.setAttribute('d', ''); }
-      } else {
+      const g = gestureFor(e, space);
+      if (g === 'node' || g === 'none') return;
+      if (g === 'pan') {
         drag = { x: e.clientX, y: e.clientY, cx: state.cam.x, cy: state.cam.y };
         svg.style.cursor = 'grabbing';
+      } else {
+        loop = [toWorld(e)];
+        if (lassoEl) { lassoEl.style.display = ''; lassoEl.setAttribute('d', ''); }
       }
       svg.setPointerCapture(e.pointerId);
     };
@@ -739,7 +777,7 @@ export default function useCanvas({
         }
       }
       drag = null;
-      svg.style.cursor = 'grab';
+      svg.style.cursor = idle();
     };
     const wheel = (e) => {
       e.preventDefault();
@@ -781,12 +819,16 @@ export default function useCanvas({
     svg.addEventListener('pointermove', move);
     svg.addEventListener('pointerup', up);
     svg.addEventListener('wheel', wheel, { passive: false });
+    window.addEventListener('keydown', key);
+    window.addEventListener('keyup', key);
     return () => {
       ro.disconnect();
       svg.removeEventListener('pointerdown', down);
       svg.removeEventListener('pointermove', move);
       svg.removeEventListener('pointerup', up);
       svg.removeEventListener('wheel', wheel);
+      window.removeEventListener('keydown', key);
+      window.removeEventListener('keyup', key);
       if (state.camRaf) cancelAnimationFrame(state.camRaf);
       state.camRaf = 0;
     };

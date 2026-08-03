@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { makeAlpha, lassoFar } from '../src/components/litgraph/useCanvas';
+import { makeAlpha, lassoFar, gestureFor } from '../src/components/litgraph/useCanvas';
 
 const m = (...ids) => new Map(ids.map((id) => [id, { score: 1 }]));
 
@@ -48,5 +48,31 @@ describe('lassoFar', () => {
 
   it('measures diagonally, not per axis', () => {
     expect(lassoFar(at(0, 0), at(3, 3), 1)).toBe(true);
+  });
+});
+
+describe('gestureFor', () => {
+  const empty = { closest: () => null };
+  const node = { closest: (sel) => (sel === '.lg-node' ? {} : null) };
+  const press = (target = empty, button = 0) => ({ target, button });
+
+  it('selects on a plain drag, with no modifier held', () => {
+    expect(gestureFor(press(), false)).toBe('lasso');
+  });
+
+  it('pans on space-drag and on middle-drag', () => {
+    expect(gestureFor(press(), true)).toBe('pan');
+    expect(gestureFor(press(empty, 1), false)).toBe('pan');
+  });
+
+  // A press on a node must reach the node's own click listener untouched --
+  // starting a lasso there flashes a path that is then thrown away.
+  it('leaves a press on a node alone, held modifier or not', () => {
+    expect(gestureFor(press(node), false)).toBe('node');
+    expect(gestureFor(press(node), true)).toBe('node');
+  });
+
+  it('ignores the right button, which belongs to the context menu', () => {
+    expect(gestureFor(press(empty, 2), false)).toBe('none');
   });
 });

@@ -22,7 +22,16 @@
   border-radius: var(--radius-md);
   background: var(--bg);
 }
-#lg-canvas { display: block; width: 100%; height: 100%; touch-action: none; user-select: none; }
+/* Crosshair, because dragging selects here. Grab/grabbing are written from
+   the pointer handlers when Space makes the drag a pan instead. */
+#lg-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  user-select: none;
+  cursor: crosshair;
+}
 .lg-label { font-size: 9px; pointer-events: none; }
 .lg-label.lg-sub { font-size: 7.5px; }
 .lg-hull-label {

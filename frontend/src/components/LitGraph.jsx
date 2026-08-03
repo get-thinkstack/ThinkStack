@@ -394,10 +394,10 @@ export default function LitGraph() {
         </button>
         {showHelp && (
           <div className="lg-help" role="dialog" aria-label="How to use the map">
-            <div><b>drag</b> pan the map</div>
-            <div><b>wheel</b> zoom in and out</div>
+            <div><b>drag</b> lasso a region to act on it</div>
             <div><b>click</b> a paper to open it and frame its neighbours</div>
-            <div><b>shift-drag</b> lasso a region to act on it</div>
+            <div><b>wheel</b> zoom in and out</div>
+            <div><b>space-drag</b> pan the map</div>
           </div>
         )}
 
