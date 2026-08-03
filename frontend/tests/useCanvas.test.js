@@ -54,25 +54,26 @@ describe('lassoFar', () => {
 describe('gestureFor', () => {
   const empty = { closest: () => null };
   const node = { closest: (sel) => (sel === '.lg-node' ? {} : null) };
-  const press = (target = empty, button = 0) => ({ target, button });
+  const press = (shiftKey = false, target = empty, button = 0) => ({ target, button, shiftKey });
 
-  it('selects on a plain drag, with no modifier held', () => {
-    expect(gestureFor(press(), false)).toBe('lasso');
+  // Plain drag pans. It selected for one release and made trackpads unusable:
+  // every two-finger navigation gesture became a lasso.
+  it('pans on a plain drag', () => {
+    expect(gestureFor(press())).toBe('pan');
   });
 
-  it('pans on space-drag and on middle-drag', () => {
-    expect(gestureFor(press(), true)).toBe('pan');
-    expect(gestureFor(press(empty, 1), false)).toBe('pan');
+  it('lassos only behind shift', () => {
+    expect(gestureFor(press(true))).toBe('lasso');
   });
 
   // A press on a node must reach the node's own click listener untouched --
-  // starting a lasso there flashes a path that is then thrown away.
-  it('leaves a press on a node alone, held modifier or not', () => {
-    expect(gestureFor(press(node), false)).toBe('node');
-    expect(gestureFor(press(node), true)).toBe('node');
+  // starting a gesture there flashes a lasso path that is then thrown away.
+  it('leaves a press on a node alone, shift or not', () => {
+    expect(gestureFor(press(false, node))).toBe('node');
+    expect(gestureFor(press(true, node))).toBe('node');
   });
 
   it('ignores the right button, which belongs to the context menu', () => {
-    expect(gestureFor(press(empty, 2), false)).toBe('none');
+    expect(gestureFor(press(false, empty, 2))).toBe('none');
   });
 });

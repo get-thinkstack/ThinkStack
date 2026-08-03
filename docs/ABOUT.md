@@ -120,7 +120,7 @@ to the papers that evidence them.
 - **Search by meaning.** Describe what you are after and the map dims to what
   matched, with a ring on each paper showing how strong the match was. You do not
   need the author's wording — only the idea.
-- **Select by drawing.** Drag a loop around a region and those papers become
+- **Select by drawing.** Shift-drag a loop around a region and those papers become
   your selection. **Summarize**, **Claims**, **Themes** and **Find gaps** all run
   on whatever is selected, so choosing papers and seeing *why* you chose them are
   the same gesture.

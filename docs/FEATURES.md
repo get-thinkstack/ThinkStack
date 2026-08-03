@@ -88,7 +88,7 @@ what is in this collection, and what is missing from it.
   dashed evidence edges back to each one.
 - **Claims fan out** — double-click a paper to expand its extracted claims as
   sub-nodes.
-- **The map is the selector** — drag a lasso, or run a search, and the
+- **The map is the selector** — shift-drag a lasso, or run a search, and the
   resulting set is what Summarize / Claims / Themes / Find-gaps operate on.
 
 The graph is derived on every request from data that already persists

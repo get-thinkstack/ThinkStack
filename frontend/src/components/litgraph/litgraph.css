@@ -36,15 +36,16 @@
   border-radius: var(--radius-md);
   background: var(--bg);
 }
-/* Crosshair, because dragging selects here. Grab/grabbing are written from
-   the pointer handlers when Space makes the drag a pan instead. */
+/* Grab, because dragging pans. The pointer handlers write grabbing/grab
+   inline during a drag; keeping the idle cursor here (not as an inline style
+   on the svg) is what lets them win only while they need to. */
 #lg-canvas {
   display: block;
   width: 100%;
   height: 100%;
   touch-action: none;
   user-select: none;
-  cursor: crosshair;
+  cursor: grab;
 }
 .lg-label { font-size: 9px; pointer-events: none; }
 .lg-label.lg-sub { font-size: 7.5px; }
