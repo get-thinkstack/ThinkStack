@@ -13,7 +13,21 @@
   grid-template-columns: 1fr;
   height: calc(100vh - 3rem);
 }
-.lg-root.lg-has-panel { grid-template-columns: 1fr 360px; }
+/* The panel width is a variable the grip writes to directly, so a drag never
+   goes through React. --lg-panel-w is set on .lg-root itself; the fallback
+   here is the width it opens at before you have ever dragged it. */
+.lg-root.lg-has-panel {
+  grid-template-columns: 1fr 5px var(--lg-panel-w, 360px);
+}
+
+.lg-grip {
+  cursor: col-resize;
+  background: var(--border);
+  opacity: 0;
+  transition: opacity var(--transition-fast, 140ms ease);
+}
+.lg-grip:hover,
+.lg-grip.is-dragging { opacity: 1; }
 
 .lg-stage {
   position: relative;
@@ -22,7 +36,17 @@
   border-radius: var(--radius-md);
   background: var(--bg);
 }
-#lg-canvas { display: block; width: 100%; height: 100%; touch-action: none; user-select: none; }
+/* Grab, because dragging pans. The pointer handlers write grabbing/grab
+   inline during a drag; keeping the idle cursor here (not as an inline style
+   on the svg) is what lets them win only while they need to. */
+#lg-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+}
 .lg-label { font-size: 9px; pointer-events: none; }
 .lg-label.lg-sub { font-size: 7.5px; }
 .lg-hull-label {
@@ -409,14 +433,25 @@
 .lg-error button { display: flex; background: none; border: none; color: inherit; cursor: pointer; }
 
 /* ---------- side panel ---------- */
+/* A column, not a scrolling block: the title and the tabs stay put and only
+   the tab body scrolls, or reading a paper scrolls its own title away. */
 .lg-panel {
   position: relative;
-  overflow-y: auto;
-  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  padding: 18px 16px 0;
   background: var(--surface);
   border: 1px solid var(--border);
   border-left: none;
   border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+.lg-tabbody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 18px;
 }
 .lg-panel-x {
   position: absolute;
@@ -450,6 +485,117 @@
 .lg-panel p { margin: 0 0 10px; font-size: 0.82rem; line-height: 1.6; color: var(--text-2); }
 .lg-authors { margin-bottom: 12px; font-size: 0.75rem; color: var(--text-3); }
 .lg-muted { color: var(--text-3); font-style: italic; }
+
+/* Tabs. Same shape as the Scribe preview switcher (.pw-preview-tab), copied
+   rather than shared: that one renders a single static tab and the two
+   surfaces have no reason to move together. */
+.lg-tabs {
+  display: flex;
+  flex-shrink: 0;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.lg-tab {
+  padding: 0.5rem 0.9rem;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--font-base);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+.lg-tab:hover { color: var(--text-2); }
+.lg-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* A statement about the paper, as opposed to a quote from it. */
+.lg-fact { margin: 0; font-size: 0.8rem; line-height: 1.6; color: var(--text-2); }
+
+/* ---------- the reader ---------- */
+/* The pdf scrolls inside its own viewer; the tabbody must not add a second
+   scrollbar or any padding around the page. */
+.lg-reader-pdf { padding: 0; overflow: hidden; display: flex; }
+.lg-pdf { flex: 1; width: 100%; border: 0; }
+
+.lg-reader-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 0;
+  background: var(--surface);
+  /* A filename is not a heading -- uppercasing one makes it unreadable. */
+  font-size: 0.68rem;
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+.lg-chunk {
+  position: relative;
+  margin: 0 0 1.1em;
+  /* A measure, not the panel width: the grip goes to half the window and
+     prose stops being readable long before that. */
+  max-width: 62ch;
+  font-size: 0.83rem;
+  line-height: 1.75;
+  color: var(--text);
+}
+.lg-page {
+  margin-right: 0.5em;
+  font-size: 0.65rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+/* Three marks, three CSS properties, so a passage that is all three stays
+   readable instead of stacking three backgrounds on top of each other. */
+.lg-chunk.is-match {
+  padding-left: 0.7em;
+  border-left: 2px solid var(--accent);
+}
+.lg-chunk.is-claim {
+  padding: 0.35em 0.6em;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+.lg-chunk.is-claim.is-match { padding-left: 0.7em; }
+.lg-chunk.is-theme {
+  text-decoration: underline dotted var(--text-3);
+  text-underline-offset: 0.28em;
+}
+
+/* Where a claim jump landed. Fades on its own -- a permanent mark would
+   compete with the three that mean something. */
+.lg-chunk-landed { animation: lg-land 1.6s ease-out; }
+@keyframes lg-land {
+  from { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lg-chunk-landed { animation: none; }
+}
+
+.lg-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.9rem;
+  margin-bottom: 1.1em;
+  font-size: 0.68rem;
+  color: var(--text-3);
+}
+.lg-key::before {
+  display: inline-block;
+  width: 1.4em;
+  margin-right: 0.4em;
+  vertical-align: middle;
+  content: '';
+}
+.lg-key-match::before { border-top: 2px solid var(--accent); }
+.lg-key-claim::before {
+  height: 0.7em;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.lg-key-theme::before { border-top: 2px dotted var(--text-3); }
 
 .lg-quote {
   margin-bottom: 8px;
@@ -594,4 +740,5 @@
 @media (max-width: 900px) {
   .lg-root.lg-has-panel { grid-template-columns: 1fr; }
   .lg-panel { display: none; }
+  .lg-grip { display: none; }
 }

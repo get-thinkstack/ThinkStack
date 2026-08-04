@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import {
   Search as SearchIcon, Brain, Lightbulb, Layers, Target, Clock, X,
   Lock, Eye, EyeOff, Maximize2, Plus, Minus, BookOpen,
@@ -7,8 +7,9 @@ import {
   documentsApi, searchApi, graphApi, analysisApi, gapsApi, useLlmBusy, useJobs,
 } from '../utils/api';
 import useThemeColors from './charts/useThemeColors';
-import GapSeverityChart from './charts/GapSeverityChart';
 import useCanvas from './litgraph/useCanvas';
+import { clampPanel } from './litgraph/panel';
+import PaperPanel from './litgraph/PaperPanel';
 import './litgraph/litgraph.css';
 
 /**
@@ -26,6 +27,12 @@ import './litgraph/litgraph.css';
  */
 
 const RUN_LABELS = { summarize: 'Summary', claims: 'Claims', themes: 'Themes' };
+const PANEL_W_KEY = 'lg-panel-w';
+
+// Recharts is 300 kB and this chart only appears inside the runs drawer when
+// a gap scan has actually produced gaps. Importing it at the top pulled all
+// of Recharts into the first paint of the map, which draws its own graph.
+const GapSeverityChart = lazy(() => import('./charts/GapSeverityChart'));
 
 export default function LitGraph() {
   const svgRef = useRef(null);
@@ -136,7 +143,9 @@ export default function LitGraph() {
       return;
     }
     const node = graph?.nodes.find((n) => n.doc_id === id);
-    if (node) setPanel({ kind: 'paper', node });
+    // Keep whichever tab is open when moving between papers: following a
+    // connection out of the reader is still reading.
+    if (node) setPanel((p) => ({ kind: 'paper', node, tab: p?.kind === 'paper' ? p.tab : 'about' }));
   }, []);
 
   const onLasso = useCallback((picked) => {
@@ -206,6 +215,42 @@ export default function LitGraph() {
     }, 250);
     return () => clearTimeout(t);
   }, [query, canvas]);
+
+  // ---- panel width ----
+  //
+  // The drag writes the CSS variable straight onto the root and never touches
+  // React state: the canvas is a few hundred imperative SVG nodes, and putting
+  // a pointermove through the reconciler to move one grid track would rebuild
+  // the tree at 60fps to do it. The camera takes care of itself -- the
+  // ResizeObserver in useCanvas already re-centres on a container resize.
+  // A callback ref, not an effect: the loading and empty states return before
+  // .lg-root exists, so an effect keyed on mount would run while the ref is
+  // still null and the saved width would be dropped on every cold load.
+  const rootRef = useRef(null);
+  const setRoot = useCallback((el) => {
+    rootRef.current = el;
+    const saved = el && localStorage.getItem(PANEL_W_KEY);
+    if (saved) el.style.setProperty('--lg-panel-w', saved);
+  }, []);
+
+  const onGrip = (e) => {
+    e.preventDefault();
+    const grip = e.currentTarget;
+    grip.classList.add('is-dragging');
+    const move = (ev) => {
+      const w = clampPanel(window.innerWidth - ev.clientX, window.innerWidth);
+      rootRef.current?.style.setProperty('--lg-panel-w', `${w}px`);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      grip.classList.remove('is-dragging');
+      const w = rootRef.current?.style.getPropertyValue('--lg-panel-w');
+      if (w) localStorage.setItem(PANEL_W_KEY, w);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
 
   const clearSelection = () => {
     setQuery(''); setResults([]); setMatches(new Map());
@@ -285,10 +330,13 @@ export default function LitGraph() {
   }
 
   return (
-    <div className={`lg-root ${panel ? 'lg-has-panel' : ''}`}>
+    <div ref={setRoot} className={`lg-root ${panel ? 'lg-has-panel' : ''}`}>
       {/* ---------- canvas ---------- */}
       <div className="lg-stage">
-        <svg id="lg-canvas" ref={svgRef} style={{ cursor: 'grab' }}>
+        {/* The cursor lives in CSS (crosshair, because dragging selects). The
+            pointer handlers write it inline from there, which is why there is
+            no style prop here -- one would win over the stylesheet forever. */}
+        <svg id="lg-canvas" ref={svgRef}>
           <g id="lg-viewport">
             <g id="lg-hulls" />
             <g id="lg-edges" />
@@ -395,9 +443,9 @@ export default function LitGraph() {
         {showHelp && (
           <div className="lg-help" role="dialog" aria-label="How to use the map">
             <div><b>drag</b> pan the map</div>
-            <div><b>wheel</b> zoom in and out</div>
-            <div><b>click</b> a paper to open it and frame its neighbours</div>
             <div><b>shift-drag</b> lasso a region to act on it</div>
+            <div><b>click</b> a paper to open it and frame its neighbours</div>
+            <div><b>wheel</b> zoom in and out</div>
           </div>
         )}
 
@@ -510,58 +558,29 @@ export default function LitGraph() {
 
       {/* ---------- side panel ---------- */}
       {panel && (
+        <div
+          className="lg-grip"
+          onPointerDown={onGrip}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize the panel"
+        />
+      )}
+      {panel && (
         <aside className="lg-panel">
           <button className="lg-panel-x" onClick={() => setPanel(null)}><X size={16} /></button>
 
           {panel.kind === 'paper' && (
-            <>
-              <div className="lg-kind">Paper</div>
-              <h3>{panel.node.title}</h3>
-              <div className="lg-authors">{panel.node.authors} {panel.node.year}</div>
-              {panel.node.summary
-                ? <p>{panel.node.summary}</p>
-                : (
-                  // Claims without a summary is a real state -- you can run
-                  // either one alone -- so this must not claim the paper is
-                  // untouched when its claims are listed directly below.
-                  <p className="lg-muted">
-                    {panel.node.claims?.length
-                      ? 'No summary yet. Select it and run Summarize.'
-                      : 'Not analyzed yet. Select it and run Summarize.'}
-                  </p>
-                )}
-
-              {matches.get(panel.node.doc_id)?.hits?.length > 0 && (
-                <>
-                  <h4>Why this matched</h4>
-                  {matches.get(panel.node.doc_id).hits.slice(0, 4).map((h) => (
-                    <div key={h.chunk_id} className="lg-quote">
-                      <q>{h.text}</q>
-                      <span>page {h.page} · {h.score.toFixed(2)}</span>
-                    </div>
-                  ))}
-                </>
-              )}
-
-              {panel.node.claims?.length > 0 && (
-                <>
-                  <h4>Claims · {panel.node.claims.length}</h4>
-                  {panel.node.claims.map((c, i) => (
-                    <button key={i} className="lg-claim"
-                      onClick={() => setPanel({ kind: 'claim', claim: c, node: panel.node })}>
-                      <span className="lg-tag">{(c.type || c.claim_type || '').replace(/_/g, ' ')}</span>
-                      {c.text || c.claim_text}
-                    </button>
-                  ))}
-                </>
-              )}
-
-              <div className="lg-stat"><span>Chunks</span><b>{panel.node.chunks}</b></div>
-              <button className="btn btn-secondary btn-sm" style={{ marginTop: '0.75rem' }}
-                onClick={() => setExpanded(expanded === panel.node.doc_id ? null : panel.node.doc_id)}>
-                {expanded === panel.node.doc_id ? 'Collapse claims' : 'Fan out claims'}
-              </button>
-            </>
+            <PaperPanel
+              node={panel.node}
+              graph={graph}
+              matches={matches}
+              tab={panel.tab}
+              onTab={(tab) => setPanel((p) => ({ ...p, tab }))}
+              onSelect={onSelect}
+              expanded={expanded}
+              onExpand={setExpanded}
+            />
           )}
 
           {panel.kind === 'claim' && (
@@ -733,7 +752,9 @@ function RunResult({ run }) {
   const gaps = res.gaps || [];
   return (
     <div className="lg-runres">
-      {gaps.length > 0 && <GapSeverityChart gaps={gaps} />}
+      {gaps.length > 0 && (
+        <Suspense fallback={null}><GapSeverityChart gaps={gaps} /></Suspense>
+      )}
       <h4>Gaps · {gaps.length}</h4>
       {gaps.map((g, i) => (
         <div key={i} className="lg-sugg">

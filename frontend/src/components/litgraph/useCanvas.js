@@ -116,6 +116,28 @@ export function makeAlpha(matches, focus, neighbours) {
  */
 export const lassoFar = (a, b, k) => Math.hypot(b.x - a.x, b.y - a.y) >= 4 / k;
 
+/**
+ * Which gesture a pointerdown starts.
+ *
+ * Drag pans; the lasso is behind shift. It was briefly the other way round --
+ * drag-to-select, space-to-pan -- and a trackpad made the case against it:
+ * every two-finger navigation drag became a selection, so the map could not
+ * be moved at all. Panning is the gesture a canvas cannot lose; selection is
+ * the one that can afford a modifier (and the help popover now names it).
+ *
+ * A press that lands on a node is neither: the node has its own click
+ * listener, and starting a one-point lasso under it only flashes the lasso
+ * path before discarding it.
+ *
+ * Exported for its test; `down` below uses it verbatim.
+ */
+export function gestureFor(e) {
+  if (e.target?.closest?.('.lg-node')) return 'node';
+  if (e.shiftKey) return 'lasso';
+  if (e.button === 0 || e.button === 1) return 'pan';
+  return 'none';
+}
+
 /** Do two label boxes touch? Boxes that only share an edge do not. */
 export const boxesHit = (a, b) =>
   a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
@@ -698,12 +720,14 @@ export default function useCanvas({
 
     const down = (e) => {
       state.cancelTween();
-      if (e.shiftKey) {
-        loop = [toWorld(e)];
-        if (lassoEl) { lassoEl.style.display = ''; lassoEl.setAttribute('d', ''); }
-      } else {
+      const g = gestureFor(e);
+      if (g === 'node' || g === 'none') return;
+      if (g === 'pan') {
         drag = { x: e.clientX, y: e.clientY, cx: state.cam.x, cy: state.cam.y };
         svg.style.cursor = 'grabbing';
+      } else {
+        loop = [toWorld(e)];
+        if (lassoEl) { lassoEl.style.display = ''; lassoEl.setAttribute('d', ''); }
       }
       svg.setPointerCapture(e.pointerId);
     };
