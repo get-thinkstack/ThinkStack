@@ -1,9 +1,12 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { Clock, CheckCircle, FileText, Trash2, RefreshCw, ChevronDown, ChevronUp, Lock, ShieldCheck, ShieldOff, Eye, EyeOff, BarChart2, Brain, Target } from 'lucide-react';
 import { documentsApi, encryptionApi } from '../utils/api';
 import UploadPanel from './UploadPanel';
-import LibraryChart from './charts/LibraryChart';
 import PageHeader from './PageHeader';
+
+// Recharts is 300 kB and there is no chart to draw on an empty library, which
+// is exactly the state a first run opens in. It arrives with the first paper.
+const LibraryChart = lazy(() => import('./charts/LibraryChart'));
 
 /**
  * Library - the paper collection.
@@ -169,7 +172,9 @@ export default function Library() {
         </div>
       </div>
 
-      {documents.length > 0 && <LibraryChart documents={documents} />}
+      {documents.length > 0 && (
+        <Suspense fallback={null}><LibraryChart documents={documents} /></Suspense>
+      )}
 
       <div className="fade-up stagger-3">
         <UploadPanel onUploadComplete={loadDocuments} />

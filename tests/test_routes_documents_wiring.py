@@ -73,6 +73,59 @@ async def test_upload_still_succeeds_when_scheduling_blows_up(monkeypatch):
     assert result["status"] == "ingested"
 
 
+async def test_pdf_route_404s_for_an_unknown_document(monkeypatch):
+    import pytest
+    from fastapi import HTTPException
+    from api.routes_documents import get_document_pdf
+
+    monkeypatch.setattr(routes_documents, "get_pdf_path", lambda doc_id: None)
+
+    with pytest.raises(HTTPException) as e:
+        await get_document_pdf("nope")
+    assert e.value.status_code == 404
+
+
+async def test_pdf_route_refuses_an_encrypted_document(monkeypatch, tmp_path):
+    """the stored pdf is NOT encrypted at rest.
+
+    encryption covers the chunk text in the vector store; the original file
+    sits in papers_dir as plaintext. serving it for an encrypted document
+    would hand back everything the encryption exists to withhold.
+    """
+    import pytest
+    from fastapi import HTTPException
+    from api.routes_documents import get_document_pdf
+
+    pdf = tmp_path / "docX_paper.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+    monkeypatch.setattr(routes_documents, "get_pdf_path", lambda doc_id: pdf)
+    monkeypatch.setattr(routes_documents, "get_chunks_by_doc_id",
+                        lambda doc_id: {"ids": ["c1"], "documents": ["x"],
+                                        "metadatas": [{"is_encrypted": "true"}]})
+
+    with pytest.raises(HTTPException) as e:
+        await get_document_pdf("docX")
+    assert e.value.status_code == 403
+
+
+async def test_pdf_route_serves_a_plain_document_inline(monkeypatch, tmp_path):
+    """inline, not attachment -- an attachment disposition leaves the reader's
+    iframe blank and downloads the file instead (same trap routes_papers hit)."""
+    from api.routes_documents import get_document_pdf
+
+    pdf = tmp_path / "docX_paper.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+    monkeypatch.setattr(routes_documents, "get_pdf_path", lambda doc_id: pdf)
+    monkeypatch.setattr(routes_documents, "get_chunks_by_doc_id",
+                        lambda doc_id: {"ids": ["c1"], "documents": ["x"],
+                                        "metadatas": [{"is_encrypted": "false"}]})
+
+    resp = await get_document_pdf("docX")
+
+    assert resp.media_type == "application/pdf"
+    assert "inline" in resp.headers["content-disposition"]
+
+
 async def test_delete_removes_cached_analysis(monkeypatch, tmp_path):
     monkeypatch.setattr(routes_documents, "delete_pdf", lambda doc_id: True)
     monkeypatch.setattr(routes_documents, "delete_chunks_by_doc_id", lambda doc_id: True)

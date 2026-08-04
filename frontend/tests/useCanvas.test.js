@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { makeAlpha, lassoFar } from '../src/components/litgraph/useCanvas';
+import { makeAlpha, lassoFar, gestureFor } from '../src/components/litgraph/useCanvas';
 
 const m = (...ids) => new Map(ids.map((id) => [id, { score: 1 }]));
 
@@ -48,5 +48,32 @@ describe('lassoFar', () => {
 
   it('measures diagonally, not per axis', () => {
     expect(lassoFar(at(0, 0), at(3, 3), 1)).toBe(true);
+  });
+});
+
+describe('gestureFor', () => {
+  const empty = { closest: () => null };
+  const node = { closest: (sel) => (sel === '.lg-node' ? {} : null) };
+  const press = (shiftKey = false, target = empty, button = 0) => ({ target, button, shiftKey });
+
+  // Plain drag pans. It selected for one release and made trackpads unusable:
+  // every two-finger navigation gesture became a lasso.
+  it('pans on a plain drag', () => {
+    expect(gestureFor(press())).toBe('pan');
+  });
+
+  it('lassos only behind shift', () => {
+    expect(gestureFor(press(true))).toBe('lasso');
+  });
+
+  // A press on a node must reach the node's own click listener untouched --
+  // starting a gesture there flashes a lasso path that is then thrown away.
+  it('leaves a press on a node alone, shift or not', () => {
+    expect(gestureFor(press(false, node))).toBe('node');
+    expect(gestureFor(press(true, node))).toBe('node');
+  });
+
+  it('ignores the right button, which belongs to the context menu', () => {
+    expect(gestureFor(press(false, empty, 2))).toBe('none');
   });
 });
