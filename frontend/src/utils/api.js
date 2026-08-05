@@ -259,6 +259,53 @@ export const modelsApi = {
   cancelDownload: () => request('/models/download/cancel', { method: 'POST' }),
 };
 
+/**
+ * The model registry: what this install has, and what each model is used for.
+ *
+ * Every mutating call returns a fresh `snapshot` alongside its own result, so
+ * the UI re-renders from one authoritative payload instead of stitching a
+ * local guess onto the previous state. Removing a model changes what every
+ * OTHER card says (a task may now be uncovered), and optimistic updates would
+ * show a view that never actually existed on the server.
+ */
+export const registryApi = {
+  get: () => request('/models/registry'),
+  import: (path, tasks, label = '') =>
+    request('/models/registry/import', { method: 'POST', body: { path, tasks, label } }),
+  update: (id, body) =>
+    request(`/models/registry/${encodeURIComponent(id)}`, { method: 'PATCH', body }),
+  // deleteFile is opt-in: forgetting a model and destroying several GB of
+  // weights are different intentions, and only one of them is reversible.
+  // `${!!deleteFile}` renders true/false with no quotes on purpose: quotes
+  // inside the template literal break the api-contract test's parser, which
+  // scans this file to prove every caller hits a real route.
+  remove: (id, deleteFile = false) =>
+    request(`/models/registry/${encodeURIComponent(id)}?delete_file=${!!deleteFile}`, {
+      method: 'DELETE',
+    }),
+};
+
+/**
+ * Hugging Face. The ONLY part of this client that reaches the internet.
+ *
+ * Every call here is the direct result of a click -- there is deliberately no
+ * prefetch and no search-as-you-type, because an offline-first app that fires
+ * a remote request on every keystroke is not one.
+ */
+export const hfApi = {
+  search: (q, limit = 20) =>
+    request(`/hf/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+  repo: (repoId) => {
+    const [owner, name] = String(repoId).split('/');
+    return request(`/hf/repo/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`);
+  },
+  download: (repoId, filename, tasks = []) =>
+    request('/hf/download', {
+      method: 'POST',
+      body: { repo_id: repoId, filename, tasks },
+    }),
+};
+
 export const encryptionApi = {
   encrypt: (docId, password) =>
     request('/encryption/encrypt', {

@@ -4,6 +4,7 @@ import {
   FilePlus2, Save, Play, Download, Trash2, Sparkles, FileText, Loader2, BookOpen, ChevronDown,
 } from 'lucide-react';
 import { papersApi, documentsApi, useLlmBusy } from '../utils/api';
+import ModelPicker from './ModelPicker';
 import PageHeader from './PageHeader';
 
 const AUTOCOMPILE_KEY = 'thinkstack.paperWriter.autoCompile';
@@ -362,7 +363,13 @@ export default function Scribe() {
       <PageHeader
         title="Scribe"
         subtitle="Draft, AI-generate, and compile LaTeX papers - fully offline."
-      />
+      >
+        {/* Writing LaTeX is a structured-output task: it has to emit markup
+            that compiles. Which model does it is worth choosing here rather
+            than only in Bench, because this is the screen where a bad choice
+            shows up. Writes the same registry Bench does. */}
+        <ModelPicker task="latex_writer" compact />
+      </PageHeader>
 
       {/* project bar */}
       <div className="card pw-bar">

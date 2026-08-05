@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
+import ModelPicker from './ModelPicker';
 import {
   Search as SearchIcon, Brain, Lightbulb, Layers, Target, Clock, X,
   Lock, Eye, EyeOff, Maximize2, Plus, Minus, BookOpen,
@@ -385,6 +386,14 @@ export default function LitGraph() {
             <button className="lg-chip" onClick={() => { setRunsOpen(true); }}>
               <Clock size={13} /> Runs
             </button>
+
+            {/* LitGraph runs TWO task types, not one: `analysis` builds the
+                summaries, claims and themes; `gap_analysis` finds the gaps.
+                They use different prompts and benefit from different models,
+                so collapsing them into a single "LitGraph model" would hide a
+                real choice. Bench shows the same assignments. */}
+            <ModelPicker task="analysis" compact />
+            <ModelPicker task="gap_analysis" compact />
           </div>
 
           {/* the library at a glance -- what the map is made of, before you

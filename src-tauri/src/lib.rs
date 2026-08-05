@@ -558,6 +558,12 @@ pub fn run() {
 
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        // Native file dialog. Bench uses it to let the user point at a .gguf
+        // they already have: the UI is served over http, so a webview file
+        // input hands back a File with no filesystem path -- and the whole
+        // point of importing is to REFERENCE weights where they sit rather
+        // than copy several gigabytes through the backend.
+        .plugin(tauri_plugin_dialog::init())
         .manage(StartupLog::default())
         .invoke_handler(tauri::generate_handler![startup_log]);
 

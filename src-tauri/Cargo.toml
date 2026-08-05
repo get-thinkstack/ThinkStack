@@ -34,4 +34,8 @@ sysinfo = "0.32"
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+# native "open file" dialog. the UI is served over http, so a webview
+# file input yields no filesystem path -- and importing a model needs
+# the path, because the weights are referenced where they lie.
+tauri-plugin-dialog = "2"
 

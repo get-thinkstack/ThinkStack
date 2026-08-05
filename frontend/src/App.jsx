@@ -4,7 +4,6 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { BookOpen, Waypoints, PenLine, Sun, Moon, RefreshCw, Check, AlertCircle, Gauge } from 'lucide-react';
 import { systemApi } from './utils/api';
 import { checkForUpdatesInteractive, APP_VERSION } from './utils/updater';
-import ModelSetup from './components/ModelSetup';
 import './index.css';
 
 // One page is on screen at a time, so one page is worth downloading at a
@@ -177,9 +176,11 @@ export default function App() {
 
   return (
     <>
-      {/* first-run only, and only when a better model is both runnable and
-          not already installed. renders nothing otherwise. */}
-      <ModelSetup />
+      {/* The first-run "your machine can run a better model" modal is gone.
+          It interrupted whatever the user was doing to offer a model Bench
+          already lists, kept its own localStorage record of what had been
+          declined, and reappeared during page load after the model it was
+          offering had been dealt with elsewhere. Bench is the one place. */}
       <div className="ambient-bg">
         <div className="ambient-orb orb-1"></div>
         <div className="ambient-orb orb-2"></div>
