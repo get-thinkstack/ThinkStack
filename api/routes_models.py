@@ -45,7 +45,9 @@ async def model_setup():
         discover_all, settings.models_dir, settings.ollama_base_url
     )
     installed = installed_names(found)
-    upgrade = catalog.suggested_upgrade(budget, installed)
+    # tier as well as budget: a model that FITS can still be a bad
+    # suggestion on a slow machine. see catalog.suggested_upgrade.
+    upgrade = catalog.suggested_upgrade(budget, installed, hw.tier)
 
     return {
         "hardware": {

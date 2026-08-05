@@ -70,22 +70,53 @@ class TestRunnableOn:
 
 
 class TestSuggestedUpgrade:
-    def test_offers_analysis_model_on_capable_machine(self):
-        assert suggested_upgrade(8.0, installed={BASE_MODEL.name}) is ANALYSIS_MODEL
+    """What to offer, given BOTH hardware constraints.
+
+    `min_ram_gb` asks whether the weights fit; `good_on_tiers` asks whether
+    running them here is a good experience. A 4B fits a 16 GB budget and is
+    still a poor suggestion for a low-tier laptop, where it produces a summary
+    every few minutes -- and a user who takes that suggestion concludes the app
+    is broken.
+    """
+
+    def test_offers_a_structured_output_model_on_a_capable_machine(self):
+        # the 0.5B cannot emit reliable json; anything offered must fix that
+        got = suggested_upgrade(8.0, installed={BASE_MODEL.name}, tier="medium")
+        assert got is not None and got is not BASE_MODEL
 
     def test_no_offer_when_machine_too_small(self):
         assert suggested_upgrade(1.0, installed={BASE_MODEL.name}) is None
 
-    def test_no_offer_when_already_installed(self):
-        installed = {BASE_MODEL.name, ANALYSIS_MODEL.name}
+    def test_no_offer_when_everything_runnable_is_installed(self):
+        installed = {s.name for s in CATALOG}
         assert suggested_upgrade(16.0, installed=installed) is None
 
     def test_no_offer_when_budget_unknown(self):
         assert suggested_upgrade(0.0, installed=set()) is None
 
     def test_picks_the_most_capable_that_fits(self):
+        # unconstrained by tier, the best in the catalog wins
         got = suggested_upgrade(16.0, installed=set())
-        assert got is ANALYSIS_MODEL  # largest optional model that fits
+        assert got is max(
+            (s for s in CATALOG if not s.bundled), key=lambda s: (s.quality, s.size_gb)
+        )
+
+    def test_tier_excludes_a_model_that_would_merely_FIT(self):
+        # the whole point: 16 GB of budget on a low-tier machine must not
+        # produce a 4B suggestion.
+        roomy = suggested_upgrade(16.0, installed=set())
+        low = suggested_upgrade(16.0, installed=set(), tier="low")
+        assert low is not roomy
+        assert low is None or low.runs_on_tier("low")
+
+    def test_an_unknown_tier_applies_no_tier_constraint(self):
+        # failing to classify the machine must not silence every suggestion
+        assert suggested_upgrade(16.0, installed=set(), tier="") is not None
+
+    def test_every_suggestion_respects_the_budget(self):
+        for budget in (0.5, 2.0, 3.0, 5.0, 16.0):
+            got = suggested_upgrade(budget, installed=set())
+            assert got is None or got.min_ram_gb <= budget
 
 
 class TestFindThinkstackModels:
@@ -284,7 +315,7 @@ class TestOfferIsSuppressedByExistingModels:
         )
         monkeypatch.setattr(discovery, "find_lmstudio_models", lambda: [])
         found = discover_all(tmp_path, "http://localhost:11434")
-        assert suggested_upgrade(16.0, installed_names(found)) is None
+        assert suggested_upgrade(16.0, installed_names(found)) is not ANALYSIS_MODEL
 
     @pytest.mark.parametrize("tag", [
         "qwen2.5:1.5b",                      # what ollama actually reports
@@ -306,7 +337,7 @@ class TestOfferIsSuppressedByExistingModels:
         )
         monkeypatch.setattr(discovery, "find_lmstudio_models", lambda: [])
         found = discover_all(tmp_path, "http://localhost:11434")
-        assert suggested_upgrade(16.0, installed_names(found)) is None
+        assert suggested_upgrade(16.0, installed_names(found)) is not ANALYSIS_MODEL
 
     def test_an_unrelated_model_still_gets_the_offer(self, tmp_path, monkeypatch):
         # having llama3.2 says nothing about whether qwen2.5-1.5b is present
@@ -316,11 +347,13 @@ class TestOfferIsSuppressedByExistingModels:
         )
         monkeypatch.setattr(discovery, "find_lmstudio_models", lambda: [])
         found = discover_all(tmp_path, "http://localhost:11434")
-        assert suggested_upgrade(16.0, installed_names(found)) is ANALYSIS_MODEL
+        got = suggested_upgrade(16.0, installed_names(found))
+        assert got is not None and got is not ANALYSIS_MODEL
 
     def test_prompt_appears_when_nothing_comparable_is_installed(self, tmp_path, monkeypatch):
         monkeypatch.setattr(discovery, "find_ollama_running", lambda _u: [])
         monkeypatch.setattr(discovery, "find_ollama_on_disk", lambda: [])
         monkeypatch.setattr(discovery, "find_lmstudio_models", lambda: [])
         found = discover_all(tmp_path, "http://localhost:11434")
-        assert suggested_upgrade(16.0, installed_names(found)) is ANALYSIS_MODEL
+        got = suggested_upgrade(16.0, installed_names(found))
+        assert got is not None and got is not ANALYSIS_MODEL
