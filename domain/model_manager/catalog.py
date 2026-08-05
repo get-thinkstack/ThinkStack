@@ -29,6 +29,21 @@ needs to claim a task in order to be used for one.
 
 from dataclasses import dataclass
 
+# The largest model, in GB of q4 weights, that answers in a tolerable time with
+# no GPU acceleration.
+#
+# Memory is not the binding constraint on a machine without a usable GPU;
+# throughput is. A q4 model's CPU speed falls roughly with its parameter count,
+# so on a typical laptop processor a 0.5B answers at conversational speed, a
+# 1.5B is noticeably slower but usable, and a 3B or 4B takes minutes per
+# summary. A machine with 20 GB free can hold a 4B comfortably and should still
+# not be told to fetch one: it would fit, and then disappoint.
+#
+# Above this size a model is only suggested when the engine can offload it to a
+# GPU that has room for it.
+CPU_COMFORTABLE_GB = 1.2
+
+
 # Ordered worst to best, so a tier can be compared with `>=` via TIER_RANK.
 TIERS = ("low", "medium", "high")
 TIER_RANK = {t: i for i, t in enumerate(TIERS)}
@@ -69,6 +84,21 @@ class ModelSpec:
     def runs_on_tier(self, tier: str) -> bool:
         """whether this is a model worth suggesting on ``tier``."""
         return not self.good_on_tiers or tier in self.good_on_tiers
+
+    def runs_well_on(self, gpu_gb: float = 0.0) -> bool:
+        """whether this will answer in a tolerable time on such a machine.
+
+        ``gpu_gb`` is memory the ENGINE can actually offload to -- zero on a
+        CPU-only build, and zero on a machine whose GPU the shipped llama.cpp
+        cannot use, which are different situations with the same consequence.
+
+        A model that fits in that memory runs accelerated and its size stops
+        mattering much. One that does not runs on the processor, where size is
+        the whole story.
+        """
+        if gpu_gb > 0 and self.size_gb <= gpu_gb:
+            return True
+        return self.size_gb <= CPU_COMFORTABLE_GB
 
 
 # ── the baseline ───────────────────────────────────────────────────────
@@ -221,7 +251,7 @@ def _installed_key_match(spec: ModelSpec, installed: set[str]) -> bool:
 
 
 def suggested_upgrade(
-    budget_gb: float, installed: set[str], tier: str = ""
+    budget_gb: float, installed: set[str], tier: str = "", gpu_gb: float = 0.0
 ) -> ModelSpec | None:
     """the best optional model worth offering ON THIS MACHINE, or None.
 
@@ -247,12 +277,20 @@ def suggested_upgrade(
             unknown, which applies no tier constraint -- refusing to suggest
             anything because we could not classify the machine is worse than
             suggesting something slightly ambitious.
+        gpu_gb: memory the ENGINE can offload to, from
+            ``capability.usable_gpu_memory_gb``. Zero on a CPU-only build and
+            zero on a machine whose GPU the shipped llama.cpp cannot use.
     """
     candidates = [
         s for s in optional_models()
         if not _installed_key_match(s, installed)
         and s.min_ram_gb <= budget_gb
         and (not tier or s.runs_on_tier(tier))
+        # Memory is not the only constraint. Without a GPU the engine can use,
+        # a model large enough to fit is still large enough to take minutes per
+        # summary -- so a machine with plenty of free RAM and no acceleration
+        # must not be told to fetch a 3B. See CPU_COMFORTABLE_GB.
+        and s.runs_well_on(gpu_gb)
         # An upgrade has to UPGRADE something. A model claiming no tasks is an
         # alternative to the bundled one, not an improvement on it, so offering
         # it as "your machine can run a better model" would have the user
@@ -268,7 +306,8 @@ def suggested_upgrade(
 
 
 def suggest_for_task(
-    task: str, budget_gb: float, tier: str = "", installed: set[str] | None = None
+    task: str, budget_gb: float, tier: str = "",
+    installed: set[str] | None = None, gpu_gb: float = 0.0
 ) -> ModelSpec | None:
     """the model this catalog would pick for ``task`` on this machine.
 
@@ -289,6 +328,7 @@ def suggest_for_task(
         and not s.bundled
         and not _installed_key_match(s, installed)
         and (not tier or s.runs_on_tier(tier))
+        and s.runs_well_on(gpu_gb)
     ]
     if not affordable:
         return None

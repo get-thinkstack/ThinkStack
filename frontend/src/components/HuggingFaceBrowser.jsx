@@ -142,7 +142,7 @@ export default function HuggingFaceBrowser({ tasks, budgetGb, busy, onDownloaded
           </div>
 
           {repo.files.map((f) => (
-            <div key={f.filename} className={`hf-file ${f.fits ? '' : 'is-blocked'}`}>
+            <div key={f.filename} className={`hf-file ${f.fits ? '' : 'is-blocked'} ${f.slow_here ? 'is-slow' : ''}`}>
               <div className="hf-file-main">
                 <span className="hf-file-name">
                   {f.quant || f.filename}
@@ -151,6 +151,10 @@ export default function HuggingFaceBrowser({ tasks, budgetGb, busy, onDownloaded
                 <span className="hf-file-meta">
                   {f.size_gb ? `${f.size_gb.toFixed(2)} GB` : 'size unknown'}
                   {!f.fits && budgetGb > 0 && ` · larger than the ${budgetGb} GB free`}
+                  {/* Said BEFORE the download, not after: this is the
+                      disappointment a user otherwise discovers having already
+                      spent a gigabyte of their connection on it. */}
+                  {f.fits && f.slow_here && ' · will be slow without acceleration'}
                 </span>
               </div>
               <button

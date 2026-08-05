@@ -77,10 +77,16 @@ async def repo(owner: str, name: str):
     except hf.HuggingFaceError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
 
-    # Say which files this machine can actually hold, rather than leaving the
-    # user to compare two numbers.
+    # Say which files this machine can hold, and which it can hold but not run
+    # at a useful speed -- two different disappointments, and the second is the
+    # one a user discovers only after a gigabyte has downloaded.
+    from api.routes_registry import _capability, _runs_slowly
+    cap = _capability()
+    gpu_gb = cap.usable_gpu_memory_gb if cap is not None else 0.0
     for f in data["files"]:
         f["fits"] = budget <= 0 or f["size_gb"] <= budget
+        f["slow_here"] = _runs_slowly(f["size_gb"], gpu_gb)
+    data["gpu_gb"] = round(gpu_gb, 1)
     data["budget_gb"] = round(budget, 1)
     return data
 

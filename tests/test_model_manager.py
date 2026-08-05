@@ -13,6 +13,7 @@ import pytest
 from domain.model_manager import discovery
 from domain.model_manager.catalog import (
     ANALYSIS_MODEL,
+    CPU_COMFORTABLE_GB,
     BASE_MODEL,
     CATALOG,
     bundled_models,
@@ -94,18 +95,39 @@ class TestSuggestedUpgrade:
     def test_no_offer_when_budget_unknown(self):
         assert suggested_upgrade(0.0, installed=set()) is None
 
-    def test_picks_the_most_capable_that_fits(self):
-        # unconstrained by tier, the best in the catalog wins
-        got = suggested_upgrade(16.0, installed=set())
+    def test_with_acceleration_the_most_capable_that_fits_wins(self):
+        got = suggested_upgrade(16.0, installed=set(), gpu_gb=12.0)
         assert got is max(
-            (s for s in CATALOG if not s.bundled), key=lambda s: (s.quality, s.size_gb)
+            (s for s in CATALOG if not s.bundled and s.tasks),
+            key=lambda s: (s.quality, s.size_gb),
         )
 
+    def test_without_acceleration_size_is_capped_however_much_ram_there_is(self):
+        """The bug this exists to prevent.
+
+        A machine with no GPU the engine can use has plenty of room for a 4B
+        and would take minutes per summary running it. Memory was the only
+        thing consulted, so 20 GB of free RAM produced a 3B suggestion on a
+        processor-only machine.
+        """
+        for budget in (8.0, 16.0, 64.0):
+            got = suggested_upgrade(budget, installed=set(), gpu_gb=0.0)
+            assert got is not None
+            assert got.size_gb <= CPU_COMFORTABLE_GB, (
+                f"{got.label} suggested on a CPU-only machine with {budget} GB free"
+            )
+
+    def test_acceleration_too_small_for_the_model_does_not_count(self):
+        # a 2 GB card cannot hold a 2.33 GB model, so that model still runs on
+        # the processor and is still a poor suggestion.
+        got = suggested_upgrade(64.0, installed=set(), gpu_gb=2.0)
+        assert got is not None and got.size_gb <= max(2.0, CPU_COMFORTABLE_GB)
+
     def test_tier_excludes_a_model_that_would_merely_FIT(self):
-        # the whole point: 16 GB of budget on a low-tier machine must not
-        # produce a 4B suggestion.
-        roomy = suggested_upgrade(16.0, installed=set())
-        low = suggested_upgrade(16.0, installed=set(), tier="low")
+        # 16 GB of budget on a low-tier machine must not produce a 4B, even
+        # with acceleration available.
+        roomy = suggested_upgrade(16.0, installed=set(), gpu_gb=12.0)
+        low = suggested_upgrade(16.0, installed=set(), tier="low", gpu_gb=12.0)
         assert low is not roomy
         assert low is None or low.runs_on_tier("low")
 
@@ -347,13 +369,17 @@ class TestOfferIsSuppressedByExistingModels:
         )
         monkeypatch.setattr(discovery, "find_lmstudio_models", lambda: [])
         found = discover_all(tmp_path, "http://localhost:11434")
-        got = suggested_upgrade(16.0, installed_names(found))
-        assert got is not None and got is not ANALYSIS_MODEL
+        # the point is that an unrelated model does not suppress the offer;
+        # accelerated so the choice is not narrowed by the CPU cap.
+        got = suggested_upgrade(16.0, installed_names(found), gpu_gb=12.0)
+        assert got is not None
 
     def test_prompt_appears_when_nothing_comparable_is_installed(self, tmp_path, monkeypatch):
         monkeypatch.setattr(discovery, "find_ollama_running", lambda _u: [])
         monkeypatch.setattr(discovery, "find_ollama_on_disk", lambda: [])
         monkeypatch.setattr(discovery, "find_lmstudio_models", lambda: [])
         found = discover_all(tmp_path, "http://localhost:11434")
-        got = suggested_upgrade(16.0, installed_names(found))
-        assert got is not None and got is not ANALYSIS_MODEL
+        # the point is that an unrelated model does not suppress the offer;
+        # accelerated so the choice is not narrowed by the CPU cap.
+        got = suggested_upgrade(16.0, installed_names(found), gpu_gb=12.0)
+        assert got is not None

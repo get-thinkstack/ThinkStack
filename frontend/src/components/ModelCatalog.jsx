@@ -46,7 +46,7 @@ export default function ModelCatalog({ catalog, tasks, budgetGb, busy, downloadi
           )}
 
           {available.map((m) => (
-            <div key={m.name} className={`catalog-row ${m.fits ? '' : 'is-blocked'}`}>
+            <div key={m.name} className={`catalog-row ${m.fits ? '' : 'is-blocked'} ${m.slow_here ? 'is-slow' : ''}`}>
               <div className="catalog-main">
                 <span className="catalog-name">
                   {m.label}
@@ -66,6 +66,15 @@ export default function ModelCatalog({ catalog, tasks, budgetGb, busy, downloadi
                 {!m.fits && (
                   <span className="catalog-blocked">
                     Needs about {m.min_ram_gb} GB free; there is not enough right now.
+                  </span>
+                )}
+                {/* It loads, and then disappoints. Shown rather than hidden:
+                    a user with a reason to want a larger model may still take
+                    it, but should not find out afterwards. */}
+                {m.fits && m.slow_here && (
+                  <span className="catalog-blocked">
+                    Will be slow on this machine — it runs on the processor,
+                    because no graphics acceleration is available here.
                   </span>
                 )}
               </div>

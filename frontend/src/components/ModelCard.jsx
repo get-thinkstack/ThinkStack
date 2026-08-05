@@ -114,6 +114,16 @@ export default function ModelCard({ model, tasks, onAssign, onRemove, busy }) {
         </p>
       )}
 
+      {/* It loads and runs; it is simply slow here. Distinct from `too_big`,
+          which does not load at all. */}
+      {model.slow_here && model.status === 'present' && (
+        <p className="model-card-status warn">
+          <AlertTriangle size={14} />
+          Slow on this machine — it runs on the processor, with no graphics
+          acceleration available
+        </p>
+      )}
+
       {status.text && (
         <p className={`model-card-status ${status.tone}`}>
           <AlertTriangle size={14} /> {status.text}

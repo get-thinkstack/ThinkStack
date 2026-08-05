@@ -106,7 +106,11 @@ export default function ModelPicker({ task, compact = false, onChanged }) {
         {usable.map((m) => (
           <option key={m.id} value={m.id}>
             {m.label}
-            {m.status === 'too_big' ? ' — too large right now' : ''}
+            {m.status === 'too_big'
+              ? ' — too large right now'
+              : m.slow_here
+                ? ' — slow without acceleration'
+                : ''}
           </option>
         ))}
       </select>

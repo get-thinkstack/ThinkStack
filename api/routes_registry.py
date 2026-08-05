@@ -67,6 +67,21 @@ def _capability():
         return None
 
 
+def _runs_slowly(size_gb: float, gpu_gb: float) -> bool:
+    """whether a model of this size will crawl on this machine.
+
+    True when it cannot be offloaded to a GPU the engine can use AND is larger
+    than what a processor answers with in a tolerable time. A size of zero
+    means unmeasured, which is not a reason to warn.
+    """
+    if size_gb <= 0:
+        return False
+    from domain.model_manager.catalog import CPU_COMFORTABLE_GB
+    if gpu_gb > 0 and size_gb <= gpu_gb:
+        return False
+    return size_gb > CPU_COMFORTABLE_GB
+
+
 def _base_model():
     """the floor the RUNTIME would fall back to, or None.
 
@@ -118,6 +133,10 @@ def _snapshot() -> dict:
     # capability supplies the SENTENCE when something does not fit, so the
     # explanation Bench prints is the one the Diagnose screen would give.
     plan_for_size = cap.plan_for_size if cap is not None else None
+    # Memory the ENGINE can offload to -- not the card's spec sheet.
+    # Zero on a CPU-only build, and zero when the shipped llama.cpp
+    # cannot use the GPU that is present.
+    gpu_gb = cap.usable_gpu_memory_gb if cap is not None else 0.0
 
     # what each task would actually use right now -- the honest answer, after
     # budget and existence checks, not just what is assigned.
@@ -157,6 +176,10 @@ def _snapshot() -> dict:
         models.append({
             **e.as_dict(),
             "status": e.status(budget),
+            # The same judgement the download catalog makes, applied to models
+            # already installed. Without it a user could assign a 4B they own
+            # to Analysis and get three tokens a second with nothing said.
+            "slow_here": _runs_slowly(e.size_gb, gpu_gb),
             "is_bundled": manifest.is_bundled(e.id),
             "not_in_use": not_in_use,
             # computed here, not in the UI: it depends on every other entry,
@@ -181,14 +204,14 @@ def _snapshot() -> dict:
         # model" button that opened a separate dialog listing a model Bench
         # already knew about -- two screens telling one story. One snapshot,
         # one card.
-        "upgrade": _upgrade_offer(registry, budget, cap.tier if cap else "", plan_for_size),
+        "upgrade": _upgrade_offer(registry, budget, cap.tier if cap else "", plan_for_size, gpu_gb),
         # The WHOLE catalog, each entry annotated with how it stands against
         # this machine. `upgrade` above is a recommendation and is often None
         # -- correctly, when nothing beats what you already have. Letting the
         # download button vanish with it was wrong: "we do not recommend this"
         # and "you may not have this" are different statements, and a model
         # that claims no tasks is still a model someone may want.
-        "catalog": _catalog_for(registry, budget, cap.tier if cap else "", plan_for_size),
+        "catalog": _catalog_for(registry, budget, cap.tier if cap else "", plan_for_size, gpu_gb),
         "download": downloader.progress or {"status": "idle"},
     }
 
@@ -227,7 +250,7 @@ def _describe(resolution, registry: Registry) -> dict:
 
 
 def _catalog_for(registry: Registry, budget_gb: float, tier: str,
-                 plan_for_size=None) -> list[dict]:
+                 plan_for_size=None, gpu_gb: float = 0.0) -> list[dict]:
     """every model we can fetch, judged against this machine.
 
     Nothing is hidden. `fits` and `recommended_here` carry the judgement, so
@@ -268,7 +291,14 @@ def _catalog_for(registry: Registry, budget_gb: float, tier: str,
                     else (budget_gb <= 0 or s.min_ram_gb <= budget_gb)
                 ),
                 "min_ram_gb": s.min_ram_gb,
-                "recommended_here": bool(s.tasks) and (not tier or s.runs_on_tier(tier)),
+                # fits = the weights will load. slow_here = they will load and
+                # then disappoint. Shown, not hidden: a user with a reason to
+                # want a big model may still take it.
+                "slow_here": not s.runs_well_on(gpu_gb),
+                "recommended_here": (
+                    bool(s.tasks) and (not tier or s.runs_on_tier(tier))
+                    and s.runs_well_on(gpu_gb)
+                ),
             })
         return out
     except Exception as e:  # noqa: BLE001
@@ -277,7 +307,7 @@ def _catalog_for(registry: Registry, budget_gb: float, tier: str,
 
 
 def _upgrade_offer(registry: Registry, budget_gb: float, tier: str = "",
-                   plan_for_size=None) -> dict | None:
+                   plan_for_size=None, gpu_gb: float = 0.0) -> dict | None:
     """the best catalog model worth downloading, or None.
 
     Reuses ``catalog.suggested_upgrade`` and ``discovery`` rather than
@@ -297,7 +327,7 @@ def _upgrade_offer(registry: Registry, budget_gb: float, tier: str = "",
         installed.update(e.id for e in registry.models)
         installed.update(Path(e.path).name for e in registry.models if e.path)
 
-        spec = catalog.suggested_upgrade(budget_gb, installed, tier)
+        spec = catalog.suggested_upgrade(budget_gb, installed, tier, gpu_gb)
         if spec is None:
             return None
         # Never offer what will not load. suggested_upgrade filters on
