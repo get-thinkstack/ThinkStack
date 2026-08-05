@@ -244,6 +244,9 @@ class OllamaClient:
         self._effective_ctx: int | None = None
         # Cached MachineCapability; see _capability().
         self._cap = None
+        # which registry entry the router last chose, so a load failure can be
+        # attributed to it and explained on the Bench card afterwards.
+        self._last_resolution = None
         self.gpu_layers = gpu_layers
         self.timeout = timeout
         self._llama = None
@@ -462,39 +465,83 @@ class OllamaClient:
         returns:
             path to the gguf file to use.
         """
-        candidates = self.TASK_MODEL_MAP.get(task_type, [])
-        models_dir = self._models_dir()
-        budget = self._hw_model_budget_gb()
-
-        first_existing: Optional[Path] = None
-        for name in candidates:
-            path = models_dir / name
-            # not in our dir -> the user may still have these exact weights under
-            # another runtime's naming; use those rather than degrading.
-            if not path.is_file():
-                external = self._find_external_model(name)
-                if external is None:
-                    continue
-                logger.info("task %s -> reusing %s (already on this machine)",
-                            task_type, external)
-                path = external
-            if first_existing is None:
-                first_existing = path
-            if self._fits_budget(path, budget):
-                logger.info(
-                    "task %s -> %s (fits hw budget %.1f gb)", task_type, path.name, budget
-                )
-                return path
-
-        # no task-specific model both exists and fits -> base model (user-selected
-        # if they picked one). warn when the skip was specifically about budget.
         base = self._resolve_llama_model_path()
-        if first_existing is not None and not self._fits_budget(first_existing, budget):
-            logger.warning(
-                "task %s model %s exceeds hw budget %.1f gb; downgrading to %s",
-                task_type, first_existing.name, budget, base.name,
-            )
-        return base
+        resolution = self._route(task_type, base)
+
+        # Attribute a failure to the registry entry that caused it, so the
+        # Bench card can explain itself later. Only the router knows which
+        # entry won, which is why resolution carries the id at all.
+        self._last_resolution = resolution
+        return resolution.path or base
+
+    def _record_load_error(self, exc: BaseException) -> None:
+        """Remember, on the registry entry, why its model would not load.
+
+        A load failure happens deep inside a generation; the Bench card that
+        has to explain it renders much later, possibly after a restart. Nothing
+        else survives that gap, which is why `last_error` is persisted rather
+        than derived.
+
+        Best-effort throughout: this runs on an error path, and failing to
+        record why something failed must never replace the original failure.
+        """
+        res = self._last_resolution
+        if res is None or not getattr(res, "entry_id", None):
+            return
+        try:
+            from domain.model_manager.registry import Registry
+
+            models_dir = self._models_dir()
+            registry = Registry.load(models_dir)
+            if registry.get(res.entry_id) is None:
+                return
+            registry.record_error(res.entry_id, f"{type(exc).__name__}: {exc}"[:300])
+            registry.save(models_dir)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("could not record the load error: %s", e)
+
+    def _route(self, task_type: str, base: Optional[Path] = None):
+        """Ask domain.model_manager.router which model answers this task.
+
+        Routing moved OUT of this class. It now lives in a module whose every
+        dependency is passed in, so the precedence rules can be tested against
+        fabricated registries and budgets with no llama.cpp, no filesystem and
+        no hardware -- none of which was possible while the decision was tangled
+        up with the loader.
+
+        This method is the seam. It supplies the runtime facts the router
+        cannot know: where our models live, what this machine can take, how to
+        find the same weights under another runtime's naming, and the legacy
+        TASK_MODEL_MAP that a tester's .env may still be overriding.
+
+        An EMPTY registry must produce exactly the routing this class did
+        before -- tests/test_model_router.py::TestRegressionAgainstTodaysBehaviour
+        is the guard on that, and it is why the extraction was safe to land with
+        a beta in testers' hands.
+        """
+        from domain.model_manager.manifest import BundledManifest
+        from domain.model_manager.registry import Registry
+        from domain.model_manager.router import resolve
+
+        models_dir = self._models_dir()
+        # Read per call, not cached at import: TASK_MODEL_MAP is a class
+        # attribute frozen at import time, and a model the user assigns in
+        # Bench has to be visible without restarting the whole process.
+        registry = Registry.load(models_dir)
+        manifest = BundledManifest.load(settings.bundled_models_dir)
+        cap = self._capability()
+
+        return resolve(
+            task_type,
+            registry=registry,
+            manifest=manifest,
+            models_dir=models_dir,
+            budget_gb=self._hw_model_budget_gb(),
+            external_finder=self._find_external_model,
+            legacy_defaults=self.TASK_MODEL_MAP.get(task_type, []),
+            base_model=base if base is not None else self._resolve_llama_model_path(),
+            plan_for_size=cap.plan_for_size if cap is not None else None,
+        )
 
     def _capability(self):
         """This machine's capability, resolved once and cached.
@@ -655,6 +702,7 @@ class OllamaClient:
             )
             self._effective_ctx = n_ctx
         except (MemoryError, RuntimeError) as e:
+            self._record_load_error(e)
             # absolute last resort: minimal context
             logger.error(
                 "cpu load failed with ctx=%d: %s. last resort ctx=2048", n_ctx, e,

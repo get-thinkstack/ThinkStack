@@ -213,3 +213,82 @@ fails silently when offline.
 **decision:** `ModelSetup` stores `{outcome, model, at}` instead of `dismissed=true`, treats declining and installing as different answers, only stays quiet about the *specific* model already answered for, and can be reopened from a sidebar button. the legacy boolean is dropped on read rather than honoured.
 **rationale:** the boolean silenced the dialog permanently, for every future model, with no way back from inside the app - and it lives in the webview's localStorage under the app identifier, so reinstalling did not clear it. a tester who clicked "Not now" once would never be offered anything again and would reasonably report that the app never asked; that is exactly what happened during v1.0.0 validation. recording the model name means a later, different suggestion is still asked about, and the sidebar entry makes the decision reversible. the legacy flag is dropped because it carries no record of *what* was declined, so honouring it would mean silencing every future model on the strength of one click that was probably the bug.
 **status:** accepted.
+
+## 2026-08-05: models are a registry the user owns, not a hardcoded table
+
+**Context.** The catalog was a frozen tuple of two specs and routing was a
+dict of hardcoded filenames read at import. A researcher who already had
+suitable weights — via Ollama, LM Studio, or a previous download — had no way
+to tell ThinkStack to use them, and no way to see why a job had chosen one
+model over another.
+
+**Decision.** A writable registry (`domain/model_manager/registry.py`) records
+every model available to the install and which jobs each may do, persisted
+through `atomic_io`. A router (`router.py`) answers which model serves a task,
+with every dependency passed in rather than imported.
+
+**Consequences.**
+- Routing is testable against fabricated hardware with no llama.cpp present.
+  It was previously reachable only by constructing a real client.
+- Two invariants carry the safety: `managed` (did ThinkStack create this file?)
+  gates deletion, and `user_assigned` (did a human choose these tasks?) stops
+  an update silently undoing someone's routing.
+- An empty registry reproduces the previous routing exactly, which is what made
+  the extraction safe to land mid-beta.
+
+## 2026-08-05: imported models are referenced, never copied
+
+**Context.** Model weights run to several gigabytes, and ThinkStack targets
+machines already chosen for being memory-constrained.
+
+**Decision.** Importing records an absolute path. The file is never copied into
+ThinkStack's own directory.
+
+**Consequences.** A 7 GB import costs no additional disk. The cost accepted is
+that the app depends on a path it does not own: the file can move or vanish,
+so entries are validated on read and shown as `missing` rather than failing at
+generation time. Nothing outside ThinkStack's own directory is ever deleted.
+
+## 2026-08-05: suggestions consider compute, not only memory
+
+**Context.** A machine with 20 GB free and no usable GPU was told to download a
+3B model. It would have loaded and then taken minutes per summary.
+
+**Decision.** `runs_well_on(gpu_gb)` gates suggestions on whether the model can
+be offloaded to a GPU the *engine* can use. Without that, size is capped at
+`CPU_COMFORTABLE_GB` (1.2 GB) regardless of available memory.
+
+**Consequences.** The same catalog produces different advice on different
+machines. Large models are still listed and still downloadable, marked "will be
+slow without acceleration" — shown rather than hidden, because a user with a
+reason to want one should be able to have it, and should not discover the cost
+after the download.
+
+## 2026-08-05: never bundle a reasoning model
+
+**Context.** Qwen3 0.6B was selected as a lighter, newer baseline. Every
+structural check passed — verified URL, correct size, valid GGUF, parseable
+output — and it returned `{}` for gap finding.
+
+**Decision.** Reasoning families (Qwen3, DeepSeek-R1, QwQ, Marco-o1) are
+rejected as the bundled model, enforced by tests over both `catalog.py` and
+`release.config.json`.
+
+**Consequences.** `generate_json` constrains output with a GBNF grammar that
+permits only JSON from the first token, leaving a reasoning model's `<think>`
+block nowhere to go. It emits the shortest legal document instead: `{}`.
+`json.loads` succeeds, so nothing downstream notices. The baseline is now
+chosen by measured behaviour on the two flagship jobs, not by size or recency.
+
+## 2026-08-05: Hugging Face download URLs are constructed, never accepted
+
+**Context.** The local API is reachable from the webview, which Tauri treats as
+remote content.
+
+**Decision.** `/api/hf/download` takes a repository id and a filename and builds
+the URL itself. It never accepts a URL.
+
+**Consequences.** Only huggingface.co can be fetched from. Traversal sequences
+and non-`.gguf` paths are refused before a socket opens. An endpoint that
+fetched whatever address it was handed would be a general-purpose downloader
+aimed by anything able to reach the local API.
