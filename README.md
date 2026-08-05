@@ -91,7 +91,7 @@ launch. See [docs/ABOUT.md](docs/ABOUT.md) for the full walkthrough.
 | all-MiniLM-L6-v2 | 88 MB | embeddings for ingestion and search |
 | Tectonic + warmed package cache | 70 MB | LaTeX compilation with no TeX install |
 
-A larger 1.5B model improves analysis and LaTeX quality. It is **not** bundled:
+A larger model improves analysis quality. None of these are bundled:
 the application offers it once, only if your machine can run it, and reuses a
 copy you already have through Ollama or LM Studio rather than downloading again.
 

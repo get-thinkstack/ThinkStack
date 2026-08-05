@@ -8,9 +8,9 @@
 \addcontentsline{toc}{section}{About this Diary}
 \markboth{About this Diary}{}
 
-This diary records the development of ThinkStack from 5 June to 30 July 2026.
-It is reconstructed from the repository itself: 133 commits, 42 merged pull
-requests, 32 recorded architecture decisions, and the published releases. It is
+This diary records the development of ThinkStack from 5 June to 5 August 2026.
+It is reconstructed from the repository itself: 237 commits, 43 merged pull
+requests, 40 recorded architecture decisions, and the published releases. It is
 not written from memory.
 
 Two conventions are observed throughout. First, every quantity was measured or
@@ -52,6 +52,14 @@ what was decided and built rather than who performed each action.
 29 Jul & Sprint II & v0.1.1, then v1.0.0 \\
 30 Jul & Sprint II & v1.0.0 found not to start; root cause analysis and correction \\
 30 Jul & Sprint II & TeX engine bundled; validated beta published \\
+31 Jul & Sprint III & release pipeline consolidated; every dependency pinned \\
+1 to 3 Aug & Sprint III & LitGraph: search, analysis and gaps become one canvas \\
+1 Aug & Sprint III & stale interface after update traced to the webview cache \\
+2 Aug & Sprint III & capability model extracted; Bench introduced \\
+4 Aug & Sprint III & auto-update failure diagnosed; installs on a dead channel rescued \\
+4 Aug & Sprint III & beta v1.9.0 published \\
+4 to 5 Aug & Sprint III & model registry, task router, and Hugging Face acquisition \\
+5 Aug & Sprint III & baseline chosen by measurement; render tests added \\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -265,6 +273,135 @@ A validated beta was published to all three operating systems, with every
 automated check passing, including compilation of a PDF by the packaged
 application.
 
+\section{Sprint III: Correctness of What Was Delivered}
+
+Sprint II ended with software that installed. Sprint III began with the
+discovery that installing is not the same as remaining correct, and most of its
+work was caused by faults that only appear after a second release exists.
+
+\subsection{31 July to 1 August: the pipeline, and what a green tick means}
+
+Five release workflows had accumulated, differing only in what started them and
+how the version was derived; their build and publish halves were identical.
+They were consolidated into one, with the channel decided by which branch
+received the merge.
+
+Two failures during this period shared a cause. A macOS launch check had been
+ordered before the macOS build and marked \texttt{continue-on-error}, so it
+reported success for a run in which it never executed. Separately, an
+unpinned transitive dependency updated overnight and broke all three platforms
+from a commit that changed no application code. Both were cases of a signal
+that appeared to mean verification and did not.
+
+A third fault was subtler. Users who updated correctly continued to see the
+previous interface, because the embedded webview served \texttt{index.html}
+from its own cache, which outlives the application. The correction was to serve
+the entry document with \texttt{no-store} while allowing content-hashed assets
+to remain immutable.
+
+\subsection{1 to 3 August: LitGraph}
+
+The gap finder, search, and summarisation had been separate screens over the
+same corpus and much of the same computation. They were consolidated into one
+canvas, in which the literature is presented as a connected structure rather
+than as three lists: a question is asked once, the passages that answer it are
+shown, the papers containing them are shown in relation to one another, and the
+places where the literature is thin are marked on the same surface.
+
+Analysis was moved off the request path and precomputed at ingestion, because a
+canvas that must summarise before it can draw is a canvas that appears broken.
+Selecting a node opens the paper itself, with the passages the map relied on
+marked in it, so that a claim on the canvas can be checked against its source
+without leaving the screen.
+
+This was the largest single feature of the project and closes the consolidation
+that had been recorded as planned work since Sprint I.
+
+\subsection{2 August: separating measurement from decision}
+
+Hardware classification existed twice: the Rust shell measured the machine at
+startup, and the Python backend measured it again. The two disagreed, and the
+Rust answer silently won, leaving the Python path authoritative-looking and
+dead.
+
+The responsibilities were separated. Rust measures; a single Python module
+converts those measurements into decisions --- context size, offload, token
+budgets, and whether a document must be summarised in several passes. One
+consequence was immediate: graphics offload had been decided by a test for CUDA
+and dedicated video memory, which Apple Silicon can never satisfy despite
+having a usable GPU, so every Mac had been running on the processor alone.
+
+The same reorganisation gave the interface a place to show its findings, and
+\emph{Bench} was introduced beside Library, LitGraph and Scribe: what the
+machine can run, and what it runs it with.
+
+\subsection{4 August: an update mechanism that could not succeed}
+
+A tester reported that the update function did nothing on macOS. The
+investigation found three faults in sequence, each concealing the next.
+
+The update endpoint is compiled into the application and cannot be changed
+afterwards. A rolling release tag had been renamed some days earlier, so every
+installation built during that window continued to poll an address that still
+existed and still advertised the build they already had. Separately, the
+manifest carried a pre-release version string while the application reported
+the plain version, and semantic versioning ranks a pre-release below its own
+release --- so even a correctly aimed installation was told it was current.
+
+The stranded installations could not be reached by any change to the source,
+because the address they poll is fixed in the binary they are running. They
+were recovered by publishing a manifest at the abandoned address that advertises
+the current version and points at the current files, which is a redirection in
+everything but name. Testers on the beta channel now update in place.
+
+The lesson generalised: the earlier failure and this one both arose from a
+change that did not declare what it superseded, leaving the system to infer
+intent from absence.
+
+\subsection{4 to 5 August: models the user chooses}
+
+Until this point the application used the model it shipped with, and one
+optional larger model, selected by a fixed table of filenames. A researcher who
+already had suitable weights --- through Ollama, LM Studio, or a previous
+download --- could not tell the application to use them.
+
+Three modules were added. A \emph{registry} records the models available to an
+installation and which task each may perform, persisted through the existing
+crash-safe write. A \emph{router} answers which model serves a given task on
+this machine at this moment, with every dependency supplied by its caller, so
+that routing can be tested against fabricated hardware without a model runtime
+present. A \emph{manifest}, generated during the build from the release
+configuration, records what that build bundled and which previously bundled
+models it replaces, so that exchanging the included model becomes one
+configuration edit rather than four coordinated source changes.
+
+Imported models are referenced where they already are, never copied: the
+alternative would double the disk cost of a file measured in gigabytes on
+machines already selected for being constrained. A separate flag records
+whether the application created a file, and nothing deletes a file it did not
+create.
+
+Acquisition from Hugging Face was added last, as the only part of the
+application that reaches the network. It searches on submission rather than on
+keystroke, states plainly that it is doing so, and constructs its download
+address from a repository identifier and a filename rather than accepting an
+address, since the local interface is reachable from the embedded browser.
+
+Three defects found during this work shared a single form. A size was rounded
+before being compared against a memory budget, so any file below roughly five
+megabytes measured as zero and satisfied every constraint. A measured size of
+zero was treated by a default-value expression as \emph{no measurement}, so a
+stale declared figure of ninety-nine gigabytes was preferred over the truth.
+And the memory budget itself, computed as free memory less a fixed reserve,
+floors at zero on a constrained machine --- where zero already meant
+\emph{unmeasured, therefore unconstrained}, so the machine least able to run
+anything was told it could run everything.
+
+In each case a legitimate zero was indistinguishable from an absent value. The
+correction in each was the same: ask the module that owns the decision, which
+compares against real quantities, rather than testing a number for truthiness.
+
+
 \section{Decisions and Their Consequences}
 
 \begin{center}
@@ -282,6 +419,10 @@ bundle a typesetting engine & the writer must work with no LaTeX & 70 MB added p
 CPU-only inference build & one build behaves identically everywhere & GPU hardware unused \\
 tags, not branches, produce releases & releases cannot happen by accident & a deliberate step is required \\
 updates only when requested & an offline product must not contact a server unprompted & a user who never asks never updates \\
+merges produce releases, tags record them & a stray tag must not publish to every user & releasing requires a reviewed merge \\
+imported models referenced, never copied & a multi-gigabyte file must not cost twice the disk & the application depends on a path it does not own \\
+task assignment chosen by the user & parameter count does not predict structured output & one extra step when adding a model \\
+download addresses constructed, never accepted & the local interface is reachable from the embedded browser & only known hosts can be fetched from \\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -316,6 +457,113 @@ removed, and a LaTeX error message offered a command for one Linux distribution
 to every user on every platform. Both were written when they were true. Neither
 was noticed until a person followed them and could not proceed.
 
+
+\subsection{5 August: choosing a model by measuring it}
+
+The bundled model was to be replaced with something lighter and newer. Qwen3
+0.6B was the obvious candidate: smaller than the model it would replace, a
+generation ahead, and its download verified. Every structural check passed.
+
+It returned an empty object.
+
+Gap finding constrains the model's output with a grammar that permits only JSON
+from the first token. A reasoning model begins by thinking, and the grammar
+leaves that nowhere to go, so it emits the shortest legal document instead:
+\texttt{\{\}}. The parser succeeds. Nothing downstream notices. The feature
+returns no gaps and reports no error.
+
+A bake-off was written against the two flagship jobs, and it changed the
+decision entirely. The incumbent Qwen2.5 0.5B recovered four of six stated
+limitations, produced valid LaTeX, and was the fastest of the four candidates
+tested; nothing larger justified its additional weight. The model that had been
+about to ship on the strength of its specification came last.
+
+One further correction belongs here, because it was the harness rather than the
+product. The LaTeX test initially wrapped its output in JSON to make it
+machine-checkable, and two candidates were marked down for producing corrupt
+markup --- inside a JSON string, \verb|\begin| is a valid escape and the parser
+silently converts it to a control character. Scribe does not do this; it asks
+for plain text. A test that differs from the production path measures the test.
+
+\subsection{5 August: a test that had never failed}
+
+Three times in one week the application shipped a blank page: the build
+succeeds, because the markup is valid, and the interface framework then throws
+at render time on a name that no longer exists, leaving an empty document and
+an error visible only in a browser console.
+
+A test was added to mount every screen. It passed. The bug was then reproduced
+deliberately --- the import removed again --- and the test still passed, because
+it mounted the four page components and never the application shell, which is
+where the missing import was. It would have passed indefinitely while the
+product failed to start.
+
+The same exercise was applied to the rest of the new work: each guarantee was
+broken on purpose to confirm something noticed. Two of five did not. The
+protection against deleting a file the application did not create had a clear
+error message, an obvious intent, and no test at all.
+
+The general lesson is worth stating plainly, because this project has now
+learned it twice in different forms. A suite that has never failed is a
+hypothesis. Sprint II established that testing source code is not testing a
+product; this establishes that writing a test is not the same as being
+protected by one.
+
+
+\section{Division of Work}
+\markboth{Division of Work}{}
+
+Work was divided by feature rather than by layer, so that each member owned a
+capability end to end --- its data model, its interface, and its failure modes
+--- rather than a horizontal slice of everybody's. The consequence is that no
+part of the product can be described without naming the person who built it.
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}llX@{}}
+\toprule
+\textbf{Capability} & \textbf{Principal author} & \textbf{Scope} \\
+\midrule
+Retrieval and knowledge base & Aditya & document ingestion, chunking, embedding
+index, semantic search \\
+Analysis & Aditya & summarisation, claim extraction, theme clustering, and the
+precomputation that moved them off the request path \\
+Gap finder & Aditya & gap detection over the analysed corpus, and the
+suggestion engine above it \\
+LitGraph & Aditya & the canvas consolidating search, analysis and gaps; the
+reader, passage marking and node interaction \\
+\midrule
+Scribe & Rithesh & LaTeX editor, the auto-healing compiler, and the natural
+language to markup path \\
+Desktop shell & Rithesh & the Tauri application, native hardware diagnosis,
+process supervision, in-application updates \\
+Delivery engineering & Rithesh & cross-platform build, release pipeline,
+artefact validation, and the automated test suite \\
+Model management & Rithesh & hardware capability model, task routing, the
+model registry, and Hugging Face acquisition \\
+\midrule
+Encryption & Jitvan & at-rest encryption and decryption of stored documents,
+with the key handling and interface around it \\
+Distribution site & Jitvan & the public landing and download page \\
+Interface refinement & Jitvan & typography and identity, dark mode correction,
+and the assistant panel \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+The boundaries were not absolute. The interface was worked on by all three, and
+several features crossed hands: encryption was introduced by Jitvan and later
+extended when the key derivation was hardened; the desktop shell was begun as
+packaging work and grew into hardware diagnosis, which then fed the model
+routing. Where a capability changed owner, the original author's design was
+retained and the reasoning recorded in the decision log rather than replaced
+silently.
+
+Review was mutual and enforced by the branch rules described above: no change
+reached the release branches without passing another member's review and the
+automated gate, including changes by the member who wrote those rules.
+
+
 \section{Present State}
 
 \begin{center}
@@ -324,19 +572,27 @@ was noticed until a person followed them and could not proceed.
 \toprule
 \textbf{Measure} & \textbf{Value} \\
 \midrule
-Commits & 133 \\
-Pull requests merged & 42 \\
-Application code (Python) & 8\,258 lines, 73 modules \\
-Test code & 2\,709 lines, 23 modules, 309 tests \\
-Interface code & 3\,280 lines, 9 components \\
-Desktop shell (Rust) & 745 lines \\
-REST endpoints & 36 \\
-Architecture decisions recorded & 32 \\
-Releases published & 5 \\
+Commits & 237 \\
+Pull requests merged & 43 \\
+Application code (Python) & 11\,686 lines, 74 modules \\
+Test code & 5\,761 lines, 34 modules, 643 tests \\
+Interface tests & 63 tests, including every screen mounted \\
+Interface code & 5\,781 lines, 14 components \\
+Desktop shell (Rust) & 777 lines \\
+Build and release tooling & 3\,439 lines, 18 scripts, 6 workflows \\
+REST endpoints & 48 \\
+Architecture decisions recorded & 40 \\
+Releases published & 6, most recently beta v1.9.0 \\
 Platforms built and validated automatically & 3 \\
 \bottomrule
 \end{tabular}
 \end{center}
+
+Figures are measured on the working branch at 5 August and therefore include
+the model management work of 4 to 5 August, which is complete and tested but
+not yet merged. The last released build, beta v1.9.0, carries 8\,725 lines of
+application code and 474 tests; the difference between the two figures is that
+work.
 
 \subsection{Verification status by platform}
 
@@ -348,7 +604,8 @@ Platforms built and validated automatically & 3 \\
 \midrule
 Linux & automatically validated and exercised by hand on physical hardware \\
 Windows & automatically validated and confirmed working by a human tester, though not yet across a range of machines \\
-macOS & automatically validated; windowed behaviour on physical hardware remains unconfirmed, because unsigned applications are obstructed on first launch \\
+macOS & automatically validated and exercised by a tester; unsigned applications are still obstructed on first launch \\
+In-application update & working; testers update in place from the beta channel \\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -425,25 +682,6 @@ accumulated decisions. Points to be settled include:
   \item \textbf{Reading comfort.} Sessions are long and the content is dense, so
         typography, measure and contrast are functional requirements rather than
         decoration.
-\end{itemize}
-
-\subsection{LitGraph: consolidating retrieval, analysis and conversation}
-
-At present the gap finder, search, and summarisation and chat are separate
-features reached from separate screens, although they operate on the same corpus
-and much of the same computation. The planned direction is to consolidate them
-into a single capability, provisionally called LitGraph, in which the literature
-is treated as a connected structure rather than as a list of documents.
-
-\begin{itemize}[leftmargin=*]
-  \item A user would ask a question, see the passages that answer it, see how
-        the papers containing them relate to one another, and see where the
-        literature is thin, as one continuous activity rather than four.
-  \item Retrieval, summarisation and gap detection already share the embedding
-        index and the same model runtime, so consolidation removes duplicated
-        computation as well as duplicated interface.
-  \item Relationships between papers become first-class, which is the
-        foundation the previously planned citation visualisation requires.
 \end{itemize}
 
 \subsection{A robust paper editor}

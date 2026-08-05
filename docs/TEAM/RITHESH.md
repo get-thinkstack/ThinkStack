@@ -190,3 +190,58 @@ the `max_tokens` caps, and the onedir packaging) rather than taking it as-is.
 - `scripts/README.md` is the runbook for cutting a release and for how
   downloads and updates work. I also maintain the landing page (`landing.html`)
   and the ADR entries for the decisions above.
+
+## Model management (Bench)
+
+Bench is where the machine's capability and the models that use it live
+together. The parts I own:
+
+- `domain/model_manager/registry.py`: the user's model choices, persisted
+  through `atomic_io`. Two flags carry most of the safety. `managed` says
+  whether ThinkStack created a file, so nothing here can delete weights we did
+  not write — an imported model is referenced where it already is, never
+  copied, because a 7 GB import must not cost 14 GB on a machine we already
+  know is constrained. `user_assigned` says whether a human chose the tasks, so
+  an update can refresh what a release assigned but never overwrite a choice
+  somebody made on purpose.
+
+- `domain/model_manager/router.py`: which model answers a given task, on this
+  machine, right now. Every dependency is passed in rather than imported, which
+  is what makes routing testable against fabricated hardware with no llama.cpp
+  present. It returns a `Resolution` carrying the *reason*, not a bare path —
+  the old code put its reasoning in a log line and threw it away, so when
+  analysis quietly ran on the smaller model the interface had no way to say so.
+
+- `domain/model_manager/manifest.py` and `reconcile.py`: what this build
+  bundled, and what to do about it on an update. The `replaces` field is what
+  makes an upgrade work rather than just an install; without it, retirement has
+  to infer intent from absence, which is how the `beta-latest` installs got
+  stranded.
+
+- `domain/model_manager/huggingface.py`: search and acquisition, the only part
+  of the app that reaches the network. Download URLs are constructed from a
+  repository id and a filename, never accepted — the local API is reachable
+  from the webview, so an endpoint that fetched whatever it was handed would be
+  a general-purpose downloader aimed by anything that could reach it.
+
+- `scripts/make_bundled_manifest.py`: the build writes what it shipped beside
+  the weights, so exchanging the bundled model is one edit to
+  `release.config.json` rather than four coordinated source changes.
+
+### What this taught me
+
+Three bugs in one day had the same shape: a legitimate `0.0` being read as "no
+value". A size rounded before being compared against a budget; `measured or
+declared` preferring a stale figure; and a budget that floors at zero on a
+constrained machine, where zero already meant *unmeasured, therefore
+unconstrained* — so the machine least able to run anything was told it could
+run everything.
+
+And two things that "passed" without working. Qwen3 0.6B cleared every
+structural check and returned `{}`, because the JSON grammar leaves a reasoning
+model's `<think>` block nowhere to go. A React render test I had just written
+to catch a blank page did not catch it, because it mounted the page components
+and never `App.jsx`, where the missing import actually was. Both were found by
+deliberately breaking the code and checking the tests noticed — a test that has
+never failed is a hypothesis, not evidence.
+

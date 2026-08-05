@@ -1,10 +1,12 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, NavLink, useLocation, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, NavLink, useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { BookOpen, Waypoints, PenLine, Sun, Moon, RefreshCw, Check, AlertCircle, Gauge } from 'lucide-react';
 import { systemApi } from './utils/api';
 import { checkForUpdatesInteractive, APP_VERSION } from './utils/updater';
-import ModelSetup from './components/ModelSetup';
+// Eager, not lazy: it decides whether to render on first paint, and a
+// lazy chunk would let the page settle before the note appears.
+import FirstRunNote from './components/FirstRunNote';
 import './index.css';
 
 // One page is on screen at a time, so one page is worth downloading at a
@@ -52,6 +54,12 @@ const pageMotion = {
 
 function Page({ children }) {
   return <motion.div {...pageMotion}>{children}</motion.div>;
+}
+
+/** FirstRunNote needs the router, which only exists below BrowserRouter. */
+function FirstRunBanner() {
+  const navigate = useNavigate();
+  return <FirstRunNote onOpenBench={() => navigate('/bench')} />;
 }
 
 function AnimatedRoutes() {
@@ -177,9 +185,11 @@ export default function App() {
 
   return (
     <>
-      {/* first-run only, and only when a better model is both runnable and
-          not already installed. renders nothing otherwise. */}
-      <ModelSetup />
+      {/* The first-run "your machine can run a better model" modal is gone.
+          It interrupted whatever the user was doing to offer a model Bench
+          already lists, kept its own localStorage record of what had been
+          declined, and reappeared during page load after the model it was
+          offering had been dealt with elsewhere. Bench is the one place. */}
       <div className="ambient-bg">
         <div className="ambient-orb orb-1"></div>
         <div className="ambient-orb orb-2"></div>
@@ -328,6 +338,9 @@ export default function App() {
           </aside>
 
           <main className="main-content">
+            {/* Shown once on a new install: a model is included and can be
+                changed. Inside the router because "Show me" navigates. */}
+            <FirstRunBanner />
             <AnimatedRoutes />
           </main>
         </div>

@@ -254,7 +254,11 @@ jobs:
           # --fail makes curl exit non-zero on an HTTP error instead of writing
           # the error page into the .gguf; --retry rides out flaky transfers of
           # these ~1 GB files.
-          jq -r '.models[]' release.config.json | tr -d '\r' | while read -r url; do
+          # `.models[]` entries may be a bare URL string or an object with a
+          # `url` plus metadata (label/tasks/replaces). Both are supported so
+          # swapping the bundled SLM is a config edit, not a pipeline change.
+          jq -r '.models[] | if type == "string" then . else .url end' \
+            release.config.json | tr -d '\r' | while read -r url; do
             [ -n "$url" ] || continue
             fname="$(basename "$url")"
             # restored from cache -> skip the ~1 GB transfer
@@ -266,6 +270,17 @@ jobs:
             curl -L --fail --retry 3 --retry-delay 5 -o "data/models/$fname" "$url"
           done
           ls -lh data/models/
+
+      # -- describe what this build bundles --
+      # The installed app reads data/models/bundled.json to know which models
+      # it shipped with and which previously-bundled ones this build replaces.
+      # Generated from release.config.json so the two cannot drift.
+      - name: Write the bundled-model manifest
+        if: ${{ !inputs.skip_models }}
+        shell: bash
+        run: |
+          python3 scripts/make_bundled_manifest.py --out data/models
+          cat data/models/bundled.json
 
       # -- embedding model (ingestion + search) --
       # NOT a gguf, so it is not in release.config.json's model list, and

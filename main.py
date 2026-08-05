@@ -28,6 +28,8 @@ from api.routes_chat import router as chat_router
 from api.routes_encryption import router as encryption_router
 from api.routes_papers import router as papers_router
 from api.routes_models import router as models_router
+from api.routes_hf import router as hf_router
+from api.routes_registry import router as registry_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -76,6 +78,13 @@ app.include_router(chat_router, prefix="/api/chat", tags=["chat"])
 app.include_router(encryption_router, prefix="/api/encryption", tags=["encryption"])
 app.include_router(papers_router, prefix="/api/papers", tags=["papers"])
 app.include_router(models_router, prefix="/api/models", tags=["models"])
+# the registry shares the /api/models prefix on purpose: it is the same
+# resource, split across two modules because setup and management are
+# different jobs with different consequences.
+app.include_router(registry_router, prefix="/api/models", tags=["models"])
+# The ONLY routes that reach the internet, kept under their own prefix so
+# that is obvious from the URL alone.
+app.include_router(hf_router, prefix="/api/hf", tags=["huggingface"])
 
 frontend_dist = settings.base_dir / "frontend" / "dist"
 

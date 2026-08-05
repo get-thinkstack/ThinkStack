@@ -16,6 +16,7 @@
     "core:default",
     "opener:default",
     "updater:default",
-    "process:default"
+    "process:default",
+    "dialog:default"
   ]
 }

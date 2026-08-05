@@ -211,6 +211,15 @@ for u in json.load(open('release.config.json')).get('models', []):
         echo -e "  ${YELLOW}warning: no gguf model staged -- the app cannot infer offline${NC}"
     fi
 
+    # Describe what was staged, so the installed app knows which models it
+    # shipped with -- and, on an update, which previously-bundled ones this
+    # build supersedes. Written INTO the stage dir, which the PyInstaller spec
+    # maps to data/models, so it travels with the weights it describes.
+    if ! $PY scripts/make_bundled_manifest.py --out "$STAGE_DIR"; then
+        echo -e "  ${YELLOW}could not write bundled.json${NC} - the app will fall"
+        echo -e "  back to catalog.py to work out what is bundled."
+    fi
+
     # The embedding model powers ingestion and search. It is NOT a gguf and is
     # not in release.config.json; without it a packaged build reaches for
     # HuggingFace on the first document, which an offline app cannot do.
