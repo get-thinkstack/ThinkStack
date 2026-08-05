@@ -10,7 +10,7 @@
 
 This diary records the development of ThinkStack from 5 June to 5 August 2026.
 It is reconstructed from the repository itself: 237 commits, 43 merged pull
-requests, 35 recorded architecture decisions, and the published releases. It is
+requests, 40 recorded architecture decisions, and the published releases. It is
 not written from memory.
 
 Two conventions are observed throughout. First, every quantity was measured or
@@ -59,6 +59,7 @@ what was decided and built rather than who performed each action.
 4 Aug & Sprint III & auto-update failure diagnosed; installs on a dead channel rescued \\
 4 Aug & Sprint III & beta v1.9.0 published \\
 4 to 5 Aug & Sprint III & model registry, task router, and Hugging Face acquisition \\
+5 Aug & Sprint III & baseline chosen by measurement; render tests added \\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -351,7 +352,7 @@ The stranded installations could not be reached by any change to the source,
 because the address they poll is fixed in the binary they are running. They
 were recovered by publishing a manifest at the abandoned address that advertises
 the current version and points at the current files, which is a redirection in
-everything but name.
+everything but name. Testers on the beta channel now update in place.
 
 The lesson generalised: the earlier failure and this one both arose from a
 change that did not declare what it superseded, leaving the system to infer
@@ -456,6 +457,59 @@ removed, and a LaTeX error message offered a command for one Linux distribution
 to every user on every platform. Both were written when they were true. Neither
 was noticed until a person followed them and could not proceed.
 
+
+\subsection{5 August: choosing a model by measuring it}
+
+The bundled model was to be replaced with something lighter and newer. Qwen3
+0.6B was the obvious candidate: smaller than the model it would replace, a
+generation ahead, and its download verified. Every structural check passed.
+
+It returned an empty object.
+
+Gap finding constrains the model's output with a grammar that permits only JSON
+from the first token. A reasoning model begins by thinking, and the grammar
+leaves that nowhere to go, so it emits the shortest legal document instead:
+\texttt{\{\}}. The parser succeeds. Nothing downstream notices. The feature
+returns no gaps and reports no error.
+
+A bake-off was written against the two flagship jobs, and it changed the
+decision entirely. The incumbent Qwen2.5 0.5B recovered four of six stated
+limitations, produced valid LaTeX, and was the fastest of the four candidates
+tested; nothing larger justified its additional weight. The model that had been
+about to ship on the strength of its specification came last.
+
+One further correction belongs here, because it was the harness rather than the
+product. The LaTeX test initially wrapped its output in JSON to make it
+machine-checkable, and two candidates were marked down for producing corrupt
+markup --- inside a JSON string, \verb|\begin| is a valid escape and the parser
+silently converts it to a control character. Scribe does not do this; it asks
+for plain text. A test that differs from the production path measures the test.
+
+\subsection{5 August: a test that had never failed}
+
+Three times in one week the application shipped a blank page: the build
+succeeds, because the markup is valid, and the interface framework then throws
+at render time on a name that no longer exists, leaving an empty document and
+an error visible only in a browser console.
+
+A test was added to mount every screen. It passed. The bug was then reproduced
+deliberately --- the import removed again --- and the test still passed, because
+it mounted the four page components and never the application shell, which is
+where the missing import was. It would have passed indefinitely while the
+product failed to start.
+
+The same exercise was applied to the rest of the new work: each guarantee was
+broken on purpose to confirm something noticed. Two of five did not. The
+protection against deleting a file the application did not create had a clear
+error message, an obvious intent, and no test at all.
+
+The general lesson is worth stating plainly, because this project has now
+learned it twice in different forms. A suite that has never failed is a
+hypothesis. Sprint II established that testing source code is not testing a
+product; this establishes that writing a test is not the same as being
+protected by one.
+
+
 \section{Division of Work}
 \markboth{Division of Work}{}
 
@@ -486,7 +540,7 @@ process supervision, in-application updates \\
 Delivery engineering & Rithesh & cross-platform build, release pipeline,
 artefact validation, and the automated test suite \\
 Model management & Rithesh & hardware capability model, task routing, the
-model registry, and acquisition \\
+model registry, and Hugging Face acquisition \\
 \midrule
 Encryption & Jitvan & at-rest encryption and decryption of stored documents,
 with the key handling and interface around it \\
@@ -520,13 +574,14 @@ automated gate, including changes by the member who wrote those rules.
 \midrule
 Commits & 237 \\
 Pull requests merged & 43 \\
-Application code (Python) & 11\,503 lines, 74 modules \\
-Test code & 5\,559 lines, 34 modules, 630 tests \\
-Interface code & 5\,791 lines, 14 components \\
+Application code (Python) & 11\,686 lines, 74 modules \\
+Test code & 5\,761 lines, 34 modules, 643 tests \\
+Interface tests & 63 tests, including every screen mounted \\
+Interface code & 5\,781 lines, 14 components \\
 Desktop shell (Rust) & 777 lines \\
-Build and release tooling & 3\,437 lines, 18 scripts, 6 workflows \\
+Build and release tooling & 3\,439 lines, 18 scripts, 6 workflows \\
 REST endpoints & 48 \\
-Architecture decisions recorded & 35 \\
+Architecture decisions recorded & 40 \\
 Releases published & 6, most recently beta v1.9.0 \\
 Platforms built and validated automatically & 3 \\
 \bottomrule
@@ -550,7 +605,7 @@ work.
 Linux & automatically validated and exercised by hand on physical hardware \\
 Windows & automatically validated and confirmed working by a human tester, though not yet across a range of machines \\
 macOS & automatically validated and exercised by a tester; unsigned applications are still obstructed on first launch \\
-In-application update & corrected and verified against the published manifest; a complete update performed by a user has not yet been observed \\
+In-application update & working; testers update in place from the beta channel \\
 \bottomrule
 \end{tabularx}
 \end{center}

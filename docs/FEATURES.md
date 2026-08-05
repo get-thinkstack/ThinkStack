@@ -102,6 +102,55 @@ invalidate and no extra model call to build it.
 - **Gap analysis** — surfaces contradictions, methodological gaps, and missing
   validation, then proposes actionable research directions.
 
+## Bench — model management
+
+One screen for what the machine can run and what it runs it with.
+
+**Your machine.** Memory, processor, graphics, and how much text can be read at
+once, with plain-language advice. Re-examine picks up changes such as closing
+other applications.
+
+**Models.** A card per model showing what each job it is assigned to. Editing
+those assignments takes effect on the next request; no restart. A model that is
+assigned but not actually being used — too large for the memory free right now,
+or outranked by a better one — says so on its own card.
+
+**Adding a model.** Three routes, all leading to the same registry:
+- *Add a model* opens a native file dialog (or a typed path outside the desktop
+  build) for a `.gguf` you already have. The file is **referenced where it is**,
+  never copied, so a multi-gigabyte import costs no extra disk.
+- *Already on this machine* lists models found via Ollama, LM Studio or the
+  models folder, assignable in one click. Ollama-served models are shown but not
+  assignable: it stores weights as blobs llama.cpp cannot open, and the router
+  reaches them over HTTP instead.
+- *Get more models* lists what ThinkStack can fetch, each judged against this
+  machine, and searches Hugging Face.
+
+**Removing a model.** Two distinct actions, because they are different
+intentions: *Stop using it* forgets the model and leaves the file alone;
+*Delete permanently* is offered **only** for files ThinkStack created. An
+imported model lives in the user's own folder and is never deleted from here.
+Removing the included model is allowed, and says first what will stop working.
+
+**Hugging Face.** The only part of ThinkStack that reaches the internet. Search
+runs on submit, never as you type; the interface says so. Typing a full
+`owner/name` goes straight to that repository's files. Each quantisation is
+shown with its size against available memory and whether it will run at a useful
+speed here — before the download, not after. Download addresses are constructed
+from a repository id and filename, never accepted from the caller.
+
+## Task routing
+
+Four jobs route independently: general, analysis, gap finding, and Scribe.
+Resolution order, strongest claim first:
+
+    a model the user assigned  ->  a model a release assigned  ->  what this
+    build bundled  ->  the deprecated task map  ->  the included model
+
+Each candidate must exist *and* fit the memory free right now. A model skipped
+for size is reported rather than silently dropped, so a disappointing summary
+has an explanation.
+
 ## Local LLM inference
 
 - **Dual runtime** — supports both `llama.cpp` (direct GGUF loading) and Ollama.
@@ -148,7 +197,7 @@ encryption:
   travels in one versioned `TSENC1` string (KDF params + salt + nonce +
   ciphertext), so an encrypted paper is portable and future-proof.
 
-## Hardware-aware model loading
+## Hardware-aware model loading and suggestion
 
 ThinkStack sizes itself to the machine it runs on.
 

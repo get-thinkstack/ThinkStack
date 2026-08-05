@@ -6,6 +6,7 @@ import { defineConfig } from 'vitest/config'
 //
 // jsdom supplies the `window` these tests use to stand in for the tauri webview.
 export default defineConfig({
+  esbuild: { jsx: 'automatic' },
   test: {
     environment: 'jsdom',
     include: ['tests/**/*.{test,spec}.{js,jsx}'],

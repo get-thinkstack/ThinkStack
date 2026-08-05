@@ -7,7 +7,6 @@ import ModelCard from './ModelCard';
 import ModelImport from './ModelImport';
 import DiscoveredModels from './DiscoveredModels';
 import ModelCatalog from './ModelCatalog';
-import { MODELS_CHANGED } from './ModelPicker';
 
 /**
  * Bench - what this machine can run, and what it runs it with.
@@ -64,13 +63,6 @@ export default function Bench() {
     loadRegistry();
   }, [examine, loadRegistry]);
 
-  // A picker in the routing table changes the same registry the cards above
-  // render, so both views must re-read rather than drift apart.
-  useEffect(() => {
-    const onChange = () => loadRegistry();
-    window.addEventListener(MODELS_CHANGED, onChange);
-    return () => window.removeEventListener(MODELS_CHANGED, onChange);
-  }, [loadRegistry]);
 
   // A notice reports something that already finished, so it should not sit
   // there until the user reloads the webview. Cleared on a timer, and the
@@ -187,11 +179,23 @@ export default function Bench() {
 
         {!snapshot && <p style={{ color: 'var(--text-secondary)' }}>Reading the model list…</p>}
 
+        {/* Reachable by removing the included model, which is allowed. Says
+            what stopped working and the three ways back, rather than showing
+            an empty list and leaving the user to infer the rest. */}
         {snapshot && models.length === 0 && !importing && (
-          <p style={{ color: 'var(--text-secondary)' }}>
-            No models are set up yet. Add one you already have, or download the
-            suggested one below.
-          </p>
+          <div className="model-empty">
+            <strong>ThinkStack has no model, so it cannot answer anything yet.</strong>
+            <p>Reading papers, the editor and compiling all still work. To bring
+               back summaries, gap finding and AI drafting, do any one of these:</p>
+            <ul>
+              <li><b>Use one you already have</b> — press “Add a model” above and
+                  point at a .gguf file.</li>
+              <li><b>Adopt one from Ollama or LM Studio</b> — if either is
+                  installed, it is listed below and takes one click.</li>
+              <li><b>Download one</b> — open “Get more models”. This is the only
+                  option that uses the internet.</li>
+            </ul>
+          </div>
         )}
 
         <div className="model-list">

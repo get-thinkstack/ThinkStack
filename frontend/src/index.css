@@ -2609,3 +2609,49 @@ input::-webkit-credentials-auto-fill-button {
 /* loads, but on the processor: dimmed less than a model that cannot load */
 .catalog-row.is-slow:not(.is-blocked) { opacity: 0.8; }
 .hf-file.is-slow:not(.is-blocked) { opacity: 0.8; }
+
+/* first-run note --------------------------------------------------------
+   A banner, not a dialog: it teaches, and blocks nothing. */
+
+.first-run-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  margin-bottom: 1.25rem;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-md, 12px);
+  background: var(--accent-soft);
+}
+.first-run-icon { color: var(--accent); display: flex; padding-top: 0.1rem; }
+.first-run-body { flex: 1; min-width: 0; }
+.first-run-body strong { display: block; font-size: 0.9rem; margin-bottom: 0.25rem; }
+.first-run-body p {
+  margin: 0;
+  font-size: 0.83rem;
+  line-height: 1.65;
+  color: var(--text-secondary);
+}
+.first-run-actions { display: flex; align-items: center; gap: 0.4rem; flex-shrink: 0; }
+
+@media (max-width: 700px) {
+  .first-run-note { flex-wrap: wrap; }
+  .first-run-actions { width: 100%; justify-content: flex-end; }
+}
+/* the model's actual name and speed: available, not foregrounded */
+.catalog-tech {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+.model-empty {
+  padding: 1rem;
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-md, 12px);
+  background: var(--warning-bg);
+  margin-top: 1rem;
+}
+.model-empty strong { display: block; font-size: 0.92rem; margin-bottom: 0.4rem; }
+.model-empty p { margin: 0 0 0.6rem; font-size: 0.84rem; line-height: 1.65; }
+.model-empty ul { margin: 0; padding-left: 1.1rem; font-size: 0.84rem; line-height: 1.8; }

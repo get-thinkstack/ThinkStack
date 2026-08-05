@@ -88,15 +88,15 @@ class BundledManifest:
         try:
             raw = json.loads(p.read_text(encoding="utf-8"))
         except FileNotFoundError:
-            logger.debug("no %s; deriving the bundled set from the catalog", p)
-            return cls._from_catalog()
+            logger.debug("no %s; deriving the bundled set from %s", p, bundled_dir)
+            return cls._from_directory(bundled_dir)
         except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
-            logger.warning("bundled manifest at %s is unreadable (%s); using the catalog", p, e)
-            return cls._from_catalog()
+            logger.warning("bundled manifest at %s is unreadable (%s); reading the directory", p, e)
+            return cls._from_directory(bundled_dir)
 
         if not isinstance(raw, dict):
-            logger.warning("bundled manifest at %s is not an object; using the catalog", p)
-            return cls._from_catalog()
+            logger.warning("bundled manifest at %s is not an object; reading the directory", p)
+            return cls._from_directory(bundled_dir)
 
         version = raw.get("version", SCHEMA_VERSION)
         if isinstance(version, int) and version > SCHEMA_VERSION:
@@ -114,24 +114,45 @@ class BundledManifest:
         return cls(models=tuple(out))
 
     @classmethod
-    def _from_catalog(cls) -> "BundledManifest":
-        """the bundled set implied by ``catalog.py``, for builds with no manifest."""
+    def _from_directory(cls, bundled_dir: Path) -> "BundledManifest":
+        """what a build with no manifest evidently shipped: the files present.
+
+        Reads the DIRECTORY rather than catalog.py. The catalog used to say
+        which model was bundled; now nothing is, so it can no longer answer the
+        question -- but the installs released before this change DO carry
+        weights and no manifest, and telling those that nothing is bundled
+        would retire a model sitting right there and leave them with none.
+
+        The evidence is the file, and ONLY the file. No tasks are inferred:
+        a build that shipped weights without saying what they were for did not
+        say, and guessing turns a description into an instruction. Giving every
+        gguf in the directory `general` made them compete for it and the larger
+        one won -- the same mistake that let the 0.5B outrank the 1.5B for
+        Scribe. Unassigned models are still reachable through the router's
+        base-model fallback, which is what that fallback is for.
+        """
         try:
-            from domain.model_manager.catalog import bundled_models
+            from domain.model_manager.catalog import by_name
             from domain.model_manager.registry import make_id
 
-            return cls(models=tuple(
-                BundledModel(
-                    id=make_id(s.name),
-                    file=s.name,
-                    label=s.label,
-                    size_gb=s.size_gb,
-                    tasks=tuple(s.tasks),
-                )
-                for s in bundled_models()
-            ))
+            found = sorted(Path(bundled_dir).glob("*.gguf"))
+            out = []
+            for f in found:
+                spec = by_name(f.name)
+                try:
+                    size = round(f.stat().st_size / (1024 ** 3), 2)
+                except OSError:
+                    size = spec.size_gb if spec else 0.0
+                out.append(BundledModel(
+                    id=make_id(f.name),
+                    file=f.name,
+                    label=spec.label if spec else f.stem,
+                    size_gb=size,
+                    tasks=(),
+                ))
+            return cls(models=tuple(out))
         except Exception as e:  # noqa: BLE001 - a fallback must never raise
-            logger.warning("could not derive a bundled set from the catalog: %s", e)
+            logger.warning("could not read the bundled directory: %s", e)
             return cls()
 
     # ── lookup ─────────────────────────────────────────────────────────

@@ -48,11 +48,15 @@ export default function ModelCatalog({ catalog, tasks, budgetGb, busy, downloadi
           {available.map((m) => (
             <div key={m.name} className={`catalog-row ${m.fits ? '' : 'is-blocked'} ${m.slow_here ? 'is-slow' : ''}`}>
               <div className="catalog-main">
+                {/* Outcome first, name second. Someone who knows they want
+                    Qwen can still confirm it; someone who does not is never
+                    made to care what a parameter count is. */}
                 <span className="catalog-name">
-                  {m.label}
+                  {m.outcome}
                   {m.recommended_here && <em className="catalog-badge">suited to this machine</em>}
                 </span>
                 <span className="catalog-desc">{m.description}</span>
+                <span className="catalog-tech">{m.label} · {m.speed}</span>
                 {m.tasks.length > 0 && (
                   <span className="catalog-tasks">
                     Would take over: {m.tasks.map(taskLabel).join(', ')}

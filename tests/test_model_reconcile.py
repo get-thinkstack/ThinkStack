@@ -50,15 +50,27 @@ class TestManifestLoading:
         assert m.files_for("analysis") == ["slm-1b.gguf"]
         assert m.replaced_ids() == {"qwen2-5-0-5b"}
 
-    def test_a_missing_manifest_falls_back_to_the_catalog(self, tmp_path):
-        # every build shipped before this feature has weights and no manifest;
-        # returning nothing would retire a model sitting right there.
-        m = BundledManifest.load(tmp_path / "does-not-exist")
-        assert m.models, "the catalog fallback must not be empty"
-        assert any("qwen" in x.file for x in m.models)
+    def test_a_missing_manifest_falls_back_to_the_files_present(self, tmp_path):
+        # builds released before the manifest existed carry weights and no
+        # manifest; reporting nothing would retire a model sitting right there.
+        gguf(tmp_path / "qwen2.5-0.5b-instruct-q4_k_m.gguf")
+        m = BundledManifest.load(tmp_path)
+        assert [x.file for x in m.models] == ["qwen2.5-0.5b-instruct-q4_k_m.gguf"]
+
+    def test_an_empty_directory_yields_an_empty_manifest(self, tmp_path):
+        # the normal case now: ThinkStack ships no weights at all.
+        assert BundledManifest.load(tmp_path).models == ()
+
+    def test_no_tasks_are_inferred_from_a_filename(self, tmp_path):
+        # inferring turns a description into an instruction; giving every file
+        # `general` made them compete and the larger one won.
+        gguf(tmp_path / "qwen2.5-0.5b-instruct-q4_k_m.gguf")
+        gguf(tmp_path / "qwen2.5-1.5b-instruct-q4_k_m.gguf")
+        assert all(x.tasks == () for x in BundledManifest.load(tmp_path).models)
 
     def test_corrupt_manifest_falls_back_rather_than_raising(self, tmp_path):
         tmp_path.mkdir(parents=True, exist_ok=True)
+        gguf(tmp_path / "a-q4_k_m.gguf")
         (tmp_path / "bundled.json").write_text("{ not json", encoding="utf-8")
         assert BundledManifest.load(tmp_path).models
 
@@ -272,57 +284,85 @@ class TestReconcileAndSave:
         assert "SLM 1B" in report.summary()
 
 
-class TestBaseModelMustNotClaimStructuredTasks:
-    """The regression that shipped, and how it got in.
+class TestWhatTheBundledBaselineMayClaim:
+    """The rule changed shape when the baseline did, so it is restated here.
 
-    ``catalog.BASE_MODEL.tasks`` was descriptive metadata nobody routed on, and
-    it listed ``latex_writer``. The registry then began SEEDING assignments from
-    that field, which turned a description into an instruction: the 0.5B started
-    outranking the 1.5B for Scribe, silently undoing the deliberate choice
-    documented at ``ollama_client.TASK_MODEL_MAP``.
+    The ORIGINAL rule was "the base claims only `general`". That was correct
+    when the base was a Qwen2.5 0.5B: it emitted prose where an equation was
+    asked for, so any task it claimed was a task it would do badly, and
+    claiming `latex_writer` did exactly that -- silently outranking the 1.5B
+    for Scribe.
 
-    The general rule these tests pin: the base model is the FALLBACK for
-    everything, and the router already guarantees that. It must never CLAIM a
-    task, because claiming one lets it beat a better model chosen on purpose.
+    The baseline is now a Qwen3 0.6B chosen deliberately FOR the structured
+    jobs, because ollama_client constrains their output with a GBNF grammar and
+    a small model cannot emit malformed JSON. So claiming `gap_analysis` and
+    `latex_writer` is now the intent rather than the bug.
+
+    What has NOT changed is `analysis`. Summarisation is open-ended prose over
+    a whole paper, it is the one job a larger model plainly does better, and a
+    baseline that claimed it would suppress the upgrade suggestion forever.
     """
 
-    def test_the_bundled_base_claims_only_general(self):
-        from domain.model_manager.catalog import BASE_MODEL
-        assert BASE_MODEL.tasks == ("general",), (
-            "the base model must not claim a structured task -- see "
-            "ollama_client.TASK_MODEL_MAP for why the 0.5B is not used for these"
+    def test_the_baseline_never_claims_analysis(self):
+        from domain.model_manager.catalog import bundled_models
+        for spec in bundled_models():
+            assert "analysis" not in spec.tasks, (
+                f"{spec.label} claims `analysis`. Summaries are where a larger "
+                f"model earns its download; claiming it here means the upgrade "
+                f"is never suggested."
+            )
+
+    def test_the_baseline_covers_general_so_nothing_is_unrouted(self):
+        from domain.model_manager.catalog import bundled_models
+        bundled = bundled_models()
+        assert bundled, "something must be bundled, or a fresh install has no model"
+        assert any("general" in s.tasks for s in bundled)
+
+    def test_catalog_and_release_config_agree_on_what_ships(self):
+        """The two files that decide what is bundled must not drift.
+
+        catalog.py drives suggestions; release.config.json drives the build.
+        If they disagree, the app describes a model the installer does not
+        carry -- which is the four-places problem the manifest exists to end.
+        """
+        import json
+        from domain.model_manager.catalog import bundled_models
+
+        root = Path(__file__).resolve().parent.parent
+        cfg = json.loads((root / "release.config.json").read_text())
+        shipped = {
+            (m if isinstance(m, str) else m["url"]).rsplit("/", 1)[-1]
+            for m in cfg["models"]
+        }
+        assert {s.name for s in bundled_models()} == shipped, (
+            "catalog.py and release.config.json disagree about what is bundled"
         )
 
-    def test_no_bundled_model_claims_a_task_the_task_map_sends_elsewhere(self):
-        # the tripwire for the general case, not just latex_writer
-        from domain.model_manager.catalog import bundled_models
-        from infrastructure.ollama_client import OllamaClient
+    def test_a_changed_baseline_always_declares_what_it_replaces(self):
+        """If the bundled model ever changes, `replaces` must name the old one.
 
-        for spec in bundled_models():
-            for task, preferred in OllamaClient.TASK_MODEL_MAP.items():
-                if not preferred:
-                    continue
-                if preferred[0] == spec.name:
-                    continue  # it IS the preferred model; claiming is correct
-                assert task not in spec.tasks, (
-                    f"{spec.name} claims {task!r}, but TASK_MODEL_MAP routes it "
-                    f"to {preferred[0]!r}. A bundled model that claims a task it "
-                    f"is not the best at will outrank the better model."
+        Empty is correct while the baseline is unchanged -- there is nothing to
+        supersede. The moment it changes, an omitted `replaces` leaves every
+        existing install carrying BOTH models: the old weights are never
+        deleted, and routing may still prefer them.
+
+        This asserts the conditional, so it starts guarding the instant someone
+        edits the URL without editing `replaces`.
+        """
+        import json
+        root = Path(__file__).resolve().parent.parent
+        cfg = json.loads((root / "release.config.json").read_text())
+
+        # what the last released build shipped
+        PREVIOUS = "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+
+        for m in cfg["models"]:
+            url = m if isinstance(m, str) else m["url"]
+            filename = url.rsplit("/", 1)[-1]
+            replaces = m.get("replaces", []) if isinstance(m, dict) else []
+            if filename != PREVIOUS:
+                assert replaces, (
+                    f"{filename} differs from the shipped baseline "
+                    f"({PREVIOUS}) but names nothing in `replaces`. Existing "
+                    f"installs would keep both models."
                 )
-
-    def test_an_existing_install_self_heals_on_upgrade(self, tmp_path):
-        # a user already running the beta has the bad assignment persisted.
-        # reconciliation must correct it, because user_assigned is False.
-        bundled, models = tmp_path / "bundled", tmp_path / "models"
-        gguf(bundled / "base.gguf")
-        existing = gguf(models / "base.gguf")
-        r = Registry()
-        r.upsert(ModelEntry(id="base", path=str(existing), label="Base",
-                            origin="bundled", managed=True,
-                            tasks=("general", "latex_writer"),   # the bad state
-                            user_assigned=False))
-        m = BundledManifest(models=(BundledModel(
-            id="base", file="base.gguf", label="Base", tasks=("general",)),))
-
-        reconcile_bundled(r, m, bundled_dir=bundled, models_dir=models)
-        assert r.get("base").tasks == ("general",), "the upgrade must correct it"

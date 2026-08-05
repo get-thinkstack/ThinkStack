@@ -157,9 +157,11 @@ def main() -> int:
     out_dir = Path(args.out)
     manifest = build_manifest(config, out_dir)
 
-    if not manifest["models"]:
-        print("release.config.json lists no models -- nothing to describe", file=sys.stderr)
-        return 1
+    # An EMPTY manifest is valid and is the normal case: ThinkStack ships no
+    # weights, and first-run setup asks the user which model to install. It
+    # still has to be written, because its absence means something different --
+    # BundledManifest.load falls back to the catalog when the file is missing,
+    # which would tell the app a model is bundled when none is.
 
     target = out_dir / MANIFEST_NAME
 

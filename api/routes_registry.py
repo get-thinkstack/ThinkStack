@@ -275,6 +275,10 @@ def _catalog_for(registry: Registry, budget_gb: float, tier: str,
             out.append({
                 "name": s.name,
                 "label": s.label,
+                # What the user GETS, first. The model's name answers "which
+                # weights"; a researcher's question is "why would I want it".
+                "outcome": s.outcome or s.label,
+                "speed": s.speed_words(gpu_gb),
                 "size_gb": s.size_gb,
                 "description": s.description,
                 "tasks": list(s.tasks),

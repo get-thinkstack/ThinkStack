@@ -14,6 +14,23 @@ That is not pedantry: a wrong URL is a download that fails for every user who
 clicks it, and two of the first six candidates written for this file were dead.
 Re-check before adding one.
 
+REASONING MODELS CANNOT BE THE BASELINE
+--------------------------------------
+``ollama_client`` constrains structured output with a GBNF grammar that permits
+only JSON, from the first token. A reasoning model -- Qwen3, and anything else
+that emits a ``<think>`` block before answering -- has nowhere to put that
+block, so it closes the object immediately and returns ``{}``.
+
+This is invisible to every structural check. Qwen3 0.6B had a verified URL, the
+right size, valid GGUF magic, and returned JSON that ``json.loads`` accepted.
+The JSON was empty. Only running a generation and READING THE CONTENT caught
+it, and it would have shipped broken on gap finding and Scribe -- the two
+features the baseline is chosen for.
+
+Any model considered for the bundled slot must be run through
+``local/notes/`` bakeoff first. Validity is not usefulness.
+
+
 ``tasks`` is AUTHORITATIVE, not descriptive
 ------------------------------------------
 The registry seeds a model's task assignments from this field, so listing a task
@@ -79,7 +96,32 @@ class ModelSpec:
     # a newer 1B can beat an older 3B on instruction following.
     quality: int = 0
 
+    # What the user GETS, in their language. The model's name answers "which
+    # weights"; this answers "why would I want it", which is the only question
+    # a researcher actually has. Shown first; the name is a details line.
+    outcome: str = ""
+
     description: str = ""
+
+    def speed_words(self, gpu_gb: float = 0.0) -> str:
+        """how long this feels to use on such a machine, in plain words.
+
+        Deliberately vague. A precise figure would have to be measured, and
+        this is shown before anything is installed -- so it says what a user
+        can plan around ("a few seconds", "a minute or two") rather than a
+        number invented from a formula and then quietly wrong.
+
+        Replaced by a measured figure once the model has run once; see the
+        estimator work. Until then, honest imprecision beats false precision.
+        """
+        accelerated = gpu_gb > 0 and self.size_gb <= gpu_gb
+        if accelerated or self.size_gb <= 0.5:
+            return "answers in a few seconds"
+        if self.size_gb <= CPU_COMFORTABLE_GB:
+            return "about half a minute per paper"
+        if self.size_gb <= 2.0:
+            return "a minute or two per paper"
+        return "several minutes per paper"
 
     def runs_on_tier(self, tier: str) -> bool:
         """whether this is a model worth suggesting on ``tier``."""
@@ -101,22 +143,37 @@ class ModelSpec:
         return self.size_gb <= CPU_COMFORTABLE_GB
 
 
-# ── the baseline ───────────────────────────────────────────────────────
-# Bundled in the installer; the app is fully functional with only this.
-# Keep in sync with release.config.json's model list.
+# ── the bundled baseline ───────────────────────────────────────────────
+# Ships inside the installer so ThinkStack works the moment it opens, with no
+# download and no account.
+#
+# Chosen for the FLAGSHIP features rather than for summarisation. Gap finding
+# and Scribe produce structured output, and ollama_client constrains that with
+# a GBNF grammar -- a small model cannot emit malformed JSON, so only content
+# quality varies, and on constrained, templated output a 0.6B does well.
+# Summarisation is open-ended prose over a whole paper: the one job that
+# genuinely wants a larger model, and the reason the optional entries exist.
+#
+# Measured, not assumed. A bake-off against Qwen3 0.6B, Gemma 3 1B and
+# Llama 3.2 1B on the two flagship jobs put this model first: joint-best gap
+# recall (4 of 6 stated limitations), valid LaTeX, and the fastest of the set.
+# Qwen3 0.6B was smaller and newer and returned `{}` -- see the reasoning-model
+# note above.
 BASE_MODEL = ModelSpec(
     name="qwen2.5-0.5b-instruct-q4_k_m.gguf",
-    label="Qwen2.5 0.5B (base)",
+    label="Qwen2.5 0.5B",
     size_gb=0.46,
     url="https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
     bundled=True,
-    # ONLY general. It is the fallback for everything by construction; claiming
-    # a structured task would let it beat a model chosen on purpose. See the
-    # module docstring and tests/test_model_reconcile.py.
-    tasks=("general",),
+    # Claims the structured jobs it is good at, and `general`. NOT `analysis`:
+    # summaries are where a bigger model earns its download, and claiming that
+    # here would stop us ever suggesting one.
+    tasks=("general", "gap_analysis", "latex_writer"),
     min_ram_gb=0.0,
-    quality=10,
-    description="Ships with the app. Fast, runs on any machine, works offline immediately.",
+    quality=15,
+    outcome="Included with ThinkStack",
+    description="Works the moment you open the app. Good at finding gaps and "
+                "drafting LaTeX; summaries will be rough.",
 )
 
 # ── optional upgrades, smallest first ──────────────────────────────────
@@ -132,6 +189,7 @@ ANALYSIS_MODEL = ModelSpec(
     tasks=("analysis", "gap_analysis", "latex_writer"),
     min_ram_gb=2.5,
     quality=30,
+    outcome="Reliable summaries",
     description="The smallest model that reliably returns structured output. "
                 "A large improvement on summaries, claims and gap analysis.",
 )
@@ -150,6 +208,7 @@ GEMMA_1B = ModelSpec(
     min_ram_gb=2.0,
     good_on_tiers=("low", "medium"),
     quality=20,
+    outcome="A different writing style",
     description="A small alternative to the bundled model. Similar speed, "
                 "different writing style.",
 )
@@ -164,6 +223,7 @@ LLAMA_3B = ModelSpec(
     min_ram_gb=4.0,
     good_on_tiers=("medium", "high"),
     quality=40,
+    outcome="Better on long papers",
     description="Stronger reasoning than the 1.5B, at roughly twice the size. "
                 "Noticeably better on long papers.",
 )
@@ -178,6 +238,7 @@ QWEN_3B = ModelSpec(
     min_ram_gb=4.0,
     good_on_tiers=("medium", "high"),
     quality=45,
+    outcome="Better summaries and gap finding",
     description="A larger Qwen with the same structured-output reliability. "
                 "A good default when memory allows.",
 )
@@ -192,6 +253,7 @@ QWEN3_4B = ModelSpec(
     min_ram_gb=5.5,
     good_on_tiers=("high",),
     quality=60,
+    outcome="The best quality offered",
     description="The most capable model ThinkStack suggests. Best summaries and "
                 "gap analysis, and slow on anything but a roomy machine.",
 )
@@ -236,7 +298,10 @@ def runnable_on(budget_gb: float) -> list[ModelSpec]:
 
     returns:
         every spec whose min_ram_gb fits the budget. a budget of 0 means
-        "unknown", in which case only the bundled baseline is considered safe.
+        "unknown", in which case only the lightest model is considered safe --
+        it used to mean "the bundled one", but nothing is bundled now, and
+        answering "nothing runs" would leave a machine we simply failed to
+        measure with no options at all.
     """
     if budget_gb <= 0:
         return bundled_models()

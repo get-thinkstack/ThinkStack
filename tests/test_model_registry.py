@@ -374,3 +374,76 @@ class TestKnownTasks:
         from infrastructure.ollama_client import OllamaClient
         for task in OllamaClient.TASK_MODEL_MAP:
             assert task in KNOWN_TASKS, f"{task} is routable but not assignable"
+
+
+class TestRemovalNeverTouchesAFileWeDoNotOwn:
+    """The API guard, which had no test until a mutation check found the gap.
+
+    `managed` is the only thing standing between "forget this model" and
+    "delete several gigabytes out of the user's own folder". An imported model
+    lives wherever they keep their models -- often beside work unrelated to
+    ThinkStack -- and removing it here must never reach outside the app.
+    """
+
+    def _client(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from config import settings
+        monkeypatch.setattr(settings, "models_dir", tmp_path)
+        monkeypatch.setattr(settings, "bundled_models_dir", tmp_path)
+        import main
+        return TestClient(main.app)
+
+    def test_deleting_an_imported_file_is_refused(self, tmp_path, monkeypatch):
+        mine = write_gguf(tmp_path / "mine" / "my-model.gguf")
+        r = Registry()
+        r.upsert(ModelEntry(id="my-model", path=str(mine), label="Mine",
+                            origin="imported", managed=False))
+        r.save(tmp_path)
+
+        c = self._client(tmp_path, monkeypatch)
+        resp = c.delete("/api/models/registry/my-model?delete_file=true")
+        assert resp.status_code == 400, "deleting a file we do not own must be refused"
+        assert "not ThinkStack's to delete" in resp.json()["detail"]
+        assert mine.exists(), "the user's file must survive a refused delete"
+
+    def test_forgetting_an_imported_model_leaves_the_file(self, tmp_path, monkeypatch):
+        mine = write_gguf(tmp_path / "mine" / "my-model.gguf")
+        r = Registry()
+        r.upsert(ModelEntry(id="my-model", path=str(mine), label="Mine",
+                            origin="imported", managed=False))
+        r.save(tmp_path)
+
+        c = self._client(tmp_path, monkeypatch)
+        resp = c.delete("/api/models/registry/my-model?delete_file=false")
+        assert resp.status_code == 200
+        assert resp.json()["file_deleted"] is False
+        assert mine.exists()
+        assert Registry.load(tmp_path).get("my-model") is None
+
+    def test_a_file_we_created_can_be_deleted_on_request(self, tmp_path, monkeypatch):
+        ours = write_gguf(tmp_path / "ours.gguf")
+        r = Registry()
+        r.upsert(ModelEntry(id="ours", path=str(ours), label="Ours",
+                            origin="downloaded", managed=True))
+        r.save(tmp_path)
+
+        c = self._client(tmp_path, monkeypatch)
+        resp = c.delete("/api/models/registry/ours?delete_file=true")
+        assert resp.status_code == 200
+        assert resp.json()["file_deleted"] is True
+        assert not ours.exists()
+
+    def test_the_default_never_deletes(self, tmp_path, monkeypatch):
+        # "remove" is ambiguous and destroying gigabytes is not recoverable,
+        # so a caller that says nothing gets the harmless behaviour.
+        ours = write_gguf(tmp_path / "ours.gguf")
+        r = Registry()
+        r.upsert(ModelEntry(id="ours", path=str(ours), label="Ours",
+                            origin="downloaded", managed=True))
+        r.save(tmp_path)
+
+        c = self._client(tmp_path, monkeypatch)
+        resp = c.delete("/api/models/registry/ours")
+        assert resp.status_code == 200
+        assert resp.json()["file_deleted"] is False
+        assert ours.exists(), "an unqualified remove must not destroy weights"

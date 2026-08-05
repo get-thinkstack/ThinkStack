@@ -35,9 +35,20 @@ from domain.model_manager.discovery import (
 
 
 class TestCatalog:
-    def test_baseline_is_bundled_so_app_works_offline(self):
-        assert BASE_MODEL.bundled is True
-        assert bundled_models() == [BASE_MODEL]
+    def test_exactly_one_model_is_bundled(self):
+        # more than one and the installer carries weight nobody asked for;
+        # none and a fresh offline install cannot do anything at all.
+        assert len(bundled_models()) == 1
+
+    def test_the_bundled_model_needs_no_particular_machine(self):
+        # it ships to every user, so it cannot have a memory floor some of
+        # them fail to clear.
+        assert bundled_models()[0].min_ram_gb == 0.0
+
+    def test_the_bundled_model_is_the_smallest_thing_we_offer(self):
+        # it is chosen to run anywhere; anything we would suggest INSTEAD is
+        # an upgrade, and an upgrade that is smaller is a contradiction.
+        assert bundled_models()[0].size_gb == min(s.size_gb for s in CATALOG)
 
     def test_analysis_model_is_optional_not_shipped(self):
         assert ANALYSIS_MODEL.bundled is False
@@ -62,7 +73,7 @@ class TestRunnableOn:
     def test_tight_machine_gets_only_the_baseline(self):
         assert runnable_on(1.0) == [BASE_MODEL]
 
-    def test_unknown_budget_falls_back_to_bundled_only(self):
+    def test_unknown_budget_falls_back_to_the_lightest_only(self):
         # 0 == "could not measure"; never assume a big model is safe
         assert runnable_on(0.0) == [BASE_MODEL]
 
@@ -92,7 +103,10 @@ class TestSuggestedUpgrade:
         installed = {s.name for s in CATALOG}
         assert suggested_upgrade(16.0, installed=installed) is None
 
-    def test_no_offer_when_budget_unknown(self):
+    def test_no_offer_when_the_budget_could_not_be_measured(self):
+        # A machine already has the bundled model, so an unmeasurable one is
+        # not stranded -- and suggesting a download we cannot size against its
+        # memory is how someone ends up with weights that will not load.
         assert suggested_upgrade(0.0, installed=set()) is None
 
     def test_with_acceleration_the_most_capable_that_fits_wins(self):
@@ -383,3 +397,47 @@ class TestOfferIsSuppressedByExistingModels:
         # accelerated so the choice is not narrowed by the CPU cap.
         got = suggested_upgrade(16.0, installed_names(found), gpu_gb=12.0)
         assert got is not None
+
+
+class TestTheBaselineIsUsableNotJustValid:
+    """Guards the Qwen3 trap.
+
+    A reasoning model emits <think> before answering. ollama_client's GBNF
+    grammar permits only JSON from the first token, leaving that block nowhere
+    to go, so the model closes the object and returns `{}` -- which parses
+    perfectly and contains nothing.
+
+    Qwen3 0.6B passed every other check: verified URL, correct size, valid GGUF
+    magic, valid JSON. It would have shipped broken on gap finding and Scribe.
+    These tests cannot run a model, so they guard the property that IS
+    checkable: that we never silently point the bundled slot at a known
+    reasoning family.
+    """
+
+    # families whose small models emit a reasoning preamble by default
+    REASONING_FAMILIES = ("qwen3", "deepseek-r1", "qwq", "marco-o1")
+
+    def test_the_bundled_model_is_not_a_reasoning_model(self):
+        for spec in bundled_models():
+            low = spec.name.lower()
+            for family in self.REASONING_FAMILIES:
+                assert family not in low, (
+                    f"{spec.name} looks like a {family} reasoning model. Those "
+                    f"return empty JSON under the GBNF grammar that gap finding "
+                    f"and Scribe rely on. See the note in catalog.py."
+                )
+
+    def test_release_config_does_not_bundle_a_reasoning_model(self):
+        # the config is what the BUILD reads; catalog.py agreeing is not enough
+        import json
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        cfg = json.loads((root / "release.config.json").read_text())
+        for m in cfg["models"]:
+            url = m if isinstance(m, str) else m.get("url", "")
+            for family in self.REASONING_FAMILIES:
+                assert family not in url.lower(), (
+                    f"release.config.json bundles {url}, which looks like a "
+                    f"{family} reasoning model."
+                )

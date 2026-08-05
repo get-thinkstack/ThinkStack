@@ -131,12 +131,17 @@ class TestDefaultsAndMeasurement:
 
 
 class TestFailureModes:
-    def test_an_empty_model_list_fails_loudly(self, tmp_path):
-        # silently writing an empty manifest would tell the app nothing is
-        # bundled, which retires a model sitting right there.
-        r = run({"models": []}, tmp_path / "models", tmp_path)
-        assert r.returncode == 1
-        assert "no models" in r.stderr.lower()
+    def test_an_empty_model_list_is_valid_and_still_written(self, tmp_path):
+        """ThinkStack ships no weights, so this is the normal case.
+
+        The file must still be WRITTEN. Its absence means something different:
+        BundledManifest.load falls back to the catalog when there is no file,
+        which would tell the app a model is bundled when none is.
+        """
+        out = tmp_path / "models"
+        r = run({"models": []}, out, tmp_path)
+        assert r.returncode == 0, r.stderr
+        assert manifest_of(out)["models"] == []
 
     def test_a_missing_config_is_reported_not_crashed(self, tmp_path):
         r = subprocess.run(
@@ -192,7 +197,7 @@ class TestTheRealConfig:
         )
         assert r.returncode == 0, r.stderr
         loaded = BundledManifest.load(out)
-        assert loaded.models, "the shipped config must describe at least one model"
-        # and every bundled model must claim `general`, or a fresh install has
-        # no model for the default task.
-        assert any("general" in m.tasks for m in loaded.models)
+        # Currently empty by design. If a model is ever bundled again it must
+        # claim `general`, or a fresh install has nothing for the default task.
+        if loaded.models:
+            assert any("general" in m.tasks for m in loaded.models)
