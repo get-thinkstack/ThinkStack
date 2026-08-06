@@ -5,8 +5,9 @@ ingests research papers, lets you search and analyse them, finds gaps in the
 literature, and helps you write LaTeX — all running **locally on your machine**,
 with no account, no cloud, and no internet required after install.
 
-If you've ever wanted a private "chat with my papers" that also drafts LaTeX and
-never sends your work to someone else's server, that's ThinkStack.
+If you've ever wanted a private way to see what your papers collectively say —
+and what they leave unsaid — that also drafts LaTeX and never sends your work to
+someone else's server, that's ThinkStack.
 
 For the full feature reference, see [FEATURES.md](FEATURES.md).
 
@@ -73,7 +74,7 @@ is in the installer, so it runs offline the moment it opens.
 
 Two things it does **not** bundle:
 
-- **A larger analysis model.** The built-in model handles chat, search and the
+- **A larger analysis model.** The built-in model handles search and the
   paper writer well. Summaries and gap analysis are noticeably better on a bigger
   model, so on a machine with room to spare the app *offers* to fetch one on
   first run. Decline and everything still works — analysis just uses the built-in

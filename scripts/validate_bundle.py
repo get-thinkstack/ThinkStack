@@ -250,25 +250,39 @@ def main() -> int:
     except Exception as e:  # noqa: BLE001
         record(FAIL, "search failed", repr(e))
 
-    # 6. real inference through the bundled llama.cpp
+    # 6. real inference through the bundled llama.cpp, on the PLAIN-TEXT path.
+    #
+    #    This used to call /api/chat. Chat was scrapped, so it now goes through
+    #    Scribe's generate, which is the remaining feature that asks the model
+    #    for free text rather than grammar-constrained JSON. Keeping a plain-text
+    #    check is the point: it and check 6b exercise the two different decoder
+    #    paths, and a bundle can break one while the other still works.
     if args.skip_inference:
         record(WARN, "inference skipped (--skip-inference)")
     else:
         try:
+            proj = post(f"{base}/api/papers/projects", {"name": "bundle-inference"})
+            pid = proj.get("project_id")
+            if not pid:
+                raise RuntimeError(f"could not create a project: {str(proj)[:120]}")
             t0 = time.time()
-            ans = post(f"{base}/api/chat", {"message": "What did the document say about recall?"})
-            text = (ans.get("response") or ans.get("answer") or "").strip()
+            ans = post(f"{base}/api/papers/generate", {
+                "project_id": pid,
+                "prompt": "Write one sentence introducing a paper about recall.",
+                "current_source": "",
+            })
+            text = (ans.get("generated_latex") or "").strip()
             if text:
                 record(PASS, f"inference produced {len(text)} chars in {time.time() - t0:.1f}s",
                        text[:120])
             else:
-                record(FAIL, "inference returned nothing")
+                record(FAIL, "inference returned nothing", json.dumps(ans)[:200])
         except Exception as e:  # noqa: BLE001
             record(FAIL, "inference failed", repr(e))
 
     # 6b. SUMMARIZATION -- the JSON-mode path, which nothing here touched.
     #
-    # Check 6 above calls /api/chat, which is plain text generation. Summarize
+    # Check 6 above is plain text generation. Summarize
     # is different in the way that matters: it asks the model for STRUCTURED
     # output, parses it, and fails softly by putting an apology in the summary
     # field instead of raising. So a bundle where structured output is broken

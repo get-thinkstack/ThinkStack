@@ -70,10 +70,13 @@ class Settings(BaseSettings):
     # value above.
     llm_auto_ctx: bool = True
 
-    # generation defaults for interactive chat (kept small for low latency)
-    chat_max_tokens: int = 512
-    chat_context_chunks: int = 5
-    chat_context_char_budget: int = 3000
+    # retrieval grounding: how much of the user's library to show a model
+    # before it writes. bounded because the local context window is small --
+    # an unbounded block pushes out the instructions and the room to answer.
+    # (named chat_* until the chat feature was scrapped; the retrieval it used
+    # is now shared, and lives in domain/search/grounding.py)
+    grounding_context_chunks: int = 5
+    grounding_char_budget: int = 3000
 
     # ollama (optional fallback runtime)
     ollama_base_url: str = "http://localhost:11434"

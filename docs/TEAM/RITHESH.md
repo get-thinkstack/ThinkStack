@@ -45,11 +45,11 @@ Two packaging corrections are worth recording:
   sentence_transformers`. Neither ships a PyInstaller hook, so without those
   flags the frozen build silently drops llama.cpp's shared libraries and the
   embedding model's data. I confirmed the fix by building a frozen backend
-  locally and running ingest, search, and chat against it.
+  locally and running ingest, search, and generation against it.
 
 ## Model bundling and routing
 
-The installer bundles one model - a 0.5B for chat, search, and Scribe.
+The installer bundles one model - a 0.5B for general tasks, search, and Scribe.
 The 0.5B is fast and light but produces malformed JSON on the structured-output
 tasks (summarize, claims, gap-finder), so those route to a 1.5B when one is
 available; it is fetched on consent or reused from an existing Ollama/LM Studio
@@ -185,8 +185,12 @@ the `max_tokens` caps, and the onedir packaging) rather than taking it as-is.
 - `scripts/` holds the devops scripts only (bootstrap, run, build, validate,
   release); non-devops utilities moved to `tools/`. See `scripts/README.md`.
 - `tests/` is the automated `pytest` suite (run `pytest`), gated in CI by
-  `.github/workflows/ci.yml`. `tools/test_paper_writer.py` remains as a manual
-  end-to-end paper-writer integration check (real pdflatex compile).
+  `.github/workflows/ci.yml`. `tools/check_paper_writer.py` remains as a manual
+  end-to-end paper-writer integration check (real pdflatex compile). It is
+  named `check_` rather than `test_` so it cannot be mistaken for part of the
+  automated suite: `pytest.ini` sets `testpaths = tests`, so a `test_*.py`
+  living in `tools/` is never collected and would imply coverage that does
+  not run.
 - `scripts/README.md` is the runbook for cutting a release and for how
   downloads and updates work. I also maintain the landing page (`landing.html`)
   and the ADR entries for the decisions above.

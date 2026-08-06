@@ -168,5 +168,6 @@ Bypass once with `git commit --no-verify` / `git push --no-verify`.
 ---
 
 Non-devops utilities live in `tools/`: `finetune.py`, `verify_gpu.py`,
-`fix_gpu_dlls.py`, and `test_paper_writer.py` (a manual end-to-end check).
+`fix_gpu_dlls.py`, and `check_paper_writer.py` (a manual end-to-end check --
+run it directly, `pytest` does not collect it).
 Automated tests are in `tests/` and run with `pytest`.
