@@ -52,8 +52,14 @@ on:
         default: 'beta'
         type: choice
         options: [beta, stable, nightly]
+      bump:
+        description: 'X/Y are a decision, not a branch name. Required for stable.'
+        required: false
+        default: 'none'
+        type: choice
+        options: [none, minor, major]
       version:
-        description: 'override the derived version, e.g. 1.6.8'
+        description: 'override the derived version entirely, e.g. 2.1.0'
         required: false
         type: string
       force:
@@ -101,6 +107,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           OVERRIDE: ${{ inputs.version }}
           FORCE: ${{ inputs.force }}
+          BUMP: ${{ inputs.bump }}
           DISPATCH_CHANNEL: ${{ inputs.channel }}
         shell: bash
         run: |
@@ -123,14 +130,42 @@ jobs:
 
           case "$CH" in
             stable)
-              # Ship the number beta validated, unchanged. The tag already
-              # exists -- beta created it -- so main reuses it rather than
-              # inventing a new one, and the official release carries exactly
-              # the version testers ran.
-              V="${OVERRIDE:-$(git tag -l 'v*' | sed 's/^v//' \
-                    | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)}"
-              [ -n "$V" ] || V="$(python3 scripts/next_version.py --next)"
-              # Skip on the RELEASE, not the tag: the tag is expected to exist.
+              # An official release bumps X and clears the rest: beta 2.0.2
+              # promotes as 3.0.0. X therefore counts official releases, which
+              # is the coarsest event the scheme has.
+              #
+              # This deliberately REPLACED reusing beta's number. The old
+              # behaviour published exactly what testers ran, which was good
+              # for traceability, but left X moving only via the Y carry at
+              # ten -- so nothing in the number said "this one shipped".
+              #
+              # The build is byte-identical to the beta it came from; only the
+              # label differs. Monotonicity is preserved, which is the property
+              # the updater actually depends on: 3.0.0 > 2.0.2, so every tester
+              # is offered the release rather than being stranded on a number
+              # higher than production's.
+              # An official release states its own bump. There is no default.
+              #
+              # A merge into main used to be enough to publish to every user,
+              # which meant the decision "this is a release, and it is a major
+              # one" was implied by a git operation rather than made. It now
+              # has to be said out loud: run this workflow, choose stable, pick
+              # the bump. A plain push to main builds nothing.
+              #
+              # The cost is one extra step for the rarest event in the project.
+              # The thing it buys is that nobody ships to production by
+              # merging.
+              if [ -n "$OVERRIDE" ]; then
+                V="$OVERRIDE"
+              elif [ -z "${BUMP:-}" ] || [ "${BUMP:-none}" = "none" ]; then
+                echo "::error::a stable release must declare its bump."
+                echo "::error::run this workflow with channel=stable and bump=minor or major."
+                echo "::error::merging into main does not publish on its own, by design."
+                exit 1
+              else
+                V="$(python3 scripts/next_version.py --bump "$BUMP")"
+                echo "declared $BUMP release -> $V"
+              fi
               if gh release view "v$V" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
                 echo "v$V is already published as a stable release"
                 RELEASE=false
@@ -146,7 +181,19 @@ jobs:
               # BELOW the "1.6.7" the installed app reported, so the updater
               # offered nothing and every beta build said "Up to date". Keeping
               # one plain number on both sides is what makes updates work.
-              V="${OVERRIDE:-$(python3 scripts/next_version.py --next --explain)}"
+              # Z advances on its own for anything that landed. X and Y move
+              # only when a human says so, by running this workflow with a
+              # bump -- deciding that a set of landings amounts to a minor
+              # version is editorial, and a branch prefix cannot make that
+              # judgement.
+              if [ -n "$OVERRIDE" ]; then
+                V="$OVERRIDE"
+              elif [ "${BUMP:-none}" != "none" ]; then
+                V="$(python3 scripts/next_version.py --bump "$BUMP")"
+                echo "declared $BUMP bump -> $V"
+              else
+                V="$(python3 scripts/next_version.py --next --explain)"
+              fi
               if git rev-parse "v$V" >/dev/null 2>&1; then
                 echo "v$V is already built; nothing that moves the version has landed"
                 RELEASE=false
