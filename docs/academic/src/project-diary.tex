@@ -510,6 +510,76 @@ product; this establishes that writing a test is not the same as being
 protected by one.
 
 
+\subsection{6 August: a default that was indistinguishable from a decision}
+
+Before beginning work on the paper editor, the repository was surveyed for
+material that no longer had a purpose. Two modules in the gap-finding package
+were found to be unreachable: an earlier implementation that asked the model for
+gaps and for research directions in two separate calls, replaced some weeks
+earlier by a single merged call. A configuration file for a hosting provider the
+project no longer deploys to was removed likewise, and a file named as though it
+belonged to the automated suite was renamed, since the test runner is scoped to
+one directory and had therefore never collected it. Roughly two hundred lines
+were deleted and nothing referred to them.
+
+Reading the surviving implementation next to the one it replaced revealed
+something the deletion had nearly concealed. The older module named the task it
+was performing when it called the language model; the merged replacement did
+not. That argument is what selects the model. The application allows a user to
+assign a particular model to gap finding, and the routing layer honours that
+assignment by looking up the task it is given. Given no task, the argument takes
+its default value of \emph{general}, so the lookup is performed against the
+wrong entry, matches nothing, and falls back to the bundled model --- while the
+interface continues to display the model the user selected. Gap finding, one of
+the two features the project presents as its principal contribution, had been
+running on the smaller model and disregarding the user's choice entirely.
+
+The fault is the same one recorded on 4 August for the writing task, and it
+arrived by the same route: two calls were merged into one and the routing
+argument was not carried across. What makes this class of defect durable is that
+its symptom is indistinguishable from correct operation. Nothing fails. The
+output is plausible, because a smaller model still produces gaps; it produces
+worse ones. The only external evidence is a quality difference that a reader
+would attribute to the difficulty of the task.
+
+Following the principle recorded earlier in this diary --- that categories
+should be fixed rather than instances --- the correction was accompanied by two
+forms of protection. The first drives each feature with the model replaced by a
+recording stand-in and asserts on the task the feature \emph{requested}, rather
+than on the answer it received. The second parses the source of every module and
+fails if any call to the generation interface omits the argument at all. The
+second was written because the first can only cover entry points somebody
+remembered to enumerate.
+
+Run once, it reported two further instances that had not been suspected:
+per-document analysis, merged from two passes in exactly the same way and losing
+the argument in exactly the same way, and metadata extraction at ingestion. The
+second proved not to be a fault. Extracting a title and an author list is
+shallow work performed on every upload, with a regular-expression fallback
+immediately beneath it, and directing it to the larger model would make every
+ingestion wait on a model exchange for no benefit. It was therefore made to
+state \emph{general} explicitly. This is the more useful half of the outcome:
+the remedy is not that every call must name a heavier model, but that every call
+must record which model it intends, so that a deliberate choice and a forgotten
+argument stop appearing identical in the source.
+
+The correction was verified by restoring the defect deliberately and confirming
+that both protections failed, then removing it again and confirming that both
+passed.
+
+A feature that had been abandoned in planning was also removed in full. A
+conversational assistant remained present as a mounted interface with no way to
+reach it, and was still described as working in the user-facing documentation.
+Removing it exposed a dependency worth recording: the paper editor imported its
+retrieval step from that module, because assembling relevant excerpts within a
+size budget had been written there first. That step is not conversational --- it
+takes a query and returns text --- so rather than delete it, it was moved beside
+the search implementation it is built upon and given a name describing what it
+does. Deleting the feature without reading its dependents would have removed
+the grounding from the paper editor, which is the feature the following work was
+about to address.
+
+
 \section{Division of Work}
 \markboth{Division of Work}{}
 

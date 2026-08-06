@@ -61,6 +61,11 @@ async def analyze_document(doc_id: str, text: str) -> Optional[dict]:
             prompt,
             system=_SYSTEM,
             max_tokens=600,
+            # summary + claims in one call is still analysis work, so it routes
+            # like the two separate passes it replaced. Merging them is exactly
+            # how the task got dropped in the gap pipeline; stating it here
+            # keeps this call honest about what it is.
+            task_type="analysis",
         )
         data = json.loads(response)
     except Exception as e:  # noqa: BLE001 - any failure -> treat as "no analysis"

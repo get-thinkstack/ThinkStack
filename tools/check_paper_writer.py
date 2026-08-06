@@ -1,8 +1,17 @@
-"""
-paper writer unit and integration tests.
+"""manual end-to-end check for the paper writer. NOT part of the pytest suite.
 
-tests the full workflow: create → save → compile → download → delete.
-also tests error cases like bad latex, missing projects, and ai generation.
+Run it directly (`python tools/check_paper_writer.py`), not via pytest:
+`pytest.ini` sets `testpaths = tests`, so nothing here is ever collected. It is
+named `check_` rather than `test_` for exactly that reason -- a `test_*.py`
+sitting outside `tests/` reads as coverage that in fact never runs.
+
+It is kept separate because it does what a unit test must not: boots the real
+FastAPI server, shells out to a real pdflatex, and (for the generation checks)
+loads a real model. That makes it slow and machine-dependent, which is why it
+is a deliberate manual step rather than a CI gate.
+
+Exercises the full workflow: create -> save -> compile -> download -> delete,
+plus the error paths (bad latex, missing projects, ai generation).
 """
 
 import os

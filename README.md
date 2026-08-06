@@ -4,7 +4,7 @@
 
 **An offline research assistant that runs entirely on your machine.**
 
-Ingest papers, search them, analyse them, chat with them, and write LaTeX.
+Ingest papers, search them, analyse them, map them, and write LaTeX.
 No account, no subscription, no network. Nothing you open ever leaves your computer.
 
 Three sections, in the order the work happens:
@@ -51,7 +51,6 @@ every feature still works.**
 | **LitGraph** | a map of your collection: papers placed by meaning (PCA over embedding centroids), linked by similarity, grouped into theme territory, with research gaps drawn as markers wired to the papers that evidence them. The map is also the selector — lasso a region and run summarize, claims, themes or gap-finding on exactly those papers |
 | **Analyse** | summaries, key-claim extraction, thematic clustering — precomputed at ingest, off the request path |
 | **Gap finder** | surfaces under-explored areas and suggests research directions |
-| **Chat** | a retrieval-grounded assistant over the papers you select |
 | **Scribe** | AI-assisted LaTeX. Select plain English, press `Ctrl+Enter`, and it becomes LaTeX at your cursor. The compiled PDF is the preview and rebuilds as you type |
 | **Vault** | password-based encryption with Argon2id and AES-256-GCM |
 | **Updates** | signed, and only when you ask for them |
@@ -87,7 +86,7 @@ launch. See [docs/ABOUT.md](docs/ABOUT.md) for the full walkthrough.
 | Component | Size | Purpose |
 |---|---|---|
 | Frozen Python backend | ~1.7 GB uncompressed | no Python needed on the machine |
-| Qwen2.5 0.5B Instruct (Q4_K_M) | 469 MB | chat, search, paper writer |
+| Qwen2.5 0.5B Instruct (Q4_K_M) | 469 MB | general tasks, metadata, Scribe |
 | all-MiniLM-L6-v2 | 88 MB | embeddings for ingestion and search |
 | Tectonic + warmed package cache | 70 MB | LaTeX compilation with no TeX install |
 
@@ -119,9 +118,9 @@ huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct-GGUF \
 ```text
 main.py            fastapi app: serves the react spa and /api
 config.py          pydantic-settings config (env prefix: THINKSTACK_)
-api/               9 routers, 36 REST endpoints
+api/               11 routers
 domain/            ingestion · knowledge_base · search · litgraph · analysis
-                   gap_finder · chat · paper_writer · encryption · model_manager
+                   gap_finder · paper_writer · encryption · model_manager
                    fine_tuning
 infrastructure/    llm client · vector store · hardware profiler · file manager
                    background job queue
