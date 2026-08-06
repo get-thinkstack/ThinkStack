@@ -331,6 +331,10 @@ body::after {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  /* the mark now changes with the active feature, so its glyph comes from the
+     shared registry and inherits `currentColor` rather than hardcoding a
+     stroke. Set the ink here, once, for whichever mark is rendered. */
+  color: #0A0A0A;
 }
 
 .brand-logo-icon svg {
@@ -2141,6 +2145,10 @@ input::-webkit-credentials-auto-fill-button {
   background: #95FF00;
   cursor: pointer;
   transition: transform 140ms ease, box-shadow 140ms ease;
+  /* same as .brand-logo-icon: the glyph inherits its ink from here. With the
+     sidebar shut this button is the only "where am I" signal on screen, so it
+     carries the ACTIVE feature's mark, not a fixed logo. */
+  color: #0A0A0A;
 }
 
 .app-layout.is-collapsed .sidebar-peek { display: flex; }
