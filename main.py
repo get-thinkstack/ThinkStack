@@ -24,7 +24,6 @@ from api.routes_graph import router as graph_router
 from api.routes_analysis import router as analysis_router
 from api.routes_gaps import router as gaps_router
 from api.routes_system import router as system_router
-from api.routes_chat import router as chat_router
 from api.routes_encryption import router as encryption_router
 from api.routes_papers import router as papers_router
 from api.routes_models import router as models_router
@@ -74,7 +73,6 @@ app.include_router(graph_router, prefix="/api/graph", tags=["graph"])
 app.include_router(analysis_router, prefix="/api/analysis", tags=["analysis"])
 app.include_router(gaps_router, prefix="/api/gaps", tags=["gaps"])
 app.include_router(system_router, prefix="/api/system", tags=["system"])
-app.include_router(chat_router, prefix="/api/chat", tags=["chat"])
 app.include_router(encryption_router, prefix="/api/encryption", tags=["encryption"])
 app.include_router(papers_router, prefix="/api/papers", tags=["papers"])
 app.include_router(models_router, prefix="/api/models", tags=["models"])

@@ -302,7 +302,7 @@ Check, at minimum:
       after install, not a second launch — the difference is minutes).
 - [ ] Ingest one PDF. This is the first thing to touch the embedding model, and
       the first thing that would reveal a missing bundled model.
-- [ ] Ask one chat question and run one analysis.
+- [ ] Ask Scribe for one paragraph and run one analysis.
 - [ ] If anything fails, the screen shows a **real error and a log path** —
       never an endless spinner.
 
@@ -481,8 +481,9 @@ Not "does it look fine" — these five, in order. Each one has caught a real bug
 3. **Ingest one PDF.** This is the first thing to touch the embedding model, and
    the only check that proves the weights actually shipped. It must not need a
    network connection.
-4. **Ask one chat question.** Slow is fine — the bundled 0.5B on a CPU takes
-   ~20s. Wrong or empty is not.
+4. **Ask Scribe to write one paragraph.** This is the plain-text generation
+   path, the one that is not grammar-constrained. Slow is fine — the bundled
+   0.5B on a CPU takes ~20s. Wrong or empty is not.
 5. **Run one analysis.** With only the baseline model this degrades to the 0.5B
    and will be rougher than a 1.5B. It must still produce something coherent.
 
@@ -533,18 +534,19 @@ installed app, and cannot be un-shipped.
 ```text
 main.py            fastapi app: serves the react spa and /api
 config.py          pydantic-settings config (env prefix: THINKSTACK_)
-api/               9 routers: documents, search, analysis, gaps, chat,
-                   encryption, papers, models, system
+api/               11 routers: documents, search, graph, analysis, gaps,
+                   encryption, papers, models, registry, hf, system
 domain/            core logic, one package per capability:
                      ingestion/       pdf_parser, chunker, metadata_extractor
                      knowledge_base/  embedding_service, repository
                      search/          semantic search over chunk embeddings
                      analysis/        summarizer, claim_extractor, theme_clusterer
-                     gap_finder/      gap_analyzer, suggestion_engine, pipeline
-                     chat/            chat_service
+                     gap_finder/      gap_pipeline (gaps + suggestions, one call)
                      paper_writer/    compiler (the largest single module)
                      encryption/      kdf (argon2), cipher, envelope, vault
-                     model_manager/   catalog, discovery, downloader
+                     model_manager/   registry, router, catalog, manifest,
+                                      reconcile, discovery, downloader,
+                                      huggingface
                      fine_tuning/     data_collector
 infrastructure/    ollama_client (llm runtime), local_vector_store, hardware,
                    file_manager, atomic_io, caches and histories
@@ -573,7 +575,7 @@ after we shipped a build whose flagship feature needed a package no user had.
 
 | Asset | Purpose | Bundled |
 |---|---|---|
-| `qwen2.5-0.5b-instruct-q4_k_m.gguf` | chat, search, Scribe | yes |
+| `qwen2.5-0.5b-instruct-q4_k_m.gguf` | general, search, Scribe | yes |
 | `all-MiniLM-L6-v2` | embeddings (ingest + search) | yes |
 | `qwen2.5-1.5b-instruct-q4_k_m.gguf` | analysis, gap finder | no — offered on consent |
 

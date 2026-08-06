@@ -151,6 +151,13 @@ async def analyze_gaps_and_suggestions(
             prompt,
             system=_SYSTEM,
             max_tokens=1100,
+            # naming the task is what makes the user's choice count: the router
+            # looks up whatever model is assigned to THIS task in Bench. Omit it
+            # and the argument defaults to "general", so the lookup happens
+            # against the wrong task, finds nothing, and quietly falls back to
+            # the base model -- while Bench still shows the model the user
+            # picked for gap finding.
+            task_type="gap_analysis",
         )
         data = json.loads(response)
     except Exception as e:  # noqa: BLE001 - any failure -> no gaps/suggestions

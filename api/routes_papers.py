@@ -20,7 +20,7 @@ from domain.paper_writer.compiler import (
     get_source,
     delete_project,
 )
-from domain.chat.chat_service import _build_context
+from domain.search.grounding import build_grounding_context
 from domain.fine_tuning.data_collector import save_latex_pair
 from infrastructure.ollama_client import ollama_client
 
@@ -295,7 +295,7 @@ async def api_generate_latex(req: GenerateLatexRequest):
     grounding_parts: list[str] = []
     if req.doc_ids:
         try:
-            context_text, _ = _build_context(req.prompt, req.doc_ids)
+            context_text, _ = build_grounding_context(req.prompt, req.doc_ids)
             if context_text:
                 grounding_parts.append(
                     "relevant excerpts from the user's selected papers - "

@@ -156,10 +156,12 @@ has an explanation.
 - **Dual runtime** — supports both `llama.cpp` (direct GGUF loading) and Ollama.
 - **Structured output** — a GBNF grammar constrains `llama.cpp` output to strict
   JSON or LaTeX where the task needs it.
-- **Task-based model routing** — light tasks (chat, search, paper writing) use a
-  fast 0.5B model; structured-JSON analysis tasks route to a heavier 1.5B model
-  that produces reliable JSON. Only one model is resident at a time; the runtime
-  swaps on demand to cap memory.
+- **Task-based model routing** — every generation names the task it is
+  (`general`, `analysis`, `gap_analysis`, `latex_writer`), and the router picks
+  the model assigned to that task in Bench. Light work such as metadata
+  extraction stays on the fast 0.5B; structured-JSON analysis routes to a
+  heavier 1.5B that produces reliable JSON. Only one model is resident at a
+  time; the runtime swaps on demand to cap memory.
 
 ## Scribe — AI-assisted paper writer (LaTeX)
 

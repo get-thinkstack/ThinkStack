@@ -182,7 +182,13 @@ async def extract_metadata_slm(text: str) -> DocumentMetadata:
 
     try:
         response = await ollama_client.generate_json(
-            prompt, system=system, max_tokens=640
+            prompt, system=system, max_tokens=640,
+            # "general" here is a choice, not an oversight. Pulling a title and
+            # an author list off the first page is shallow work that runs on
+            # EVERY upload, and there is a regex fallback right below if it
+            # fails. Routing it to the heavy analysis model would make every
+            # ingest wait on a model swap to do a job the small one does fine.
+            task_type="general",
         )
         data = json.loads(response)
         return DocumentMetadata(
