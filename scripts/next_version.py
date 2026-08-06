@@ -3,8 +3,16 @@
 
 The rules, stated once:
 
-    a fix      -> patch     X.Y.Z   -> X.Y.(Z+1)
-    a feature  -> minor     X.Y.Z   -> X.(Y+1).0
+    anything landing   -> X.Y.Z -> X.Y.(Z+1)      automatic, Z is unbounded
+    --bump minor       -> X.Y.Z -> X.(Y+1).0      a decision, taken by a human
+    --bump minor at Y=9-> X.9.Z -> (X+1).0.0      Y carries into X at ten
+    --bump major       -> X.Y.Z -> (X+1).0.0      a decision, taken by a human
+
+X and Y are never inferred from a branch name. Deciding that a set of landings
+amounts to a minor version, or to a release, is editorial, and a script reading
+branch prefixes cannot make that judgement -- it can only guess consistently.
+Z is automatic precisely because it is not a judgement: something landed, so
+the number moves, and the build reaches testers.
     a breaking -> major     X.Y.Z   -> (X+1).0.0
 
 "Current" means the newest published STABLE tag (vX.Y.Z), not whatever happens
@@ -134,6 +142,40 @@ def newest_tag() -> tuple[tuple[int, int, int], str | None]:
     return best[1], best[2]
 
 
+# Y never reaches 10. A tenth feature carries into X and resets Y, so 1.9.x
+# is followed by 2.0.0 rather than 1.10.0.
+#
+# This is NOT semantic versioning and does not pretend to be. Under semver, X
+# means "we broke your code", which is meaningless for a desktop application
+# nobody imports. What the number is actually for here is telling a user how
+# far their build has drifted from the current one, and a decimal odometer says
+# that at a glance: two digits apart is two digits apart, whichever column.
+#
+# Ordering is preserved either way, which is the property that actually
+# matters: the updater compares versions, and a build must never advertise a
+# number lower than one already installed. 2.0.0 > 1.9.9 under the same
+# comparison that gives 1.10.0 > 1.9.9.
+MINOR_RADIX = 10
+
+
+def bump_minor(major: int, minor: int) -> tuple[int, int, int]:
+    """A feature landed: Y+1, carrying into X at ten, and Z resets."""
+    minor += 1
+    if minor >= MINOR_RADIX:
+        major, minor = major + 1, 0
+    return major, minor, 0
+
+
+def promote_to_production(major: int) -> tuple[int, int, int]:
+    """Promoting beta into main: X+1, and the lower columns reset.
+
+    An official release is the coarsest event the scheme has, so it moves the
+    coarsest column. Everything accumulated on beta since the last promotion --
+    features in Y, fixes in Z -- is subsumed into that one number.
+    """
+    return major + 1, 0, 0
+
+
 def replay_landings(
     base: tuple[int, int, int], since_tag: str | None
 ) -> tuple[tuple[int, int, int], list[str]]:
@@ -178,21 +220,34 @@ def replay_landings(
         if not m:
             continue
         branch = m.group("branch")
-        if branch.startswith(("feat/", "feature/")):
-            minor, patch = minor + 1, 0
-            notes.append(f"feature  {branch:<34} -> {major}.{minor}.{patch}")
-        elif branch.startswith(("fix/", "hotfix/")):
+        # Every landing moves Z, feature or fix alike.
+        #
+        # X and Y are a DECISION, taken deliberately by running the release
+        # workflow with a bump; nothing a branch is named can move them. But a
+        # landing that moved no digit at all would be invisible: the version
+        # would match a tag that already exists, the build would be skipped as
+        # already-published, and the work would never reach a tester. So Z
+        # advances on anything that lands, and the editorial question -- is
+        # this a minor, is this a release -- stays with the human.
+        if branch.startswith(("feat/", "feature/", "fix/", "hotfix/")):
+            kind = "feature" if branch.startswith(("feat/", "feature/")) else "fix"
             patch += 1
-            notes.append(f"fix      {branch:<34} -> {major}.{minor}.{patch}")
+            notes.append(f"{kind:<8} {branch:<34} -> {major}.{minor}.{patch}")
     return (major, minor, patch), notes
 
 
 def apply_bump(version: tuple[int, int, int], bump: str) -> str:
+    """One explicit bump, obeying the same carry rule as the replay.
+
+    `major` is what promoting to production does; `minor` is a feature landing
+    on beta and carries into X at ten; `patch` is a fix and is unbounded --
+    there is no ceiling on how many fixes one release accumulates.
+    """
     major, minor, patch = version
     if bump == "major":
-        return f"{major + 1}.0.0"
+        return "%d.%d.%d" % promote_to_production(major)
     if bump == "minor":
-        return f"{major}.{minor + 1}.0"
+        return "%d.%d.%d" % bump_minor(major, minor)
     return f"{major}.{minor}.{patch + 1}"
 
 
