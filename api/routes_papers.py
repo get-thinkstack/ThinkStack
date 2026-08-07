@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from domain.paper_writer.compiler import (
     create_project,
+    rename_project,
     save_source,
     compile_pdf,
     list_projects,
@@ -246,6 +247,21 @@ async def api_get_project(project_id: str):
         return {"project_id": project_id, "source": source}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="project not found")
+
+
+class RenameProjectRequest(BaseModel):
+    name: str
+
+
+@router.patch("/projects/{project_id}")
+async def api_rename_project(project_id: str, req: RenameProjectRequest):
+    """rename a paper. Only the display name; the directory keeps its id."""
+    try:
+        return rename_project(project_id, req.name)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="project not found")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/save")

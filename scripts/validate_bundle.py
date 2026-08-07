@@ -91,20 +91,70 @@ def post(url: str, payload: dict, timeout: int = 600):
         return json.loads(r.read().decode())
 
 
-def upload_pdf(url: str, content: bytes, timeout: int = 600):
+def post_file(url: str, *, field: str, filename: str, data: bytes,
+              content_type: str, timeout: int = 600):
     """multipart upload without the requests dependency."""
     boundary = "----thinkstackvalidate"
     body = (
         f"--{boundary}\r\n"
-        'Content-Disposition: form-data; name="file"; filename="validate.pdf"\r\n'
-        "Content-Type: application/pdf\r\n\r\n"
-    ).encode() + content + f"\r\n--{boundary}--\r\n".encode()
+        f'Content-Disposition: form-data; name="{field}"; filename="{filename}"\r\n'
+        f"Content-Type: {content_type}\r\n\r\n"
+    ).encode() + data + f"\r\n--{boundary}--\r\n".encode()
     req = urllib.request.Request(
         url, data=body,
         headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
     )
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode())
+
+
+def upload_pdf(url: str, content: bytes, timeout: int = 600):
+    """ingest a paper. The document-upload case of post_file."""
+    return post_file(url, field="file", filename="validate.pdf",
+                     data=content, content_type="application/pdf", timeout=timeout)
+
+
+def get_bytes(url: str, timeout: int = 60) -> bytes:
+    """fetch a binary body -- used to look inside a compiled PDF."""
+    with urllib.request.urlopen(url, timeout=timeout) as r:
+        return r.read()
+
+
+def delete(url: str, timeout: int = 60) -> None:
+    """best-effort DELETE. A failure here must never fail the validation."""
+    try:
+        req = urllib.request.Request(url, method="DELETE")
+        with urllib.request.urlopen(req, timeout=timeout):
+            pass
+    except Exception:  # noqa: BLE001 - tidying up is not a check
+        pass
+
+
+def _tiny_png() -> bytes:
+    """a real 8x8 PNG, built here so the check needs no fixture file.
+
+    It has to be a genuine PNG with a readable header: the failure this guards
+    against is the graphics package reading a width of zero from a file it could
+    not open, so a handful of fake magic bytes would reproduce the bug rather
+    than test the fix.
+    """
+    import struct
+    import zlib
+
+    w = h = 8
+    rows = b"".join(
+        b"\x00" + b"".join(bytes([x * 30 % 256, y * 30 % 256, 160]) for x in range(w))
+        for y in range(h)
+    )
+
+    def chunk(tag: bytes, payload: bytes) -> bytes:
+        return (struct.pack(">I", len(payload)) + tag + payload
+                + struct.pack(">I", zlib.crc32(tag + payload) & 0xFFFFFFFF))
+
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(rows))
+            + chunk(b"IEND", b""))
 
 
 def wait_for_backend(base: str, timeout: int) -> dict | None:
@@ -130,6 +180,11 @@ def main() -> int:
                          "serves must report exactly this")
     args = ap.parse_args()
     base = args.url.rstrip("/")
+
+    # Projects created by the checks below, removed before this returns. They
+    # are scaffolding, and leaving them behind put twelve "bundle-validation"
+    # entries into a real user's paper list.
+    scratch: list[str] = []
 
     print("-" * 60)
     print(f"  ThinkStack bundle validation  ({sys.platform})")
@@ -263,6 +318,7 @@ def main() -> int:
         try:
             proj = post(f"{base}/api/papers/projects", {"name": "bundle-inference"})
             pid = proj.get("project_id")
+            scratch.append(pid)
             if not pid:
                 raise RuntimeError(f"could not create a project: {str(proj)[:120]}")
             t0 = time.time()
@@ -329,6 +385,7 @@ def main() -> int:
     try:
         proj = post(f"{base}/api/papers/projects", {"name": "bundle-validation"})
         pid = proj.get("project_id")
+        scratch.append(pid)
         src = (
             "\\documentclass[12pt,a4paper]{article}\n"
             "\\usepackage[utf8]{inputenc}\\usepackage[T1]{fontenc}\n"
@@ -351,6 +408,88 @@ def main() -> int:
     except Exception as e:  # noqa: BLE001
         record(FAIL, "paper writer could not compile a PDF", repr(e))
 
+    # 7b. a FIGURE the user supplied compiles into the PDF.
+    #
+    #     Check 7 proves the TeX engine runs. It cannot catch this, because
+    #     everything it compiles is self-contained: equations, tables and a
+    #     pgfplots chart are all drawn from the source. The moment a real paper
+    #     references an image, the compile needs a second FILE to exist beside
+    #     main.tex -- and until projects grew a file tree there was no way to
+    #     put one there. A user's paper failed exactly here, with
+    #     "Unable to load picture" followed by "Division by 0", which is the
+    #     graphics package reading a width from a file it never opened.
+    #
+    #     So this uploads a real PNG and compiles a document that includes it.
+    #     The PDF is then checked for an embedded image: a compile that
+    #     "succeeded" while silently dropping the figure is the failure this
+    #     exists to catch, and it reports status=compiled either way.
+    try:
+        proj = post(f"{base}/api/papers/projects", {"name": "bundle-figure"})
+        fid = proj.get("project_id")
+        scratch.append(fid)
+        png = _tiny_png()
+        up = post_file(f"{base}/api/papers/projects/{fid}/files/upload",
+                       field="file", filename="chart.png", data=png,
+                       content_type="image/png")
+        if not any(f.get("name") == "chart.png" for f in (up.get("files") or [])):
+            raise RuntimeError("the uploaded figure is not in the project listing")
+
+        post(f"{base}/api/papers/save", {
+            "project_id": fid,
+            "source": (
+                "\\documentclass{article}\n\\usepackage{graphicx}\n"
+                "\\begin{document}\n"
+                "\\includegraphics[width=0.4\\linewidth]{chart.png}\n"
+                "\\end{document}\n"
+            ),
+        })
+        res = post(f"{base}/api/papers/compile", {"project_id": fid}, timeout=600)
+        if res.get("status") != "compiled":
+            raise RuntimeError(f"compile reported {res.get('status')}")
+
+        pdf = get_bytes(f"{base}/api/papers/download/{fid}")
+        # /Width appears in an image XObject's dictionary. A PDF of the same
+        # document with the figure dropped does not contain one.
+        if b"/Width" not in pdf:
+            record(FAIL, "compiled, but the figure is NOT in the PDF",
+                   f"{len(pdf)} bytes, no image XObject")
+        else:
+            record(PASS, f"a user-supplied PNG compiled into the PDF ({len(pdf)} bytes)")
+    except Exception as e:  # noqa: BLE001
+        record(FAIL, "a user-supplied figure could not be compiled", repr(e))
+
+    # 7c. a document with an INDEX compiles.
+    #
+    #     \index{} writes main.idx and something has to turn it into main.ind
+    #     before \printindex can read it. Tectonic runs BibTeX by itself but not
+    #     makeindex, and makeindex is not in the bundle -- so a real paper using
+    #     an index failed with "Undefined control sequence \indexentry", which
+    #     is imakeidx giving up and \input-ing the raw .idx. The .ind is now
+    #     generated in Python; this proves it on the SHIPPED engine.
+    try:
+        proj = post(f"{base}/api/papers/projects", {"name": "bundle-index"})
+        iid = proj.get("project_id")
+        scratch.append(iid)
+        post(f"{base}/api/papers/save", {
+            "project_id": iid,
+            "source": (
+                "\\documentclass{article}\n"
+                "\\usepackage{imakeidx}\\usepackage{hyperref}\n"
+                "\\makeindex\n\\begin{document}\n"
+                "Federated learning\\index{federated learning}.\n"
+                "\\newpage\n"
+                "Privacy\\index{privacy!differential}.\n"
+                "\\printindex\n\\end{document}\n"
+            ),
+        })
+        res = post(f"{base}/api/papers/compile", {"project_id": iid}, timeout=600)
+        if res.get("status") != "compiled":
+            raise RuntimeError(f"compile reported {res.get('status')}")
+        pdf = get_bytes(f"{base}/api/papers/download/{iid}")
+        record(PASS, f"a document with an index compiled ({len(pdf)} bytes)")
+    except Exception as e:  # noqa: BLE001
+        record(FAIL, "a document with an index could not be compiled", repr(e))
+
     # 8. model setup / consent endpoint answers
     try:
         setup = get(f"{base}/api/models/setup")
@@ -358,6 +497,14 @@ def main() -> int:
         record(PASS, f"model setup reachable (needs_permission={setup.get('needs_permission')}, suggests={sug})")
     except Exception as e:  # noqa: BLE001
         record(FAIL, "model setup endpoint failed", repr(e))
+
+    # Remove what this run created. Every validation used to leave two or
+    # three projects behind permanently, so a user who had validated a few
+    # builds opened Scribe to a list that was mostly scaffolding -- twelve
+    # "bundle-validation" entries among their real papers.
+    for pid in scratch:
+        if pid:
+            delete(f"{base}/api/papers/projects/{pid}")
 
     return report()
 

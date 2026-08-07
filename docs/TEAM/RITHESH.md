@@ -5,20 +5,74 @@ the team (and future me) can find the reasoning behind the decisions.
 
 ## Paper writer
 
-Scribe is the LaTeX side of the app: an editor, an AI draft helper, a
-compiler, and a live preview. The pieces I own:
+Scribe is the LaTeX side of the app: a file tree, an editor, an AI draft helper,
+and a compiler. The pieces I own:
 
-- `domain/paper_writer/compiler.py`: the pdflatex wrapper. It parses compiler
-  errors, injects missing packages, and degrades gracefully, so a broken figure
-  or table still produces a PDF instead of failing the whole document.
-- `api/routes_papers.py`: the project endpoints (create, read, save, generate,
-  compile, download, delete).
-- `frontend/src/components/Scribe.jsx`: the editor, the AI prompt bar, and
-  the preview tabs.
-- `frontend/src/components/LatexPreview.jsx`: a client-side LaTeX-to-HTML
-  renderer that uses KaTeX for math, so the "Live Preview" tab updates as you
-  type without waiting on a compile. The "Compiled PDF" tab shows the real
-  pdflatex output.
+- `domain/paper_writer/compiler.py`: the engine wrapper. Tectonic when it is
+  bundled, `pdflatex` when it is not. It parses compiler errors, injects missing
+  packages, and degrades gracefully, so a broken figure or table still produces
+  a PDF instead of failing the whole document.
+- `domain/paper_writer/files.py`: a project is a directory, and this is the
+  boundary around it. See the section below.
+- `domain/paper_writer/indexing.py`: generates the `.ind` an index needs.
+- `api/routes_papers.py` and `api/routes_paper_files.py`: the project endpoints
+  and the file endpoints.
+- `frontend/src/components/Scribe.jsx` and `FileTree.jsx`: the tree, the editor,
+  the AI prompt bar, and the PDF preview.
+
+There was a second preview once: `LatexPreview.jsx` rendered the source to HTML
+with KaTeX so a "Live Preview" tab could update without compiling. I removed it,
+along with the KaTeX dependency. It was a second, worse renderer that disagreed
+with the real PDF, which meant the thing you were looking at while writing was
+never the thing you would publish. The compiled PDF is the only preview now, and
+it rebuilds a moment after you stop typing.
+
+## A paper is a folder
+
+A colleague's paper would not compile: the engine could not load a figure, then
+divided by zero. The second message was the first one's consequence — the
+graphics package reading a width from a file it had never opened.
+
+The compiler was not at fault, which took some looking to establish. A project
+had been a directory on disk since the first version, and compilation always ran
+with that directory as its working directory, so the relative path in
+`\includegraphics` resolved correctly. What was missing was any way to put a
+second file into the folder. `main.tex` was the only file the application could
+reach, so a figure could be referenced and never supplied.
+
+I exposed the directory that already existed — list, read, write, upload,
+rename, move, copy, delete — and replaced the row of project chips with a file
+tree that has the papers themselves as its top level. The chips had been a
+second picker for the upper level of the same hierarchy, with no way at all to
+reach the level below.
+
+The part I would want reviewed is the boundary. This API is reachable from the
+webview, which Tauri treats as remote content, so a filename arriving here is
+untrusted input in the same sense a download URL is: `../../../.ssh/id_rsa` is a
+filename. Every operation resolves its argument against the project directory
+and refuses anything landing outside. Resolution happens *before* the check
+rather than a string test for `..`, because that is what catches a symlink —
+nothing about the name `notes.tex` says it points at `/etc`. I disabled the
+containment check deliberately to confirm the tests fail.
+
+## Indexes, and what not to depend on
+
+The same paper failed a second way: `\printindex` produced `Undefined control
+sequence \indexentry`. An index needs two passes with an external step between
+them, and the bundled engine performs that step for bibliographies but not for
+indexes — so the intermediate file was never converted and `imakeidx` fell back
+to reading the raw entry list as markup.
+
+The obvious fix was to call `makeindex`. It is installed on my machine and would
+be installed on no user's, which is the same error as assuming a system TeX —
+exactly what bundling an engine was meant to eliminate. So the index is
+generated in Python instead. It is a small, stable format, and it fits what the
+compiler already does: repair what it is given rather than refuse it.
+
+Both failures are now checks in `validate_bundle.py`, run against the packaged
+app on all three platforms. The figure check inspects the PDF for an image
+XObject rather than trusting `status: compiled`, because a compile that silently
+drops the figure reports success too.
 
 ## Fine-tuning data pipeline
 
@@ -249,3 +303,21 @@ and never `App.jsx`, where the missing import actually was. Both were found by
 deliberately breaking the code and checking the tests noticed — a test that has
 never failed is a hypothesis, not evidence.
 
+A third shape, found the day the file tree shipped: three menu items — new file,
+new folder, new paper — did nothing at all. They were built on the browser's
+`prompt()`, which the Tauri webview does not implement; it returns `null`, and
+the code read that as the user cancelling. Deleting had the same dependency on
+`confirm()`, where the failure is worse in a way worth stating: a guard written
+as `if (!confirm(...)) return` either blocks the action forever or performs it
+without ever asking, depending which way `undefined` falls.
+
+Behind that sat a second defect that would have broken the menu even with a
+working dialog — it dismissed on a capture-phase `pointerdown` without checking
+whether the press was *inside* it, so pressing an item unmounted the button
+before its own click arrived.
+
+Neither is visible in the source, and neither would be caught by any test I
+could reasonably have written: both are about what the *host* provides. The
+lesson is narrower than "test more". A desktop web view is not a browser, and
+the platform's absences are as much a part of the contract as its APIs. I had
+tested the code; I had not run the product.

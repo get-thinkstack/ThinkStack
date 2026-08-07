@@ -306,6 +306,60 @@ export const hfApi = {
     }),
 };
 
+/**
+ * The files inside a paper project.
+ *
+ * A project has always been a directory; until now `main.tex` was the only
+ * thing in it anything could reach, which is why `\includegraphics{chart.png}`
+ * failed -- the compiler already runs with the project directory as its working
+ * directory, so the relative path was right and the file simply was not there.
+ *
+ * Every mutating call returns the whole `files` listing alongside its own
+ * result, so the tree re-renders from one authoritative payload. A rename
+ * changes a path the editor may have open and a delete can remove it entirely;
+ * patching a local guess would show a tree that never existed on disk.
+ */
+export const projectFilesApi = {
+  list: (projectId) => request(`/papers/projects/${projectId}/files`),
+
+  read: (projectId, path) =>
+    request(`/papers/projects/${projectId}/files/content?path=${encodeURIComponent(path)}`),
+
+  write: (projectId, path, content) =>
+    request(`/papers/projects/${projectId}/files/content`, {
+      method: 'PUT',
+      body: { path, content },
+    }),
+
+  /** the URL a figure can be rendered from, straight off disk */
+  rawUrl: (projectId, path) =>
+    `${BASE_URL}/papers/projects/${projectId}/files/raw?path=${encodeURIComponent(path)}`,
+
+  upload: (projectId, file, dest = '') => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('dest', dest);
+    return request(`/papers/projects/${projectId}/files/upload`, {
+      method: 'POST',
+      body: form,
+    });
+  },
+
+  mkdir: (projectId, path) =>
+    request(`/papers/projects/${projectId}/files/folder`, { method: 'POST', body: { path } }),
+
+  move: (projectId, src, dst) =>
+    request(`/papers/projects/${projectId}/files/move`, { method: 'POST', body: { src, dst } }),
+
+  copy: (projectId, src, dst) =>
+    request(`/papers/projects/${projectId}/files/copy`, { method: 'POST', body: { src, dst } }),
+
+  remove: (projectId, path) =>
+    request(`/papers/projects/${projectId}/files?path=${encodeURIComponent(path)}`, {
+      method: 'DELETE',
+    }),
+};
+
 export const encryptionApi = {
   encrypt: (docId, password) =>
     request('/encryption/encrypt', {
@@ -331,6 +385,11 @@ export const papersApi = {
 
   create: (name) =>
     request('/papers/projects', { method: 'POST', body: { name } }),
+
+  // Only the display name. The directory is named after the project id, so a
+  // rename cannot break a compile, a PDF preview, or an \includegraphics path.
+  rename: (projectId, name) =>
+    request(`/papers/projects/${projectId}`, { method: 'PATCH', body: { name } }),
 
   get: (projectId) => request(`/papers/projects/${projectId}`),
 

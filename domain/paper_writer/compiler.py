@@ -430,6 +430,28 @@ def _run_engine(engine: str, kind: str, tex_file: Path, project_dir: Path):
     )
 
 
+def _needs_index_pass(project_dir: Path, tex_file: Path) -> bool:
+    """build the .ind if the document asked for an index. True if it changed.
+
+    Only when the source actually uses \\printindex: writing an .ind beside a
+    document that never reads it is harmless but pointless, and the extra engine
+    pass it triggers is not -- a real TeX run on a long paper is seconds.
+    """
+    try:
+        if "\\printindex" not in tex_file.read_text(encoding="utf-8", errors="replace"):
+            return False
+        from domain.paper_writer.indexing import write_index
+        before = (project_dir / f"{tex_file.stem}.ind")
+        previous = before.read_text(encoding="utf-8") if before.exists() else None
+        if not write_index(project_dir, tex_file.stem):
+            return False
+        # a second pass is only worth it when the index actually changed
+        return before.read_text(encoding="utf-8") != previous
+    except Exception as e:  # noqa: BLE001 - an index must never lose the PDF
+        logger.warning("index generation skipped: %s", e)
+        return False
+
+
 def compile_pdf(project_id: str) -> tuple[Path, list[str]]:
     """compile the project's main.tex into a pdf, overleaf-style.
 
@@ -493,6 +515,15 @@ def compile_pdf(project_id: str) -> tuple[Path, list[str]]:
     for _ in range(MAX_SALVAGE + 1):
         result = _run_engine(engine, kind, tex_file, project_dir)
         if pdf_path.exists():
+            # An index is a two-pass affair: the first run writes .idx, something
+            # has to turn that into .ind, and only then can \printindex read it.
+            # Tectonic runs BibTeX by itself but not makeindex, so without this
+            # a paper using \index compiled to "Undefined control sequence
+            # \indexentry" -- imakeidx falling back to \input-ing the raw .idx.
+            # Generated in Python rather than shelled out to makeindex, which is
+            # not in the bundle and would put us back to needing a TeX install.
+            if _needs_index_pass(project_dir, tex_file):
+                _run_engine(engine, kind, tex_file, project_dir)
             break
 
         log_text = log_file.read_text(encoding="utf-8", errors="replace") if log_file.exists() else ""
@@ -558,6 +589,44 @@ def list_projects() -> list[dict]:
                 continue
 
     return projects
+
+
+def rename_project(project_id: str, name: str) -> dict:
+    """change a project's display name.
+
+    Only meta.json changes. The directory is named after the project id, not
+    the title, so renaming costs nothing and cannot break a path the compiler,
+    the PDF preview or an \\includegraphics is using -- which is exactly why
+    the id was never the title in the first place.
+
+    args:
+        project_id: the project identifier.
+        name: the new display name.
+
+    returns:
+        the updated metadata.
+
+    raises:
+        FileNotFoundError: no such project.
+        ValueError: the name is empty.
+    """
+    import json
+
+    clean = (name or "").strip()
+    if not clean:
+        raise ValueError("A paper needs a name.")
+    clean = clean[:120]
+
+    project_dir = _get_project_dir(project_id)
+    meta_file = project_dir / "meta.json"
+    if not meta_file.exists():
+        raise FileNotFoundError(f"project {project_id} not found")
+
+    meta = json.loads(meta_file.read_text(encoding="utf-8"))
+    meta["name"] = clean
+    meta_file.write_text(json.dumps(meta), encoding="utf-8")
+    meta["has_pdf"] = (project_dir / "main.pdf").exists()
+    return meta
 
 
 def get_source(project_id: str) -> str:

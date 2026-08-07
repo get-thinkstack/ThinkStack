@@ -52,7 +52,6 @@ export default function LitGraph() {
   const [focus, setFocus] = useState(null);
   const [expanded, setExpanded] = useState(null);
   const [panel, setPanel] = useState(null);
-  const [showHelp, setShowHelp] = useState(false); // {kind:'paper'|'gap'|'claim', ...}
 
   // search
   const [query, setQuery] = useState('');
@@ -325,7 +324,6 @@ export default function LitGraph() {
       <div className="lg-page">
       <PageHeader
         title="LitGraph"
-        subtitle="Your papers as a map - placed by meaning, grouped by theme, with research gaps marked."
       />
         <div className="lg-empty"><div className="spinner spinner-lg" /><p>Building the map…</p></div>
       </div>
@@ -336,7 +334,6 @@ export default function LitGraph() {
       <div className="lg-page">
       <PageHeader
         title="LitGraph"
-        subtitle="Your papers as a map - placed by meaning, grouped by theme, with research gaps marked."
       />
         <div className="lg-empty">
         <BookOpen size={44} />
@@ -353,7 +350,6 @@ export default function LitGraph() {
     <div className="lg-page">
       <PageHeader
         title="LitGraph"
-        subtitle="Your papers as a map - placed by meaning, grouped by theme, with research gaps marked."
       />
       <div ref={setRoot} className={`lg-root ${panel ? 'lg-has-panel' : ''}`}>
       {/* ---------- canvas ---------- */}
@@ -454,26 +450,9 @@ export default function LitGraph() {
           </div>
         )}
 
-        {/* ---------- hint ---------- */}
-        {/* The controls were a permanent line of text across the bottom of the
-            canvas -- read once, then noise on every visit after. Behind an "i"
-            they stay reachable without competing with the map. */}
-        <button
-          className={`lg-info ${showHelp ? 'on' : ''}`}
-          onClick={() => setShowHelp((v) => !v)}
-          aria-label="How to use the map"
-          aria-expanded={showHelp}
-        >
-          i
-        </button>
-        {showHelp && (
-          <div className="lg-help" role="dialog" aria-label="How to use the map">
-            <div><b>drag</b> pan the map</div>
-            <div><b>shift-drag</b> lasso a region to act on it</div>
-            <div><b>click</b> a paper to open it and frame its neighbours</div>
-            <div><b>wheel</b> zoom in and out</div>
-          </div>
-        )}
+        {/* The canvas hint that used to live here is now the shell's page guide
+            -- the same "i" in the same corner, but on every screen and written
+            once in features.js. See components/PageGuide.jsx. */}
 
         {/* ---------- the selection is what every action runs on ---------- */}
         {selection.length > 0 && (
