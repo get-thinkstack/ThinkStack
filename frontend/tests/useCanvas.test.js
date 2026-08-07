@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { makeAlpha, lassoFar, gestureFor } from '../src/components/litgraph/useCanvas';
+import {
+  makeAlpha, lassoFar, gestureFor, citedBy, edgeLit,
+} from '../src/components/litgraph/useCanvas';
 
 const m = (...ids) => new Map(ids.map((id) => [id, { score: 1 }]));
 
@@ -75,5 +77,54 @@ describe('gestureFor', () => {
 
   it('ignores the right button, which belongs to the context menu', () => {
     expect(gestureFor(press(false, empty, 2))).toBe('none');
+  });
+});
+
+/**
+ * A gap is a node on the map that no edge touches: edges join papers, and a gap
+ * is a claim about several of them. So focusing one used to dim the entire map
+ * -- the papers it cites scored no better than papers it says nothing about,
+ * and not one edge lit. The relation the marker exists to show was the one
+ * thing selecting it hid.
+ */
+describe('citedBy', () => {
+  const model = {
+    gaps: [
+      { gap_id: 'g1', doc_ids: ['a', 'b'] },
+      { gap_id: 'g2', doc_ids: ['c'] },
+    ],
+  };
+
+  it('gives the papers a gap cites', () => {
+    expect([...citedBy(model, 'g1')]).toEqual(['a', 'b']);
+  });
+
+  it('gives nothing for a paper, which has edges of its own instead', () => {
+    expect(citedBy(model, 'a')).toBe(null);
+  });
+
+  it('gives nothing when nothing is selected', () => {
+    expect(citedBy(model, null)).toBe(null);
+    expect(citedBy({}, 'g1')).toBe(null);
+  });
+});
+
+describe('edgeLit', () => {
+  const edge = (a, b) => ({ a, b });
+
+  it('lights an edge touching the focused paper', () => {
+    expect(edgeLit(edge('a', 'b'), 'a', null)).toBe(true);
+    expect(edgeLit(edge('b', 'c'), 'a', null)).toBe(false);
+  });
+
+  // The point of selecting a gap: see how the papers it rests on relate.
+  it('lights the edges between the papers a focused gap cites', () => {
+    const cited = new Set(['a', 'b']);
+    expect(edgeLit(edge('a', 'b'), 'g1', cited)).toBe(true);
+  });
+
+  it('leaves an edge with only one end in the gap alone', () => {
+    const cited = new Set(['a', 'b']);
+    expect(edgeLit(edge('b', 'z'), 'g1', cited)).toBe(false);
   });
 });

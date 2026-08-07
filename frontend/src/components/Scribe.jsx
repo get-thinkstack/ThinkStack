@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  FilePlus2, Save, Play, Download, Trash2, Sparkles, FileText, Loader2, BookOpen, ChevronDown,
+  Save, Play, Download, Sparkles, FileText, Loader2, BookOpen, ChevronDown,
 } from 'lucide-react';
-import { papersApi, documentsApi, useLlmBusy } from '../utils/api';
+import { papersApi, documentsApi, projectFilesApi, useLlmBusy } from '../utils/api';
 import PageHeader from './PageHeader';
+import FileTree from './FileTree';
+import { isImage, isPdf } from '../utils/filekind';
+import useSplitter from '../utils/useSplitter';
 
 const AUTOCOMPILE_KEY = 'thinkstack.paperWriter.autoCompile';
 
@@ -67,8 +70,6 @@ export default function Scribe() {
   const [warnings, setWarnings] = useState([]);
   const [prompt, setPrompt] = useState('');
   const [generating, setGenerating] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [creating, setCreating] = useState(false);
   const [autoStatus, setAutoStatus] = useState(''); // '', 'compiling', 'ok', 'error'
   // source of the last successful compile, so idling does not recompile an
   // unchanged document over and over on a slow CPU.
@@ -85,6 +86,38 @@ export default function Scribe() {
   // survive a programmatic value change, so replacing a selection would
   // otherwise be unrecoverable -- and the model is not always right.
   const [undoSrc, setUndoSrc] = useState(null);
+
+  // Which file the editor is showing. A project is a directory now, so "the
+  // source" is no longer synonymous with main.tex -- but main.tex is still the
+  // document the compiler builds, so opening a section file changes what you
+  // are editing and not what gets compiled.
+  const [openFile, setOpenFile] = useState('main.tex');
+  // Set when the open file is a figure rather than text: images get a preview
+  // where the editor would be, so you can confirm you uploaded the right chart
+  // before referencing it.
+  const [imagePath, setImagePath] = useState(null);
+
+  // Draggable dividers. Both write a CSS variable straight onto the grid, so a
+  // drag costs no re-render, and both remember where you left them -- someone
+  // who widens the PDF to read it wants it wide tomorrow too.
+  const {
+    containerRef: gridRef,
+    onPointerDown: onTreeGrip,
+    onKeyDown: onTreeGripKey,
+  } = useSplitter({
+    varName: '--ft-w', storageKey: 'ts.scribe.treeW',
+    initial: 200, min: 140, max: 420,
+  });
+  // Both dividers resize columns of the SAME grid, so the second is handed the
+  // first's ref rather than creating its own.
+  const {
+    onPointerDown: onPreviewGrip,
+    onKeyDown: onPreviewGripKey,
+  } = useSplitter({
+    varName: '--pv-w', storageKey: 'ts.scribe.previewW',
+    initial: 520, min: 260, max: (w) => w * 0.7, fromRight: true,
+    ref: gridRef,
+  });
 
   // Autocompile is on by default -- watching the paper build itself is the
   // point. It is a preference, not a policy: a real TeX run costs CPU, and on
@@ -151,6 +184,8 @@ export default function Scribe() {
     try {
       const d = await papersApi.get(id);
       setActiveId(id);
+      setOpenFile('main.tex');
+      setImagePath(null);
       setSource(d.source || '');
       setDirty(false);
       // treat the stored source as already compiled: opening a paper should
@@ -167,35 +202,102 @@ export default function Scribe() {
     }
   };
 
-  const handleCreate = async () => {
-    setCreating(true);
+  /**
+   * Open a file from the tree.
+   *
+   * One file at a time, as in Overleaf: this replaces what the editor is
+   * showing rather than adding a tab. Unsaved work is protected first, because
+   * clicking a file in a tree is not an obvious way to lose a paragraph.
+   *
+   * A figure is not editable, so it gets a preview where the editor would be --
+   * enough to confirm the right chart was uploaded before referencing it.
+   */
+  const openTreeFile = async (pid, entry) => {
+    if (entry.is_dir) return;
+    if (pid === activeId && entry.path === openFile) return;
+
+    // Save rather than ask. window.confirm is not implemented in the Tauri
+    // webview -- it returns undefined, so `!confirm(...)` is true and switching
+    // files while dirty would have been impossible. Silently losing the edit is
+    // worse than silently keeping it, and keeping it is what an author expects
+    // from a tree that autocompiles anyway.
+    if (dirty) {
+      try {
+        if (openFile === 'main.tex') await papersApi.save(activeId, source);
+        else await projectFilesApi.write(activeId, openFile, source);
+        setDirty(false);
+      } catch (e) {
+        setError(`Could not save ${openFile}: ${e.message}`);
+        return;
+      }
+    }
+
+    // Clicking a file inside a different paper switches to that paper. The tree
+    // is the only picker now, so opening a file has to be enough on its own.
+    if (pid !== activeId) {
+      await openProject(pid);
+      if (entry.path === 'main.tex') return;   // openProject already loaded it
+    }
+
     setError('');
+    setStatus('');
+
+    if (isImage(entry.name)) {
+      setOpenFile(entry.path);
+      setImagePath(entry.path);
+      return;
+    }
+
+    // A PDF belongs in the preview pane -- that pane IS a PDF viewer, so
+    // sending it to the editor and reading it as text only ever produced
+    // "main.pdf is not a text file". main.pdf is also the compiler's own
+    // output, so this is just "show me the last build".
+    if (isPdf(entry.name)) {
+      setOpenFile(entry.path);
+      setImagePath(null);
+      pdfVersion.current += 1;
+      setPdfUrl(entry.path === 'main.pdf'
+        ? `${papersApi.previewUrl(pid)}?v=${pdfVersion.current}`
+        : `${projectFilesApi.rawUrl(pid, entry.path)}&v=${pdfVersion.current}`);
+      return;
+    }
+
     try {
-      const d = await papersApi.create((newName || 'untitled').trim());
-      setNewName('');
-      await loadProjects();
-      setActiveId(d.project_id);
-      setSource(d.source || '');
+      const d = await projectFilesApi.read(pid, entry.path);
+      setImagePath(null);
+      setOpenFile(entry.path);
+      setSource(d.content || '');
       setDirty(false);
-      setPdfUrl(null);
+      // Only main.tex is what the compiler builds, so the "already compiled"
+      // marker must not be set from some other file's contents -- doing so
+      // would convince the autocompiler the document was up to date.
+      if (entry.path === 'main.tex') compiledSrc.current = d.content || '';
     } catch (e) {
       setError(e.message);
     }
-    setCreating(false);
   };
 
   const handleSave = async () => {
-    if (!activeId) return;
+    if (!activeId || imagePath) return;
     setBusy(true);
     setError('');
     try {
       clearTimeout(compileTimer.current);
-      await papersApi.save(activeId, source);
-      setDirty(false);
-      flash('saved');
-      // with autocompile on, don't make the user wait out the idle timer.
-      // with it off, saving is just saving -- compiling is their call.
-      if (autoCompile) compileNow(source);
+      if (openFile === 'main.tex') {
+        await papersApi.save(activeId, source);
+        setDirty(false);
+        flash('saved');
+        // with autocompile on, don't make the user wait out the idle timer.
+        // with it off, saving is just saving -- compiling is their call.
+        if (autoCompile) compileNow(source);
+      } else {
+        // Any other file in the project: a section, a .bib, a .sty. Saving it
+        // does not recompile on its own, because the document the compiler
+        // builds is main.tex and this may not even be \input by it.
+        await projectFilesApi.write(activeId, openFile, source);
+        setDirty(false);
+        flash('saved');
+      }
     } catch (e) {
       setError(e.message);
     }
@@ -240,11 +342,16 @@ export default function Scribe() {
   useEffect(() => {
     if (!autoCompile) return undefined;
     if (!activeId || !source.trim()) return undefined;
+    // ONLY while main.tex is the open file. `compileNow` saves through
+    // papersApi.save, which writes main.tex by name -- so autocompiling while a
+    // section file was open would quietly overwrite the document with the
+    // contents of something else. Editing any other file is saved explicitly.
+    if (openFile !== 'main.tex' || imagePath) return undefined;
     if (compiledSrc.current === source) return undefined;
     clearTimeout(compileTimer.current);
     compileTimer.current = setTimeout(() => compileNow(source), 2500);
     return () => clearTimeout(compileTimer.current);
-  }, [source, activeId, autoCompile, compileNow]);
+  }, [source, activeId, autoCompile, compileNow, openFile, imagePath]);
 
   /**
    * Turn a request into LaTeX.
@@ -342,62 +449,11 @@ export default function Scribe() {
     flash('AI edit undone');
   };
 
-  const handleDelete = async (id, e) => {
-    e.stopPropagation();
-    try {
-      await papersApi.remove(id);
-      if (id === activeId) {
-        setActiveId(null);
-        setSource('');
-        setPdfUrl(null);
-      }
-      loadProjects();
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
   return (
     <div>
       <PageHeader
         title="Scribe"
-        subtitle="Draft, AI-generate, and compile LaTeX papers - fully offline."
       />
-
-      {/* project bar */}
-      <div className="card pw-bar">
-        <div className="pw-projects">
-          {projects.map((p) => (
-            <button
-              key={p.project_id}
-              className={`pw-chip ${p.project_id === activeId ? 'active' : ''}`}
-              onClick={() => openProject(p.project_id)}
-              title={p.project_id}
-            >
-              <FileText size={14} />
-              <span>{p.name || 'untitled'}</span>
-              {p.has_pdf && <span className="pw-chip-dot" title="compiled" />}
-              <span className="pw-chip-del" onClick={(e) => handleDelete(p.project_id, e)} title="delete">
-                <Trash2 size={13} />
-              </span>
-            </button>
-          ))}
-          {projects.length === 0 && <span className="pw-hint">no projects yet - create one →</span>}
-        </div>
-        <div className="pw-create">
-          <input
-            className="input"
-            placeholder="new paper name…"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-          />
-          <button className="btn btn-primary" onClick={handleCreate} disabled={creating}>
-            {creating ? <Loader2 size={16} className="pw-spin" /> : <FilePlus2 size={16} />}
-            <span>New</span>
-          </button>
-        </div>
-      </div>
 
       {error && (
         <div className="toast error" style={{ position: 'static', margin: '0 0 1rem', whiteSpace: 'pre-wrap' }}>
@@ -405,14 +461,27 @@ export default function Scribe() {
         </div>
       )}
 
-      {!activeId ? (
-        <div className="empty-state">
-          <FileText size={48} />
-          <h3>No paper open</h3>
-          <p>Create a new paper or pick one above to start writing.</p>
-        </div>
-      ) : (
-        <div className="pw-grid">
+      <div className="pw-grid" ref={gridRef}>
+          {/* Papers AND their files, one tree. A project is a directory on disk,
+              so it is a folder here -- which is also how \includegraphics can
+              finally find a figure. One file open at a time, as in Overleaf. */}
+          <FileTree
+            projectId={activeId}
+            openPath={openFile}
+            onOpen={openTreeFile}
+            onProjectGone={() => { setActiveId(null); setSource(''); setPdfUrl(null); }}
+          />
+
+          <div
+            className="pw-split"
+            onPointerDown={onTreeGrip}
+            onKeyDown={onTreeGripKey}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize the file tree"
+            tabIndex={0}
+          />
+
           {/* editor */}
           <motion.div
             className="card pw-editor"
@@ -422,7 +491,7 @@ export default function Scribe() {
           >
             <div className="pw-toolbar">
               <span className="pw-toolbar-title">
-                main.tex {dirty && <span className="pw-dot" title="unsaved" />}
+                {openFile} {dirty && <span className="pw-dot" title="unsaved" />}
               </span>
               <div className="pw-toolbar-actions">
                 {status && <span className="pw-status">{status}</span>}
@@ -467,6 +536,27 @@ export default function Scribe() {
               </div>
             </div>
 
+            {!activeId ? (
+              /* The tree is always there, so this is never a dead end: it says
+                 where to go rather than just reporting emptiness. */
+              <div className="pw-empty">
+                <FileText size={42} />
+                <p>Pick a paper from the tree, or press + to start one.</p>
+              </div>
+            ) : imagePath ? (
+              /* A figure is not editable. Showing it here -- where the editor
+                 would be -- is what lets you confirm the right chart was
+                 uploaded before you reference it in \includegraphics. */
+              <div className="pw-imgview">
+                <img
+                  src={projectFilesApi.rawUrl(activeId, imagePath)}
+                  alt={imagePath}
+                />
+                {/* the exact line to paste. Braces are escaped because a bare
+                    {{ }} in JSX is an object literal, not two characters. */}
+                <code>{`\\includegraphics[width=\\linewidth]{${imagePath}}`}</code>
+              </div>
+            ) : (
             <textarea
               ref={editorRef}
               className="pw-textarea"
@@ -476,6 +566,7 @@ export default function Scribe() {
               onKeyDown={handleEditorKeyDown}
               placeholder="Write plainly, select it, and press Ctrl+Enter to turn it into LaTeX."
             />
+            )}
             <div className="pw-editor-hint">
               {generating
                 ? 'Writing LaTeX…'
@@ -541,6 +632,16 @@ export default function Scribe() {
           </motion.div>
 
           {/* the compiled PDF is the only preview -- see the note at the top */}
+          <div
+            className="pw-split"
+            onPointerDown={onPreviewGrip}
+            onKeyDown={onPreviewGripKey}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize the preview"
+            tabIndex={0}
+          />
+
           <div className="card pw-preview">
             <div className="pw-preview-tabs">
               <span className="pw-preview-tab active">
@@ -578,8 +679,7 @@ export default function Scribe() {
               )}
             </AnimatePresence>
           </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 }

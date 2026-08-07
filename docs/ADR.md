@@ -280,6 +280,135 @@ block nowhere to go. It emits the shortest legal document instead: `{}`.
 `json.loads` succeeds, so nothing downstream notices. The baseline is now
 chosen by measured behaviour on the two flagship jobs, not by size or recency.
 
+## 2026-08-07: a paper is a directory, and the file tree is the way into it
+
+**Context.** A project has been a directory since the first version --
+`main.tex` and `meta.json` in `data/papers_workspace/<id>/` -- but `main.tex`
+was the only file anything could reach. A user's paper failed with "Unable to
+load picture or PDF file 'newplot-6.png'", then "Division by 0".
+
+**Decision.** `domain/paper_writer/files.py` exposes the directory: list, read,
+write, upload, mkdir, move, copy, delete. The UI is one tree with papers as its
+top level, replacing the row of project chips.
+
+**Consequences.** `\includegraphics{chart.png}` works, and always would have:
+the compiler already ran with the project directory as its working directory, so
+the relative path resolved and the file simply was not there. The second error
+was the first one's consequence -- graphics dividing by a width read from a file
+it never opened. Papers can now be split across section files and keep a `.bib`
+beside them. Build artefacts are hidden from the tree; they are regenerated and
+mean nothing to an author.
+
+## 2026-08-07: filenames arriving from the webview are untrusted
+
+**Context.** The file API is reachable from the webview, which Tauri treats as
+remote content. `../../../.ssh/id_rsa` is a filename.
+
+**Decision.** Every operation resolves its argument against the project
+directory and refuses anything landing outside. Resolution happens BEFORE the
+check, never a string test for "..".
+
+**Consequences.** Traversal, absolute paths, NUL bytes and symlinks pointing out
+of the project are refused. Resolving first is what catches the symlink: nothing
+about the name `notes.tex` says it points at `/etc`. Disabling the containment
+check fails the tests, which is how we know they test it.
+
+## 2026-08-07: the index is generated, not delegated to makeindex
+
+**Context.** `\index{term}` writes `main.idx`; something must turn it into
+`main.ind` before `\printindex` can read it. Tectonic runs BibTeX by itself but
+not makeindex, so a paper with an index failed with `Undefined control sequence
+\indexentry` -- `imakeidx` giving up and `\input`-ing the raw `.idx`.
+
+**Decision.** `domain/paper_writer/indexing.py` builds the `.ind` in Python, and
+the compiler runs a second pass when it changes.
+
+**Consequences.** No second binary in the installer. Shelling out to makeindex
+would have worked on this machine and on no user's -- the same mistake as
+assuming a system LaTeX, which is what the bundled engine exists to avoid.
+Sub-entries, `sort@printed` keys, `|hyperpage` encapsulators and `|(`...`|)`
+page ranges are supported because real papers use them.
+
+## 2026-08-07: no browser dialogs, because there is no browser
+
+**Context.** "New file", "New folder" and "New paper" were built on
+`window.prompt`, deletes on `window.confirm`. The Tauri webview implements
+neither: `prompt` returns null, so every menu item silently did nothing.
+
+**Decision.** Naming happens in an inline row in the tree, where the file will
+appear. Destructive actions go through a shared `ConfirmDialog`.
+
+**Consequences.** They work. A second defect hid behind the first: the context
+menu closed on a capture-phase `pointerdown`, unmounting the button before its
+own `click` landed, so even a working `prompt` would not have been reached. The
+dialog is shared because this was about to be the third in the codebase -- and
+`if (!confirm(...)) return` is worse than useless when `confirm` returns
+undefined: the guard either blocks forever or deletes without asking.
+
+## 2026-08-07: the page subtitle became an "i"
+
+**Context.** Every screen carried a title and a sentence explaining the feature.
+The sentence is worth reading once and then holds a strip of the window forever
+-- and Scribe wants that strip so the editor and the PDF have half the height
+each.
+
+**Decision.** The title and its brush-slash stay. The sentence moves behind an
+"i" in the bottom-left corner, on the brand accent, declared once per feature in
+`frontend/src/features.js`.
+
+**Consequences.** LitGraph already did this for its canvas controls, so this
+generalises something that worked rather than inventing it; its private copy is
+gone. The guide floats rather than pushes, so opening it never reflows an editor
+mid-sentence and it costs no height closed.
+
+## 2026-08-06: the shell watches for use; features do not report it
+
+**Context.** Opening a paper, a node or a project wants the width the sidebar is
+occupying. The first build of this hooked the handler for each of those, in each
+feature.
+
+**Decision.** The shell listens for a pointer or key press anywhere inside its
+own content area and collapses the sidebar itself. Features call nothing and
+import nothing.
+
+**Consequences.** Every control on every screen counts, including ones nobody
+enumerated and ones not written yet. The per-feature version was green in tests
+and still felt broken, because everything absent from the list did nothing --
+"any action" is not a list that can be kept complete across four screens of
+buttons, fields, canvas drags and keystrokes. The listener is on the content
+element only, so the nav and theme toggle are not "use". It is a capture-phase
+`pointerdown`: several rows stop propagation on their own buttons, and the
+canvas lasso is a drag that may never produce a click.
+
+## 2026-08-06: an automatic collapse is not a saved preference
+
+**Context.** The sidebar's collapsed state is persisted, like the theme. Once
+actions could also collapse it, both wrote to the same flag.
+
+**Decision.** Two flags. The one the logo sets persists; the one an action sets
+lives for the session only. The sidebar hides when either is set, and the logo
+clears both.
+
+**Consequences.** Opening one paper no longer teaches the app to launch
+collapsed forever -- a setting the user never chose, changed by something
+unrelated to settings, with nothing on screen explaining it. Clearing both from
+the logo is what stops it appearing dead: with one flag still held by a feature,
+clicking it moved nothing.
+
+## 2026-08-06: features are declared once, in a registry
+
+**Context.** Each feature was written out as a nav entry and again as a route,
+and the brand mark was inline SVG pasted in twice.
+
+**Decision.** `frontend/src/features.js` holds id, path, label, icon, mark and
+component. Nav, routes and the logo all render from it.
+
+**Consequences.** Adding a feature is one entry and the shell needs no edit. The
+mark follows the active feature, which is what makes the collapsed peek button
+say where you are when nothing else on screen can. The two logo copies could
+drift and no longer exist. The registry is data and knows nothing about a
+sidebar, so it survives the interface refactor that reads it.
+
 ## 2026-08-05: Hugging Face download URLs are constructed, never accepted
 
 **Context.** The local API is reachable from the webview, which Tauri treats as

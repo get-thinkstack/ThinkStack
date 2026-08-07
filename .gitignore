@@ -145,3 +145,12 @@ docs/ThinkStack Design Philosophy.pdf
 docs/litchart.html
 docs/litgraph-demo.html
 litgraph-app.png
+
+# Screenshots taken while checking the interface, and the browser automation's
+# own output. Both land at the repo root by default. They are evidence for a
+# conversation, not part of the product.
+#
+# Anchored to the root on purpose: src-tauri/icons/ is the app's real artwork
+# and stays tracked.
+/*.png
+.playwright-mcp/

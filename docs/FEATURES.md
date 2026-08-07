@@ -165,26 +165,45 @@ has an explanation.
 
 ## Scribe — AI-assisted paper writer (LaTeX)
 
-The most-loved feature: write ideas in plain language and get compilable LaTeX.
+Write ideas in plain language, get compilable LaTeX, and compile it locally with
+no account, no queue and no time limit.
 
-- **Editor** — a built-in editor inside the desktop app. Write prompts/ideas in a
-  `.ths` (ThinkStack) file and the local model translates them in place to LaTeX.
-- **Two-tab preview** — a client-side **Live Preview** (KaTeX renders sections,
-  math, tables, and lists instantly as you type, no compile needed) alongside the
-  **Compiled PDF** view, produced by the bundled TeX engine and refreshed
-  automatically a moment after you stop typing (an "Auto" toggle turns that off
-  and the Compile button drives it by hand).
-- **Auto-save** — saves incrementally ~2s after you stop typing; manual save too.
-- **Auto-healing compiler** — this is what makes it robust. When compilation would
-  fail it:
+- **A paper is a folder** — a project is a directory on disk, and the file tree
+  is the way into it. Add figures, split a long paper into section files, keep a
+  `.bib` beside the document. Right-click for new file/folder, rename (F2),
+  duplicate, copy/paste and delete; drop files straight onto a paper to add them.
+  One file open at a time, as in Overleaf — a tab strip would cost height the
+  editor and the preview want.
+- **Figures work** — `\includegraphics{chart.png}` resolves because the file can
+  actually be put next to `main.tex`. The compiler always ran with the project
+  directory as its working directory; until the tree existed there was simply no
+  way to place a second file there. Clicking an image previews it and shows the
+  exact `\includegraphics` line to paste.
+- **Editor and PDF, half the window each**, with draggable dividers that remember
+  where you left them. The compiled PDF is the only preview: a second, browser-side
+  renderer was removed because it disagreed with the real PDF, so what you looked
+  at was never what you would publish.
+- **Write at the cursor** — select plain English, press `Ctrl+Enter`, and it
+  becomes LaTeX where you are working, not appended at the end. Optionally
+  grounded in papers from your library, so the model writes from what they
+  actually say.
+- **Auto-compile** — rebuilds a moment after you stop typing (an "Auto" toggle
+  turns it off and the Compile button drives it by hand). Compiling saves first,
+  so an autocompile is also an autosave.
+- **Auto-healing compiler** — what makes it robust. When compilation would fail it:
   - injects missing `\usepackage` lines the body needs (tikz, pgfplots, booktabs,
     …) — no more "Environment tikzpicture undefined";
   - wraps a bare AI snippet into a complete document;
   - isolates a single broken figure/table behind a placeholder so the rest of the
-    paper still produces a PDF (Overleaf-style graceful degradation), and as a
-    last resort neutralizes all figures rather than failing outright.
-- **Error surfacing** — when a compile fails, the parsed engine diagnostics
-  (and missing-TeX-package install hints) show directly in the UI.
+    paper still produces a PDF, and as a last resort neutralises all figures
+    rather than failing outright.
+- **Bibliographies and indexes build themselves** — the bundled engine runs BibTeX
+  on its own. It does *not* run makeindex, so `\printindex` used to fail with
+  `Undefined control sequence \indexentry`; ThinkStack now generates the `.ind`
+  itself (sub-entries, `sort@printed` keys, `|hyperpage` encapsulators and
+  `|(`…`|)` page ranges) and runs a second pass. Nothing extra to install.
+- **Error surfacing** — when a compile fails, the parsed engine diagnostics (and
+  missing-TeX-package install hints) show directly in the UI.
 
 ## Paper encryption
 

@@ -9,7 +9,8 @@ import {
 import PageHeader from './PageHeader';
 import useThemeColors from './charts/useThemeColors';
 import useCanvas from './litgraph/useCanvas';
-import { clampPanel } from './litgraph/panel';
+import { clampPanel, gapPassages } from './litgraph/panel';
+import { fetchPaper } from './litgraph/paperText';
 import PaperPanel from './litgraph/PaperPanel';
 import './litgraph/litgraph.css';
 
@@ -51,7 +52,6 @@ export default function LitGraph() {
   const [focus, setFocus] = useState(null);
   const [expanded, setExpanded] = useState(null);
   const [panel, setPanel] = useState(null);
-  const [showHelp, setShowHelp] = useState(false); // {kind:'paper'|'gap'|'claim', ...}
 
   // search
   const [query, setQuery] = useState('');
@@ -128,7 +128,7 @@ export default function LitGraph() {
   const graphRef = useRef(graph);
   useEffect(() => { graphRef.current = graph; }, [graph]);
 
-  const onSelect = useCallback((id, claimIndex, isGap) => {
+  const onSelect = useCallback((id, claimIndex, isGap, seek) => {
     if (!id) return;
     const graph = graphRef.current;
     setFocus(id);
@@ -144,9 +144,13 @@ export default function LitGraph() {
       return;
     }
     const node = graph?.nodes.find((n) => n.doc_id === id);
-    // Keep whichever tab is open when moving between papers: following a
-    // connection out of the reader is still reading.
-    if (node) setPanel((p) => ({ kind: 'paper', node, tab: p?.kind === 'paper' ? p.tab : 'about' }));
+    if (!node) return;
+    // Arriving with a passage to land on means the reader, opened at it. That
+    // is how a gap is followed into the papers it cites.
+    if (seek) { setPanel({ kind: 'paper', node, tab: 'read', seek }); return; }
+    // Otherwise keep whichever tab is open: following a connection out of the
+    // reader is still reading.
+    setPanel((p) => ({ kind: 'paper', node, tab: p?.kind === 'paper' ? p.tab : 'about' }));
   }, []);
 
   const onLasso = useCallback((picked) => {
@@ -320,7 +324,6 @@ export default function LitGraph() {
       <div className="lg-page">
       <PageHeader
         title="LitGraph"
-        subtitle="Your papers as a map - placed by meaning, grouped by theme, with research gaps marked."
       />
         <div className="lg-empty"><div className="spinner spinner-lg" /><p>Building the map…</p></div>
       </div>
@@ -331,7 +334,6 @@ export default function LitGraph() {
       <div className="lg-page">
       <PageHeader
         title="LitGraph"
-        subtitle="Your papers as a map - placed by meaning, grouped by theme, with research gaps marked."
       />
         <div className="lg-empty">
         <BookOpen size={44} />
@@ -348,7 +350,6 @@ export default function LitGraph() {
     <div className="lg-page">
       <PageHeader
         title="LitGraph"
-        subtitle="Your papers as a map - placed by meaning, grouped by theme, with research gaps marked."
       />
       <div ref={setRoot} className={`lg-root ${panel ? 'lg-has-panel' : ''}`}>
       {/* ---------- canvas ---------- */}
@@ -449,26 +450,9 @@ export default function LitGraph() {
           </div>
         )}
 
-        {/* ---------- hint ---------- */}
-        {/* The controls were a permanent line of text across the bottom of the
-            canvas -- read once, then noise on every visit after. Behind an "i"
-            they stay reachable without competing with the map. */}
-        <button
-          className={`lg-info ${showHelp ? 'on' : ''}`}
-          onClick={() => setShowHelp((v) => !v)}
-          aria-label="How to use the map"
-          aria-expanded={showHelp}
-        >
-          i
-        </button>
-        {showHelp && (
-          <div className="lg-help" role="dialog" aria-label="How to use the map">
-            <div><b>drag</b> pan the map</div>
-            <div><b>shift-drag</b> lasso a region to act on it</div>
-            <div><b>click</b> a paper to open it and frame its neighbours</div>
-            <div><b>wheel</b> zoom in and out</div>
-          </div>
-        )}
+        {/* The canvas hint that used to live here is now the shell's page guide
+            -- the same "i" in the same corner, but on every screen and written
+            once in features.js. See components/PageGuide.jsx. */}
 
         {/* ---------- the selection is what every action runs on ---------- */}
         {selection.length > 0 && (
@@ -596,6 +580,8 @@ export default function LitGraph() {
               node={panel.node}
               graph={graph}
               matches={matches}
+              query={query}
+              openAt={panel.seek}
               tab={panel.tab}
               onTab={(tab) => setPanel((p) => ({ ...p, tab }))}
               onSelect={onSelect}
@@ -627,17 +613,11 @@ export default function LitGraph() {
                   {panel.gap.evidence.map((e, i) => <div key={i} className="lg-quote"><q>{e}</q></div>)}
                 </>
               )}
-              {panel.gap.doc_ids?.length > 0 && (
-                <>
-                  <h4>Papers · {panel.gap.doc_ids.length}</h4>
-                  {panel.gap.doc_ids.map((d) => {
-                    const n = graph.nodes.find((x) => x.doc_id === d);
-                    return n ? (
-                      <button key={d} className="lg-claim" onClick={() => onSelect(d)}>{n.title}</button>
-                    ) : null;
-                  })}
-                </>
-              )}
+              <GapPapers
+                gap={panel.gap}
+                nodes={graph.nodes}
+                onOpen={(docId, quote) => onSelect(docId, null, false, quote)}
+              />
               {panel.gap.suggestions?.length > 0 && (
                 <>
                   <h4>Suggested directions · {panel.gap.suggestions.length}</h4>
@@ -786,5 +766,65 @@ function RunResult({ run }) {
       ))}
       {gaps.length === 0 && <p className="lg-muted">No significant gaps identified.</p>}
     </div>
+  );
+}
+
+/**
+ * The papers a gap cites, each showing the passage the gap rests on.
+ *
+ * This used to be a list of titles, and clicking one lost the gap: you landed
+ * on the paper's About tab with nothing saying which passage was the evidence.
+ * A gap is a claim ABOUT several papers, so the useful view of it is the same
+ * claim seen in each of them.
+ *
+ * The text is fetched through the shared cache, so opening a gap warms the
+ * reader for exactly the papers you are about to open from it.
+ */
+function GapPapers({ gap, nodes, onOpen }) {
+  const [texts, setTexts] = useState(new Map());
+
+  useEffect(() => {
+    let live = true;
+    const ids = gap?.doc_ids || [];
+    Promise.all(ids.map((id) => fetchPaper(id).then(
+      (doc) => [id, doc.chunks],
+      () => null,                       // one unreadable paper is not an error
+    ))).then((pairs) => {
+      if (live) setTexts(new Map(pairs.filter(Boolean)));
+    });
+    return () => { live = false; };
+  }, [gap]);
+
+  const found = gapPassages(gap, texts);
+  if (!found.length) return null;
+
+  return (
+    <>
+      <h4>Papers · {found.length}</h4>
+      {found.map(({ docId, passage }) => {
+        const node = nodes.find((n) => n.doc_id === docId);
+        if (!node) return null;
+        return (
+          <div key={docId} className="lg-gap-paper">
+            <button
+              className="lg-claim"
+              disabled={!passage}
+              onClick={() => passage && onOpen(docId, passage.quote)}
+            >
+              {node.title}
+            </button>
+            {passage
+              ? <q className="lg-gap-evidence">{passage.text}</q>
+              : (
+                // Said plainly rather than hidden: the gap still cites this
+                // paper, we just cannot point at where.
+                <span className="lg-muted lg-gap-evidence">
+                  The evidence could not be located in this paper.
+                </span>
+              )}
+          </div>
+        );
+      })}
+    </>
   );
 }

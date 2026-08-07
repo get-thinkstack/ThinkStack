@@ -111,6 +111,30 @@ export function makeAlpha(matches, focus, neighbours) {
 }
 
 /**
+ * The papers a focused gap rests on, or null when the focus is not a gap.
+ *
+ * A gap is a node no edge touches -- edges join papers, and a gap is a claim
+ * about several of them at once. So its neighbourhood cannot be read off the
+ * edge list the way a paper's can; it is written on the gap itself.
+ */
+export function citedBy(model, focus) {
+  const gap = focus && (model?.gaps || []).find((g) => g.gap_id === focus);
+  return gap ? new Set(gap.doc_ids) : null;
+}
+
+/**
+ * Whether an edge belongs to what is currently selected.
+ *
+ * For a paper that is the edges it sits on. For a gap it is the edges *between*
+ * the papers it cites -- which is the whole claim the marker is making, and
+ * what was invisible while selecting a gap dimmed every edge on the map.
+ */
+export function edgeLit(e, focus, cited) {
+  if (e.a === focus || e.b === focus) return true;
+  return !!cited && cited.has(e.a) && cited.has(e.b);
+}
+
+/**
  * Whether a new lasso point is far enough from the last to be worth keeping.
  * `k` is the zoom, so the threshold stays 4 screen pixels at any scale.
  */
@@ -361,8 +385,10 @@ export default function useCanvas({
     const searching = matches.size > 0;
     // The hover handlers read this rather than closing over `matches`.
     state.searching = searching;
-    const neighbours = new Set();
-    if (focus)
+    // A gap names its neighbourhood; a paper's has to be read off the edges.
+    const cited = citedBy(model, focus);
+    const neighbours = new Set(cited || []);
+    if (focus && !cited)
       model.edges.forEach((e) => {
         if (e.source === focus) neighbours.add(e.target);
         if (e.target === focus) neighbours.add(e.source);
@@ -394,7 +420,7 @@ export default function useCanvas({
         ? matches.has(e.a) && matches.has(e.b) ? 0.55 : 0.05
         : !focus
           ? e.weight * 0.5
-          : e.a === focus || e.b === focus ? 0.7 : 0.08;
+          : edgeLit(e, focus, cited) ? 0.7 : 0.08;
     });
 
     gapEdges.forEach((line) => {
@@ -664,6 +690,13 @@ export default function useCanvas({
         });
         L.nodes.querySelectorAll('.lg-node').forEach((o) => {
           o.style.opacity = !o.dataset.id || near.has(o.dataset.id) ? 1 : 0.22;
+        });
+        // The edges too, and by the same rule the click path uses -- hovering a
+        // gap that brightened its papers while leaving the lines between them
+        // dark showed the members and hid the relation.
+        const cited = citedBy(model, id);
+        state.paint.edges.forEach((e) => {
+          e.line.style.strokeOpacity = edgeLit(e, id, cited) ? 0.7 : 0.08;
         });
       });
       g.addEventListener('mouseleave', () => {
