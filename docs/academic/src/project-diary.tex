@@ -8,9 +8,9 @@
 \addcontentsline{toc}{section}{About this Diary}
 \markboth{About this Diary}{}
 
-This diary records the development of ThinkStack from 5 June to 5 August 2026.
-It is reconstructed from the repository itself: 237 commits, 43 merged pull
-requests, 40 recorded architecture decisions, and the published releases. It is
+This diary records the development of ThinkStack from 5 June to 7 August 2026.
+It is reconstructed from the repository itself: 248 commits, 59 merged pull
+requests, 47 recorded architecture decisions, and the published releases. It is
 not written from memory.
 
 Two conventions are observed throughout. First, every quantity was measured or
@@ -579,6 +579,130 @@ does. Deleting the feature without reading its dependents would have removed
 the grounding from the paper editor, which is the feature the following work was
 about to address.
 
+
+\subsection{6 August: a passing suite for a feature that did not work}
+
+The sidebar was made to withdraw when a user begins working, giving the width
+to whichever screen they are on, and to return when the logo is pressed. The
+requirement as first implemented was read as a list: opening a paper on the map,
+opening a document in the editor, expanding an entry in the library, and any
+operation on the model bench. Each of those handlers was made to ask the shell
+for room, and each was covered by a test.
+
+The tests passed. The feature was reported as not working on two of the four
+screens. Both accounts were correct. Everything on the list behaved; everything
+absent from it did nothing, and most of what a person actually presses on those
+two screens was absent. The specification had been satisfied and the requirement
+had not, because the requirement was a property --- any interaction --- and it
+had been implemented as an enumeration.
+
+The correction removed more code than it added. The shell now observes its own
+content region and withdraws on any press within it, so no feature calls
+anything, imports anything, or can forget to. Controls nobody listed are covered,
+including those not yet written. Two details were necessary rather than
+decorative: the observation is of the press rather than the click, because
+selecting a region of the map is a drag that may never produce a click; and it
+is taken during the capture phase, because several rows deliberately stop
+propagation on their own buttons and a listener waiting for the event to bubble
+would never be told.
+
+A second distinction was needed once actions could close the sidebar. Its state
+had been remembered between runs, correctly, since a person who collapses it has
+expressed a preference. An automatic collapse writing to that same record would
+mean opening a single paper teaches the application to start collapsed
+permanently --- a setting the user never chose, altered by an action unrelated to
+settings, with nothing on screen to explain it. The deliberate and the automatic
+are now separate, only the first is remembered, and the logo clears both, since
+clearing only its own would leave it apparently dead while a feature still held
+the other.
+
+The lesson is a narrower form of one this diary has already recorded twice. It
+has been noted that a suite which has never failed is a hypothesis, and that
+categories should be corrected rather than instances. This adds that a test can
+fail in neither of those ways and still be worthless: it can verify precisely
+what was implemented while the implementation answers a different question from
+the one asked. Tests written from a list inherit the list's omissions, and they
+inherit them silently, since a case nobody thought of is a case nobody writes an
+assertion for.
+
+\subsection{7 August: a project was always a directory}
+
+A user reported that a colleague's paper would not compile. The engine said it
+could not load a figure, and then that it had divided by zero. The second
+message was the first one's consequence: the graphics package had read a width
+from a file it never opened.
+
+The cause was not in the compiler. A paper had been stored as a directory since
+the first version, and compilation had always run with that directory as its
+working directory, so the relative path in the document was correct. What was
+missing was any way to put a second file into the folder. The document was the
+only file the application could reach, so a figure could be referenced and never
+supplied.
+
+The correction was to expose the directory that already existed: list, read,
+write, upload, rename, move, copy and delete, presented as a file tree with the
+papers themselves as its top level. The row of chips that had previously
+selected a paper was removed --- it was a second picker for the upper level of
+the same hierarchy, and there had been no way at all to reach the level beneath
+it.
+
+The security work is the part worth recording. The interface reaching this API
+is a web view, which the desktop framework treats as remote content, so a
+filename arriving here is untrusted input in the same sense that a downloaded
+address is: \texttt{../../../.ssh/id\_rsa} is a filename. Every operation
+therefore resolves its argument against the project directory and refuses
+anything that lands outside. Resolution happens \emph{before} the check rather
+than after, which is what catches a symbolic link: nothing about the name
+\texttt{notes.tex} suggests it points at the system password file, so an
+inspection of the string would pass it through. Deleting the containment check
+was tried deliberately, and the tests fail.
+
+A second failure arrived the same day from the same paper. Documents with an
+index compiled to \texttt{Undefined control sequence \textbackslash indexentry}.
+An index requires two passes with an external step between them: the first pass
+writes a list of entries, a program converts that list into a formatted index,
+and the second pass includes it. The bundled engine performs the equivalent step
+for bibliographies automatically but not for indexes, so the intermediate file
+was never converted and the index package fell back to reading the raw list as
+if it were markup.
+
+The obvious remedy was to call the standard index program. It is present on the
+developer's machine and would not be present in the installer, which is the same
+error as assuming a system typesetting installation --- precisely what bundling
+an engine was meant to eliminate. The index is therefore generated by the
+application itself, which is a modest amount of code for a small and stable
+format, and is consistent with the compiler's existing habit of repairing what
+it is given rather than refusing it.
+
+\subsection{7 August: interface controls that a desktop application does not have}
+
+Three menu items --- new file, new folder, new paper --- were reported as doing
+nothing at all. They had been built on the web browser's prompt dialog, which
+the desktop web view does not implement; it returns nothing, and the code read
+that as the user having cancelled. Deletion had the same dependency on the
+browser's confirmation dialog, where the failure would have been worse: a guard
+written as ``if not confirmed, stop'' either prevents the action permanently or,
+read the other way, performs it without ever asking.
+
+Naming now happens in a row within the tree itself, where the file will appear,
+and destructive actions use a dialog belonging to the application. That dialog
+was made shared rather than local, because it was about to be the third
+independent implementation in the codebase; three dialogs is three sets of
+keyboard handling, focus behaviour and dismissal rules to get right, and the
+safest button is the one that does nothing, which is where focus now begins.
+
+Behind that fault was a second one that would have prevented the menu from
+working even with a functioning dialog. The menu dismissed itself on any press
+elsewhere, and listened for that press during the capture phase --- necessary,
+because much of the tree stops events propagating. It did not check whether the
+press was inside the menu, so pressing an item removed the button before the
+click could reach it. Neither defect was visible from the code; both required
+the application to be run.
+
+The recurring lesson is the one this project has now recorded in several forms.
+The suite was green, the components rendered, and the feature did not exist.
+What was missing was not a test but an execution: none of this can be discovered
+without launching the thing a user launches.
 
 \section{Division of Work}
 \markboth{Division of Work}{}

@@ -134,7 +134,6 @@ export default function Bench() {
       <PageHeader
         className="fade-up stagger-1"
         title="Bench"
-        subtitle="What this machine can run, and what it runs it with."
       >
         <button className="btn btn-secondary" onClick={examine} disabled={examining}>
           <RefreshCw size={16} className={examining ? 'spin' : ''} />

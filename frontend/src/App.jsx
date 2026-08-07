@@ -11,6 +11,7 @@ import { shellStore } from './utils/shell';
 // Eager, not lazy: it decides whether to render on first paint, and a
 // lazy chunk would let the page settle before the note appears.
 import FirstRunNote from './components/FirstRunNote';
+import PageGuide from './components/PageGuide';
 import './index.css';
 
 const THEME_KEY = 'ts-theme';
@@ -82,6 +83,27 @@ function ActiveMark({ size }) {
   // and assigning it to a capitalised local reads to the linter as a component
   // declared during render -- which would remount on every navigation.
   return createElement(markFor(featureForPath(pathname)), { size });
+}
+
+/**
+ * The "i" in the bottom-left corner, filled in from the active feature.
+ *
+ * Rendered once, here, so no page wires it up and no page can forget to. The
+ * copy lives in features.js beside everything else that feature declares.
+ */
+function FeatureGuide() {
+  const { pathname } = useLocation();
+  const feature = featureForPath(pathname);
+  if (!feature?.guide?.length) return null;
+
+  return (
+    <PageGuide label={`About ${feature.label}`}>
+      {feature.summary && <p className="pg-title">{feature.summary}</p>}
+      {feature.guide.map(([term, meaning]) => (
+        <div key={term}><b>{term}</b> {meaning}</div>
+      ))}
+    </PageGuide>
+  );
 }
 
 /**
@@ -364,6 +386,11 @@ export default function App() {
             <FirstRunBanner />
             <AnimatedRoutes />
           </main>
+
+          {/* Outside <main> on purpose: the shell collapses the sidebar on any
+              interaction with the PAGE, and asking what a screen is for is not
+              working on it. Fixed to the content's bottom-left corner. */}
+          <FeatureGuide />
         </div>
       </BrowserRouter>
     </>

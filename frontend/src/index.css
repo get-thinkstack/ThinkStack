@@ -435,7 +435,7 @@ body::after {
 
 /* page header */
 .page-header {
-  margin-bottom: 3.5rem;
+  margin-bottom: 1.5rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -448,12 +448,15 @@ body::after {
 
 .page-header h2 {
   font-family: var(--font-display);
-  font-size: 3.5rem;
+  /* Was 3.5rem, sized for a title with a sentence beneath it. The sentence
+     moved to the "i", so the heading no longer has to anchor a block -- and
+     Scribe wants that height for the editor and the PDF. */
+  font-size: 2.1rem;
   font-weight: 800;
   letter-spacing: -0.02em;
   color: var(--text-primary);
-  line-height: 1.02;
-  margin-bottom: 0.75rem;
+  line-height: 1.05;
+  margin-bottom: 0;
   text-shadow: none;
 }
 
@@ -1382,16 +1385,60 @@ input::-webkit-credentials-auto-fill-button {
 .pw-create { display: flex; gap: 0.5rem; align-items: center; }
 .pw-create .input { width: 180px; }
 
+/* tree | editor | preview. The editor and the preview take half the remaining
+   width each, which is the point of dropping the page subtitle: the vertical
+   space went to them. The tree is a fixed column because a file list does not
+   get more useful with more width, and both other panes do. */
 .pw-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.25rem;
+  /* Widths are CSS variables the splitters write to directly, so a drag never
+     goes through React -- a setState per pointermove is a re-render per pixel.
+     The editor takes what is left, which is why it is the 1fr. */
+  grid-template-columns: var(--ft-w, 200px) 5px 1fr 5px var(--pv-w, 42%);
+  gap: 0;
   align-items: stretch;
+  /* the header is ~2.1rem of title plus its margin; everything else is padding */
+  height: calc(100vh - 11rem);
+  min-height: 420px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
 }
 
-@media (max-width: 1100px) {
-  .pw-grid { grid-template-columns: 1fr; }
+/* The panes are grid children with their own scrolling content. Without
+   min-height/min-width 0 a grid child refuses to shrink below its content, so
+   a long document would stretch the row instead of scrolling inside it. */
+.pw-grid > * { min-height: 0; min-width: 0; }
+
+/* the card chrome is redundant inside a bordered shell */
+.pw-grid .card {
+  border: 0;
+  border-radius: 0;
+  margin: 0;
+  height: 100%;
 }
+
+.pw-grid .pw-editor { border-right: 1px solid var(--border); }
+
+@media (max-width: 1100px) {
+  /* the tree stays; it is how you reach a file at all */
+  .pw-grid { grid-template-columns: 170px 1fr; height: auto; }
+  .pw-grid .pw-preview { grid-column: 1 / -1; border-top: 1px solid var(--border); }
+  .pw-split { display: none; }
+}
+
+/* the draggable divider. Reused from LitGraph's panel grip, which taught the
+   trick: invisible until you approach it, so it is not a permanent line. */
+.pw-split {
+  cursor: col-resize;
+  background: var(--border);
+  opacity: 0;
+  transition: opacity 140ms ease, background 140ms ease;
+  touch-action: none;
+}
+.pw-split:hover,
+.pw-split:focus-visible,
+.pw-split.is-dragging { opacity: 1; background: var(--accent); outline: none; }
 
 .pw-editor { display: flex; flex-direction: column; padding: 1rem 1.1rem; }
 
@@ -2663,3 +2710,402 @@ input::-webkit-credentials-auto-fill-button {
 .model-empty strong { display: block; font-size: 0.92rem; margin-bottom: 0.4rem; }
 .model-empty p { margin: 0 0 0.6rem; font-size: 0.84rem; line-height: 1.65; }
 .model-empty ul { margin: 0; padding-left: 1.1rem; font-size: 0.84rem; line-height: 1.8; }
+
+/* ── the page guide: an "i" in the bottom-left corner ──────────────────────
+   Lifted from LitGraph's canvas hint, which already solved this: instructions
+   that are worth reading once should not occupy space forever. Removing the
+   per-page subtitle is what buys Scribe and LitGraph their vertical room.
+
+   Anchored to the CONTENT, not the window: `--sidebar-w` is declared on
+   .app-layout and animates on collapse, so the button rides along with the
+   sidebar instead of being covered by it or leaving a gap. */
+.page-guide {
+  position: fixed;
+  left: calc(var(--sidebar-w, 220px) + 14px);
+  bottom: 14px;
+  z-index: 40;
+  transition: left 180ms ease;
+}
+
+/* On the brand accent, at full opacity. As a dim grey circle at 0.55 it was
+   effectively invisible against a near-black page -- and an affordance nobody
+   can see is the same as one that is not there, which matters more now that it
+   carries the copy the page subtitles used to. */
+.page-guide-btn {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  color: var(--accent);
+  font: italic 700 0.78rem/1 Georgia, serif;
+  cursor: pointer;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 8%, transparent);
+  transition: background 140ms ease, color 140ms ease,
+              border-color 140ms ease, box-shadow 140ms ease;
+}
+
+/* hover and open both invert it: unmistakably the thing you just pressed */
+.page-guide-btn:hover,
+.page-guide-btn.on {
+  background: var(--accent);
+  color: #0A0A0A;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.page-guide-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* Floats above the page rather than pushing it: opening this must not reflow
+   an editor mid-sentence, and closed it costs no height.
+
+   Bounded in both directions. A feature with several lines of guide would
+   otherwise run off the top of a short window with its first line unreachable,
+   and the button is anchored to the bottom so there is no scrolling to it. */
+.page-guide-panel {
+  position: absolute;
+  left: 0;
+  bottom: 30px;
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  width: max-content;
+  max-width: min(380px, 70vw);
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 22%);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+
+.page-guide-panel b { color: var(--accent); font-weight: 500; }
+.page-guide-panel p { margin: 0; }
+.page-guide-panel .pg-title {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.78rem;
+}
+
+/* ── Scribe's file tree ────────────────────────────────────────────────────
+   A project is a directory, and this is the way into it. Conventions are
+   borrowed, not invented: click opens, right-click offers actions, drop adds.
+   One file open at a time (Overleaf, not VS Code) -- a tab strip would cost
+   ~32px of height that the editor and preview want for their 50/50 split. */
+.ft {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  font-size: 0.76rem;
+  user-select: none;
+}
+
+.ft.is-dropping {
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  outline: 1px dashed color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: -3px;
+}
+
+.ft-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.6rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.ft-title {
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.ft-head-actions { display: flex; gap: 2px; }
+
+.ft-head-actions button,
+.ft-upload {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.ft-head-actions button:hover,
+.ft-upload:hover { background: var(--surface-2); color: var(--accent); }
+.ft-upload input { display: none; }
+
+.ft-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+
+.ft-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px 3px 0;
+  color: var(--text-2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ft-row:hover { background: var(--surface-2); }
+
+/* the open file has to be obvious: it is the only one, so there is no tab
+   strip saying so */
+.ft-row.is-open {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.ft-caret-space { width: 12px; flex-shrink: 0; }
+.ft-icon { flex-shrink: 0; opacity: 0.75; }
+.ft-name { overflow: hidden; text-overflow: ellipsis; }
+.ft-size { margin-left: auto; padding-left: 8px; font-size: 0.66rem; color: var(--text-3); }
+
+.ft-rename {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 4px;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.ft-empty, .ft-error { padding: 0.6rem 0.7rem; color: var(--text-3); font-size: 0.72rem; }
+.ft-error { color: var(--warning); }
+
+.ft-dropnote {
+  position: absolute;
+  inset: auto 8px 8px 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #0A0A0A;
+  font-size: 0.7rem;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* fixed, because the tree scrolls and a menu that scrolls away from its own
+   row is worse than no menu */
+.ft-menu {
+  position: fixed;
+  z-index: 300;
+  min-width: 160px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 35%);
+}
+
+.ft-menu button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ft-menu button:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.ft-menu button:disabled { opacity: 0.4; cursor: default; }
+.ft-menu button.is-danger { color: var(--danger, #ff6b6b); }
+.ft-menu button.is-danger:hover { background: color-mix(in srgb, #ff6b6b 15%, transparent); }
+.ft-menu-key { margin-left: auto; font-size: 0.66rem; color: var(--text-3); }
+.ft-menu-sep { height: 1px; margin: 4px 2px; background: var(--border-subtle); }
+
+/* ── Scribe's three columns: tree | editor | preview ── */
+.pw-shell {
+  display: grid;
+  grid-template-columns: var(--ft-w, 200px) 1fr 1fr;
+  gap: 0;
+  height: calc(100vh - 11rem);
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+/* editor and preview take half the remaining width each -- the 1fr 1fr above.
+   min-height:0 on both, or a flex/grid child refuses to shrink below its
+   content and the pane scrolls the page instead of itself. */
+.pw-pane { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.pw-pane + .pw-pane { border-left: 1px solid var(--border); }
+
+/* a figure, shown where the editor would be. Not editable, so what matters is
+   confirming this is the right file and giving you the line that uses it. */
+.pw-imgview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.9rem;
+  padding: 1.5rem;
+  overflow: auto;
+}
+
+.pw-imgview img {
+  max-width: 100%;
+  max-height: 70%;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  /* a chequerboard, so a transparent PNG reads as transparent rather than as
+     whatever the panel behind it happens to be */
+  background-image:
+    linear-gradient(45deg, var(--surface-2) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--surface-2) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--surface-2) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--surface-2) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+.pw-imgview code {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 0.7rem;
+  user-select: all;   /* one click selects the whole line to copy */
+}
+
+/* ── papers are folders in the same tree ──
+   A project IS a directory on disk, so it is a folder here. The old chip row
+   was a second picker for the top level of the same hierarchy, with no way to
+   reach the level below it. */
+.ft-project { position: relative; }
+
+.ft-project.is-dropping {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  outline: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent);
+  outline-offset: -2px;
+}
+
+.ft-row.is-project {
+  padding-left: 8px;
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+/* the paper the editor is in, distinct from the FILE that is open inside it */
+.ft-row.is-project.is-active { color: var(--text); }
+.ft-row.is-project.is-active .ft-icon { color: var(--accent); opacity: 1; }
+
+.ft-dot {
+  width: 5px;
+  height: 5px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+.ft-spin { margin-left: auto; animation: spin 1s linear infinite; flex-shrink: 0; }
+.ft-indent { padding-left: 34px; }
+
+.ft-menu-upload {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  color: var(--text-2);
+  font: inherit;
+  cursor: pointer;
+}
+.ft-menu-upload:hover { background: var(--surface-2); color: var(--text); }
+.ft-menu-upload input { display: none; }
+
+/* Referenced by Library's encryption dialog since it was written, and never
+   defined -- so that animation has always been a no-op. */
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* ── the shared confirmation dialog ────────────────────────────────────────
+   One dialog, because this was about to be the third: Library inlines an
+   overlay as style props and LitGraph has .lg-modal. Above everything (the
+   file tree's context menu is z-index 300) since it is the only thing that
+   should be interactive while it is open. */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: rgb(0 0 0 / 55%);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: fadeIn 140ms ease;
+}
+
+.confirm-box {
+  width: 100%;
+  max-width: 400px;
+  padding: 1.25rem 1.4rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 45%);
+}
+
+.confirm-head { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.6rem; }
+.confirm-head h3 { margin: 0; font-size: 0.95rem; font-weight: 600; }
+.confirm-icon { color: var(--danger, #ff6b6b); flex-shrink: 0; }
+
+.confirm-box p {
+  margin: 0 0 1.1rem;
+  color: var(--text-2);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.confirm-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
+
+/* the app had no destructive button style, which is why deletes have been
+   dressed as ordinary ones */
+.btn-danger {
+  border: 1px solid color-mix(in srgb, var(--danger, #ff6b6b) 55%, transparent);
+  background: color-mix(in srgb, var(--danger, #ff6b6b) 16%, transparent);
+  color: var(--danger, #ff6b6b);
+}
+.btn-danger:hover {
+  background: var(--danger, #ff6b6b);
+  color: #0A0A0A;
+  border-color: var(--danger, #ff6b6b);
+}

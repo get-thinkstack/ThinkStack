@@ -159,7 +159,7 @@ in the commit why that version.
 ## Tests
 
 ```bash
-pytest                    # the whole suite (348 tests, a few seconds)
+pytest                    # the whole suite (740 tests, a few seconds)
 pytest tests/test_x.py    # one file
 pytest -m heavy           # tests that load real models / hit the network
 ```
@@ -534,15 +534,20 @@ installed app, and cannot be un-shipped.
 ```text
 main.py            fastapi app: serves the react spa and /api
 config.py          pydantic-settings config (env prefix: THINKSTACK_)
-api/               11 routers: documents, search, graph, analysis, gaps,
-                   encryption, papers, models, registry, hf, system
+api/               12 routers: documents, search, graph, analysis, gaps,
+                   encryption, papers, paper_files, models, registry, hf,
+                   system
 domain/            core logic, one package per capability:
                      ingestion/       pdf_parser, chunker, metadata_extractor
                      knowledge_base/  embedding_service, repository
                      search/          semantic search over chunk embeddings
                      analysis/        summarizer, claim_extractor, theme_clusterer
                      gap_finder/      gap_pipeline (gaps + suggestions, one call)
-                     paper_writer/    compiler (the largest single module)
+                     paper_writer/    compiler (the largest single module),
+                                      files (a project is a directory; this is
+                                      the boundary around it), indexing
+                                      (generates .ind, since the bundled engine
+                                      runs BibTeX but not makeindex)
                      encryption/      kdf (argon2), cipher, envelope, vault
                      model_manager/   registry, router, catalog, manifest,
                                       reconcile, discovery, downloader,
@@ -551,6 +556,12 @@ domain/            core logic, one package per capability:
 infrastructure/    ollama_client (llm runtime), local_vector_store, hardware,
                    file_manager, atomic_io, caches and histories
 frontend/          react 19 + vite spa
+                     features.js      every feature declared once; the nav,
+                                      the routes and the brand mark render
+                                      from it
+                     utils/shell.js   sidebar state. A feature at any depth
+                                      calls requestFocus() for room; only the
+                                      logo's own collapse is persisted
 src-tauri/         tauri 2 desktop shell (rust): lib.rs, diagnosis.rs
 scripts/           devops only
 tools/             developer utilities

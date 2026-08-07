@@ -51,7 +51,7 @@ every feature still works.**
 | **LitGraph** | a map of your collection: papers placed by meaning (PCA over embedding centroids), linked by similarity, grouped into theme territory, with research gaps drawn as markers wired to the papers that evidence them. The map is also the selector — lasso a region and run summarize, claims, themes or gap-finding on exactly those papers |
 | **Analyse** | summaries, key-claim extraction, thematic clustering — precomputed at ingest, off the request path |
 | **Gap finder** | surfaces under-explored areas and suggests research directions |
-| **Scribe** | AI-assisted LaTeX. Select plain English, press `Ctrl+Enter`, and it becomes LaTeX at your cursor. The compiled PDF is the preview and rebuilds as you type |
+| **Scribe** | AI-assisted LaTeX. A paper is a folder — add figures, split it into sections, keep a `.bib` beside it. Select plain English, press `Ctrl+Enter`, and it becomes LaTeX at your cursor. Compiles locally with no account, no queue and no time limit |
 | **Vault** | password-based encryption with Argon2id and AES-256-GCM |
 | **Updates** | signed, and only when you ask for them |
 
@@ -118,7 +118,7 @@ huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct-GGUF \
 ```text
 main.py            fastapi app: serves the react spa and /api
 config.py          pydantic-settings config (env prefix: THINKSTACK_)
-api/               11 routers
+api/               12 routers
 domain/            ingestion · knowledge_base · search · litgraph · analysis
                    gap_finder · paper_writer · encryption · model_manager
                    fine_tuning
@@ -127,7 +127,7 @@ infrastructure/    llm client · vector store · hardware profiler · file manag
 frontend/          react 19 + vite spa
 src-tauri/         tauri 2 desktop shell (rust): diagnosis, supervision, updates
 scripts/           devops: setup, dev, preflight, build, promote, release
-tests/             348 tests across 25 modules
+tests/             740 tests across 37 modules
 ```
 
 The desktop shell diagnoses the machine, launches the backend as a supervised
@@ -142,9 +142,9 @@ users run an installer.
 
 | Tier | Runs on | Establishes |
 |---|---|---|
-| `preflight.sh` | your machine, every push | lint, 348 tests, shellcheck, actionlint, cargo |
+| `preflight.sh` | your machine, every push | lint, 740 tests, shellcheck, actionlint, cargo |
 | CI | every push | the same on a clean machine |
-| `validate_bundle.py` | **Linux, macOS, Windows**, every build | the packaged app starts, resolves models, ingests a PDF, searches, infers, compiles a PDF |
+| `validate_bundle.py` | **Linux, macOS, Windows**, every build | the packaged app starts, resolves models, ingests a PDF, searches, infers, compiles a PDF, embeds a user-supplied figure, and builds an index |
 | GUI smoke test | Linux, every build | the launched application is still alive 45 seconds later |
 
 ## Documentation

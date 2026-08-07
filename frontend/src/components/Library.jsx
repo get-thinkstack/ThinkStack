@@ -138,7 +138,6 @@ export default function Library() {
       <PageHeader
         className="fade-up stagger-1"
         title="Library"
-        subtitle="Manage your collection of ingested research papers."
       />
 
       <div className="stat-row fade-up stagger-2">
