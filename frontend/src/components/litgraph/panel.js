@@ -6,6 +6,8 @@
  * and none of them need a DOM to run.
  */
 
+import { locateQuote, bestSentence } from './highlight';
+
 const MIN_W = 280;      // narrower than this and the reader stops being one
 
 /**
@@ -52,4 +54,37 @@ export function nearestFurthest(node, nodes) {
     .sort((a, b) => a.d - b.d);
   if (!by.length) return null;
   return { near: by[0].n, far: by.length > 1 ? by[by.length - 1].n : null };
+}
+
+/**
+ * A gap's evidence, located in each paper it cites.
+ *
+ * A gap connects papers, and until now you could only read it in one of them:
+ * the panel listed the evidence, listed the papers, and clicking a paper lost
+ * the gap. This is the join between those two lists -- for each cited paper,
+ * the passage in it the gap rests on, or nothing when it cannot be found.
+ *
+ * `passage: null` is a real answer and has to be shown as one. The evidence is
+ * a model's paraphrase and may not locate; a paper's text may not have arrived
+ * yet. Both deserve saying so rather than a link that goes nowhere.
+ *
+ * @param texts Map<doc_id, chunks[]> -- absent means "not loaded", not "empty"
+ * @returns [{ docId, passage: { chunkId, quote, text } | null }]
+ */
+export function gapPassages(gap, texts) {
+  return (gap?.doc_ids || []).map((docId) => {
+    const chunks = texts?.get(docId);
+    let passage = null;
+
+    // Every phrase, not just the first: a gap's two phrases usually belong to
+    // different papers, which is what makes it a gap between them.
+    for (const quote of gap.evidence || []) {
+      const at = chunks && locateQuote(chunks, quote);
+      if (!at) continue;
+      const chunk = chunks.find((c) => c.chunk_id === at);
+      passage = { chunkId: at, quote, text: bestSentence(chunk.text, quote) || chunk.text };
+      break;
+    }
+    return { docId, passage };
+  });
 }

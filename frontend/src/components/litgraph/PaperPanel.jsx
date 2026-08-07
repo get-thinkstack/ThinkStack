@@ -1,7 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { documentsApi } from '../../utils/api';
+import { shellStore } from '../../utils/shell';
 import { neighbours, nearestFurthest } from './panel';
-import { markChunks, locateQuote } from './highlight';
+import { markSpans, kindsOf, locateQuote } from './highlight';
+import { fetchPaper, forgetPaper } from './paperText';
+import PdfReader from './PdfReader';
 
 /**
  * The paper panel: what the map knows, and the paper itself.
@@ -15,33 +18,12 @@ import { markChunks, locateQuote } from './highlight';
  * holds. None of it is a new request; it was simply never shown.
  */
 
-/**
- * Chunk text by doc_id, kept between tab switches and panel opens.
- *
- * It holds the in-flight PROMISE, not the resolved document. Caching the
- * result instead deadlocks under StrictMode's double-invoked effects: the
- * first run's cleanup cancels its own setState, the second run finds the
- * cache already warm and returns without setting anything, and the reader
- * sits on "Loading the paper" forever with the text sitting in the cache
- * beside it. Awaiting one shared promise also means one request per paper
- * however many times the panel is opened.
- *
- * ponytail: unbounded map. A library is a few dozen papers on one desktop --
- * add an LRU if that ever stops being true.
- */
-const textCache = new Map();
-
-const fetchPaper = (id) => {
-  if (!textCache.has(id)) textCache.set(id, documentsApi.get(id));
-  return textCache.get(id);
-};
-
 // Whether the original pdf exists for a doc, probed once with a HEAD request.
 // 403 (encrypted) and 404 (file gone) both mean "show the text fallback".
 const pdfOkCache = new Map();
 
 export default function PaperPanel({
-  node, graph, matches, tab, onTab, onSelect, expanded, onExpand,
+  node, graph, matches, query, tab, onTab, onSelect, expanded, onExpand, openAt,
 }) {
   const links = neighbours(node.doc_id, graph.edges);
   const theme = (graph.themes || []).find((t) => t.doc_ids?.includes(node.doc_id));
@@ -53,7 +35,20 @@ export default function PaperPanel({
 
   // Which passage the reader should scroll to when it opens. Set by clicking a
   // claim; cleared once used, so returning to the tab does not jump again.
-  const [seek, setSeek] = useState(null);
+  //
+  // `openAt` is the same thing arriving from outside -- following a gap into
+  // one of the papers it cites. It is applied on arrival rather than held as
+  // the source of truth, so using the tab afterwards does not keep re-jumping
+  // to where the gap put you.
+  const [seek, setSeek] = useState(openAt || null);
+  // Adjusted during render rather than in an effect: an effect would render
+  // once at the old passage and again at the new one, and the first of those
+  // two renders is a visible jump to the wrong place.
+  const [arrivedAt, setArrivedAt] = useState(openAt);
+  if (openAt !== arrivedAt) {
+    setArrivedAt(openAt);
+    setSeek(openAt || null);
+  }
   const openAtClaim = (claim, i) => {
     // Falls back to the claim's own panel when the quote cannot be located --
     // a jump that silently lands at the top of the paper reads as broken.
@@ -93,7 +88,7 @@ export default function PaperPanel({
           <Reader
             key={node.doc_id}  /* a claim-jump page must not follow you to the next paper */
             node={node} doc={doc} error={error}
-            hits={hits} claims={node.claims} theme={theme}
+            hits={hits} claims={node.claims} gaps={inGaps} theme={theme} query={query}
             seek={seek} onSeeked={() => setSeek(null)}
           />
         )
@@ -217,7 +212,7 @@ function usePaperText(node) {
     fetchPaper(node.doc_id)
       .then((d) => live && setFetched(d))
       .catch((e) => {
-        textCache.delete(node.doc_id);   // a failure must not cache as one
+        forgetPaper(node.doc_id);
         if (live) setFailed({ id: node.doc_id, msg: e.message || 'could not load the text' });
       });
     return () => { live = false; };
@@ -250,23 +245,37 @@ function usePdfOk(node) {
 }
 
 /**
- * The paper. The original pdf when it exists; the extracted text with its
- * marks only as the fallback (encrypted paper, file gone). Chunking never
- * mattered here -- the uploaded file was on disk all along.
+ * The paper. The original pdf when it exists, drawn by PdfReader so the marks
+ * can sit on it; the extracted text with the same marks as the fallback
+ * (encrypted paper, file gone). Chunking never mattered to the pdf -- the
+ * uploaded file was on disk all along -- but it is what the marks are keyed to,
+ * in both readers.
  */
-function Reader({ node, doc, error, hits, claims, theme, seek, onSeeked }) {
+function Reader({ node, doc, error, hits, claims, gaps, theme, query, seek, onSeeked }) {
   const bodyRef = useRef(null);
   const pdfOk = usePdfOk(node);
   const target = seek && locateQuote(doc?.chunks, seek);
 
-  // In pdf mode the page is derived, not stored, and seek is deliberately NOT
-  // cleared: clearing it would change the iframe src back and reload the
-  // viewer to page 1. The next claim click replaces it.
-  const page = pdfOk
-    ? (target && doc?.chunks?.find((c) => c.chunk_id === target)?.metadata?.page_number) || null
-    : null;
+  // Memoised because the pdf reader turns each marked span into rectangles by
+  // walking a page's text items: cheap once, wasteful on every render, and a
+  // new Map identity would make it every render.
+  //
+  // Spans for the pdf, kinds for the text reader. The pdf needs the phrase in
+  // order to narrow a mark to one sentence; the text reader lays chunks out as
+  // paragraphs, so marking a chunk already marks a paragraph.
+  const spans = useMemo(
+    () => markSpans(doc?.chunks, { hits, claims, gaps, theme, query }),
+    [doc, hits, claims, gaps, theme, query],
+  );
+  const marks = useMemo(() => kindsOf(spans), [spans]);
+
+  // Reading is the one thing here that wants the whole window. The shell gets
+  // out of the way on any interaction anyway; this says so a beat earlier,
+  // before the first click lands on the page.
+  useEffect(() => { shellStore.requestFocus(); }, []);
 
   // Text mode scrolls once and clears, so returning to the tab does not jump.
+  // The pdf reader does its own, against the rectangle rather than the chunk.
   useEffect(() => {
     if (!target || pdfOk) return;
     const el = bodyRef.current?.querySelector(`[data-chunk-id="${CSS.escape(target)}"]`);
@@ -287,13 +296,14 @@ function Reader({ node, doc, error, hits, claims, theme, seek, onSeeked }) {
 
   if (pdfOk) {
     return (
-      <div className="lg-tabbody lg-reader-pdf">
-        <iframe
-          className="lg-pdf"
-          title={node.title}
-          src={documentsApi.pdfUrl(node.doc_id) + (page ? `#page=${page}` : '')}
-        />
-      </div>
+      <PdfReader
+        url={documentsApi.pdfUrl(node.doc_id)}
+        chunks={doc?.chunks}
+        spans={spans}
+        seek={target}
+        onSeeked={onSeeked}
+        legend={<Legend marks={marks} />}
+      />
     );
   }
   if (pdfOk === null) {
@@ -307,8 +317,6 @@ function Reader({ node, doc, error, hits, claims, theme, seek, onSeeked }) {
     return <div className="lg-tabbody lg-muted"><p>No text stored for this paper.</p></div>;
   }
 
-  const marks = markChunks(doc.chunks, { hits, claims, theme });
-
   return (
     <div className="lg-tabbody lg-reader" ref={bodyRef}>
       {/* The stored filename is prefixed with the doc_id. That is storage's
@@ -317,21 +325,7 @@ function Reader({ node, doc, error, hits, claims, theme, seek, onSeeked }) {
         {doc.filename.replace(/^[0-9a-f]{8,}_/, '')} · {doc.total_chunks} chunks
       </div>
 
-      {/* An unexplained highlight is noise, so the marks name themselves --
-          and only the ones actually on the page are listed. */}
-      {marks.size > 0 && (
-        <div className="lg-legend">
-          {[
-            ['match', 'matched your search'],
-            ['claim', 'supports a claim'],
-            ['theme', 'theme keyword'],
-          ]
-            .filter(([kind]) => [...marks.values()].some((s) => s.has(kind)))
-            .map(([kind, label]) => (
-              <span key={kind} className={`lg-key lg-key-${kind}`}>{label}</span>
-            ))}
-        </div>
-      )}
+      <Legend marks={marks} />
 
       {doc.chunks.map((c) => (
         <p
@@ -344,6 +338,32 @@ function Reader({ node, doc, error, hits, claims, theme, seek, onSeeked }) {
           )}
           {c.text}
         </p>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * What the colours mean.
+ *
+ * An unexplained highlight is noise, so the marks name themselves -- and only
+ * the ones actually present are listed, because a key for a colour that is not
+ * on the page is its own small lie.
+ */
+function Legend({ marks }) {
+  if (!marks?.size) return null;
+  const present = [
+    ['match', 'matched your search'],
+    ['claim', 'supports a claim'],
+    ['gap', 'evidence for a gap'],
+    ['theme', 'theme keyword'],
+  ].filter(([kind]) => [...marks.values()].some((s) => s.has(kind)));
+
+  if (!present.length) return null;
+  return (
+    <div className="lg-legend">
+      {present.map(([kind, label]) => (
+        <span key={kind} className={`lg-key lg-key-${kind}`}>{label}</span>
       ))}
     </div>
   );

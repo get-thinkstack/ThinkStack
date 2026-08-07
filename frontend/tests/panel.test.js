@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { clampPanel, neighbours, nearestFurthest } from '../src/components/litgraph/panel';
+import {
+  clampPanel, neighbours, nearestFurthest, gapPassages,
+} from '../src/components/litgraph/panel';
 
 describe('clampPanel', () => {
   it('will not go narrower than the reader stays readable at', () => {
@@ -78,5 +80,64 @@ describe('nearestFurthest', () => {
     const r = nearestFurthest(nodes[0], [nodes[0], nodes[1]]);
     expect(r.near.doc_id).toBe('near');
     expect(r.far).toBe(null);
+  });
+});
+
+/**
+ * A gap connects papers, and you could only ever read it in one of them.
+ *
+ * The panel listed its evidence, and separately listed the papers it cites, and
+ * clicking a paper lost the gap entirely -- you landed on the About tab with no
+ * indication which passage was the evidence. This resolves the two lists into
+ * one: for each cited paper, the passage in it that the gap rests on.
+ */
+describe('gapPassages', () => {
+  const chunksA = [
+    { chunk_id: 'a1', text: 'Unrelated opening remarks about the dataset.' },
+    { chunk_id: 'a2', text: 'Existing methods rely on manually engineered molecular representation. They do not scale.' },
+  ];
+  const chunksB = [
+    { chunk_id: 'b1', text: 'No model evaluates interactions between substructures of the two drugs.' },
+  ];
+  const gap = {
+    doc_ids: ['A', 'B', 'C'],
+    evidence: [
+      'methods rely on manually engineered representation',
+      'no model evaluates substructure interactions',
+    ],
+  };
+  const texts = new Map([['A', chunksA], ['B', chunksB]]);
+
+  it('finds the passage the gap rests on in each paper', () => {
+    const found = gapPassages(gap, texts);
+    expect(found.find((p) => p.docId === 'A').passage.text)
+      .toBe('Existing methods rely on manually engineered molecular representation.');
+  });
+
+  // The first evidence phrase belongs to paper A, the second to paper B; a
+  // panel that only tried the first would show B as having nothing.
+  it('tries every evidence phrase, not only the first', () => {
+    const found = gapPassages(gap, texts);
+    expect(found.find((p) => p.docId === 'B').passage.text)
+      .toBe('No model evaluates interactions between substructures of the two drugs.');
+  });
+
+  // Otherwise the panel offers a link that goes nowhere, which is worse than
+  // saying plainly that the evidence could not be located.
+  it('says nothing rather than guessing for a paper whose text has not loaded', () => {
+    expect(gapPassages(gap, texts).find((p) => p.docId === 'C').passage).toBe(null);
+  });
+
+  it('keeps every cited paper, located or not', () => {
+    expect(gapPassages(gap, texts).map((p) => p.docId)).toEqual(['A', 'B', 'C']);
+  });
+
+  it('carries the chunk so the reader can be opened at it', () => {
+    expect(gapPassages(gap, texts).find((p) => p.docId === 'A').passage.chunkId).toBe('a2');
+  });
+
+  it('survives a gap with no evidence and no papers', () => {
+    expect(gapPassages({ doc_ids: ['A'], evidence: [] }, texts)[0].passage).toBe(null);
+    expect(gapPassages(null, texts)).toEqual([]);
   });
 });

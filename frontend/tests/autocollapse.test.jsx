@@ -130,4 +130,27 @@ describe('what the collapse is worth', () => {
     el.querySelector('.sidebar-peek').click();
     expect(shellStore.isCollapsed()).toBe(false);
   });
+
+  // The undo has to survive the action it was undoing. You reopen the nav in
+  // order to use the page, so collapsing again on the next press made bringing
+  // it back worth exactly one click -- and it read as the button not working.
+  it('bringing it back is not undone by the next press', async () => {
+    await mountApp();
+    press(el.querySelector('.main-content'));
+    el.querySelector('.sidebar-peek').click();
+
+    press(el.querySelector('.main-content'));
+    expect(shellStore.isCollapsed()).toBe(false);
+  });
+
+  // ...but only for as long as you are on the screen you reopened it for.
+  it('the automatic collapse resumes after navigating', async () => {
+    await mountApp();
+    press(el.querySelector('.main-content'));
+    el.querySelector('.sidebar-peek').click();
+
+    shellStore.releaseFocus();   // what ReleaseFocusOnNavigate does on a route change
+    press(el.querySelector('.main-content'));
+    expect(shellStore.isCollapsed()).toBe(true);
+  });
 });
