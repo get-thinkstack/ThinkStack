@@ -229,9 +229,35 @@ ThinkStack sizes itself to the machine it runs on.
   fits the available-RAM budget (with headroom reserved for your other running
   apps); otherwise it gracefully downgrades to a lighter model instead of running
   out of memory.
-- **CPU-only by default** — runs on any machine with no GPU drivers. GPU offload
-  is used automatically when a usable CUDA GPU is present, with a CPU fallback on
-  out-of-memory.
+- **CPU-only by default** — runs on any machine with no graphics drivers at all.
+
+### Graphics acceleration, on request
+
+ThinkStack ships a processor-only inference engine so the installer stays small
+and works everywhere. If your machine has graphics hardware it can use, Bench
+offers to add the graphics engine — about **90 MB**, downloaded only if you ask.
+
+- **Vulkan, so it is not one vendor.** NVIDIA, AMD, Intel and integrated
+  graphics all work, through the Vulkan loader that ships **with your graphics
+  driver**. Nothing from NVIDIA, AMD or Intel is ever downloaded; the only
+  download is ThinkStack's own graphics engine, which exists on no machine
+  because it is ours. On Linux this includes cards reachable through Mesa's
+  open-source drivers, so a machine with no proprietary driver installed is
+  often still accelerated.
+- **It names the device it would use.** A laptop can report three — a discrete
+  card, an integrated chip, and a software renderer that is really the
+  processor. All three are listed; the software one is shown and excluded,
+  because offloading to it would be *slower* than the processor already doing
+  the work.
+- **The size shown is measured**, read from the release manifest rather than
+  estimated, because the figure you agree to should be the figure downloaded.
+- **It is checked before it is switched on.** The libraries are verified against
+  a checksum, then loaded in a separate process. Only if that process survives
+  is acceleration enabled. If it cannot run on your machine, nothing changes and
+  you are told why.
+- **Reversible.** "Go back to the processor" turns it off and keeps the files,
+  so turning it on again is instant.
+- **macOS already has it** — Metal ships in the Mac build, so nothing to add.
 - You can **change the active model** yourself; the choice persists across
   restarts.
 

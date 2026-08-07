@@ -1,0 +1,245 @@
+name: Build graphics engine (Vulkan)
+
+# Builds llama.cpp with its Vulkan backend and publishes the shared libraries as
+# a release asset the app downloads on request.
+#
+# WHY THIS EXISTS
+#
+# ThinkStack ships a processor-only build of llama.cpp, deliberately: a GPU build
+# most users cannot use is an installer nobody downloads. That left anyone with a
+# graphics card correctly told their card was unusable, and offered nothing.
+#
+# WHY VULKAN AND NOT CUDA
+#
+# CUDA has prebuilt wheels, so it looked cheapest. It reaches NVIDIA cards only,
+# through NVIDIA's proprietary stack, and needs ~557 MB of maths libraries on any
+# machine without the CUDA toolkit -- about 1 GB in total.
+#
+# Vulkan reaches NVIDIA, AMD, Intel and integrated graphics through the loader
+# that ships WITH the graphics driver. On the development laptop, which has no
+# NVIDIA packages installed at all, Vulkan already reports both the Intel iGPU
+# and the RTX 3050 Ti (through Mesa's NVK driver). CUDA would have reached
+# neither. The download is ~90 MB and nothing else is needed on the user's side.
+#
+# Nobody publishes a Vulkan build of llama-cpp-python, which is the only reason
+# this workflow exists: we are the ones who have to build it.
+#
+# WHAT IT PRODUCES
+#
+#   thinkstack-accel-vulkan-<platform>.tar.gz   the shared libraries
+#   thinkstack-accel-vulkan-<platform>.json     size + sha256, read by the app
+#
+# The manifest matters: the app quotes a download size before asking for
+# consent, and a figure that is guessed rather than measured is a promise
+# broken at download time.
+#
+# Deliberately manual. The engine changes only when llama-cpp-python is
+# upgraded, so building it on every push would burn runner time producing a
+# byte-identical artifact.
+#
+#   gh workflow run build-accel.yml -f platform=all
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Which platform to build the graphics engine for'
+        required: true
+        default: 'linux-x86_64'
+        type: choice
+        options:
+          - linux-x86_64
+          - windows-x86_64
+          - all
+      llama_version:
+        description: 'llama-cpp-python version (blank = the pin in requirements.txt)'
+        required: false
+        type: string
+        default: ''
+      publish:
+        description: 'Attach to the accel-latest release (otherwise artifacts only)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-22.04
+          - platform: windows-x86_64
+            runner: windows-2022
+    steps:
+      - name: Skip platforms not requested
+        id: want
+        shell: bash
+        run: |
+          want='${{ inputs.platform }}'
+          if [ "$want" = "all" ] || [ "$want" = "${{ matrix.platform }}" ]; then
+            echo "build=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.want.outputs.build == 'yes'
+
+      - uses: actions/setup-python@v5
+        if: steps.want.outputs.build == 'yes'
+        with:
+          # The version the app is frozen with. A wheel built against a
+          # different Python still produces usable .so/.dll files, since only
+          # the shared libraries are extracted -- but matching keeps the build
+          # honest about what it is testing.
+          python-version: '3.12'
+
+      # ---- the Vulkan SDK: headers and the shader compiler ----
+      # Users need only the RUNTIME loader, which arrives with their graphics
+      # driver. Building the backend needs the development package, which is
+      # why this happens here and not on anyone's machine.
+      - name: Vulkan SDK (Linux)
+        if: steps.want.outputs.build == 'yes' && runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libvulkan-dev glslc spirv-tools cmake ninja-build
+          glslc --version
+
+      - name: Vulkan SDK (Windows)
+        if: steps.want.outputs.build == 'yes' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = 'https://sdk.lunarg.com/sdk/download/latest/windows/vulkan_sdk.exe'
+          Invoke-WebRequest -Uri $url -OutFile vulkan_sdk.exe
+          # unattended, components limited to what a headless build needs
+          Start-Process -FilePath .\vulkan_sdk.exe -ArgumentList `
+            '--root','C:\VulkanSDK','--accept-licenses','--default-answer','--confirm-command','install' `
+            -Wait -NoNewWindow
+          "VULKAN_SDK=C:\VulkanSDK" >> $env:GITHUB_ENV
+          "C:\VulkanSDK\Bin" >> $env:GITHUB_PATH
+
+      - name: Resolve the llama-cpp-python version
+        if: steps.want.outputs.build == 'yes'
+        id: ver
+        shell: bash
+        run: |
+          v='${{ inputs.llama_version }}'
+          if [ -z "$v" ]; then
+            # the pin the app itself uses, so the GPU build stays ABI-compatible
+            # with the bindings shipped in the installer
+            v=$(grep -oP '^llama-cpp-python==\K[0-9.]+' requirements.txt)
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "building llama-cpp-python $v with Vulkan"
+
+      - name: Build with the Vulkan backend
+        if: steps.want.outputs.build == 'yes'
+        shell: bash
+        env:
+          # -DGGML_VULKAN=on is the whole difference from the wheel we ship.
+          CMAKE_ARGS: '-DGGML_VULKAN=on -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF'
+          FORCE_CMAKE: '1'
+        run: |
+          python -m pip install --upgrade pip setuptools wheel scikit-build-core
+          python -m pip install --no-binary :all: --verbose \
+            "llama-cpp-python==${{ steps.ver.outputs.version }}"
+
+      - name: Collect the shared libraries
+        if: steps.want.outputs.build == 'yes'
+        shell: bash
+        run: |
+          set -euo pipefail
+          libdir=$(python -c "import llama_cpp, pathlib; print(pathlib.Path(llama_cpp.__file__).parent / 'lib')")
+          echo "library directory: $libdir"
+          ls -la "$libdir"
+
+          # The build is worthless if the Vulkan backend is not actually in it,
+          # and a silently-CPU-only artifact would pass every later check while
+          # doing nothing. Refuse it here.
+          python - <<'PY'
+          import pathlib, sys, llama_cpp
+          libdir = pathlib.Path(llama_cpp.__file__).parent / "lib"
+          names = [p.name for p in libdir.iterdir()]
+          if not any("vulkan" in n.lower() for n in names):
+              print("NO VULKAN BACKEND IN THE BUILD:", names, file=sys.stderr)
+              sys.exit(1)
+          print("vulkan backend present:", [n for n in names if "vulkan" in n.lower()])
+          PY
+
+          mkdir -p out/lib
+          cp -a "$libdir"/. out/lib/
+
+      - name: Verify it reports GPU offload
+        if: steps.want.outputs.build == 'yes'
+        shell: bash
+        run: |
+          # The runner has no GPU, so this cannot test that inference works --
+          # only that the binary was COMPILED with the backend. That is exactly
+          # the fact the app keys its whole decision off, so it is the fact to
+          # assert here.
+          python - <<'PY'
+          from llama_cpp import llama_supports_gpu_offload
+          ok = llama_supports_gpu_offload()
+          print("llama_supports_gpu_offload():", ok)
+          raise SystemExit(0 if ok else 1)
+          PY
+
+      - name: Package with a manifest
+        if: steps.want.outputs.build == 'yes'
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="thinkstack-accel-vulkan-${{ matrix.platform }}"
+          tar -C out -czf "$name.tar.gz" lib
+
+          python - "$name" "${{ steps.ver.outputs.version }}" "${{ matrix.platform }}" <<'PY'
+          import hashlib, json, pathlib, sys
+          name, version, platform = sys.argv[1:4]
+          blob = pathlib.Path(f"{name}.tar.gz").read_bytes()
+          # the size the app quotes before asking for consent -- measured, never
+          # estimated, because the estimate is what the user agrees to
+          pathlib.Path(f"{name}.json").write_text(json.dumps({
+              "backend": "vulkan",
+              "platform": platform,
+              "llama_cpp_version": version,
+              "bytes": len(blob),
+              "mb": round(len(blob) / 1048576),
+              "sha256": hashlib.sha256(blob).hexdigest(),
+              "asset": f"{name}.tar.gz",
+          }, indent=2))
+          print(f"{name}.tar.gz  {len(blob)/1048576:.0f} MB")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: steps.want.outputs.build == 'yes'
+        with:
+          name: accel-vulkan-${{ matrix.platform }}
+          path: |
+            thinkstack-accel-vulkan-*.tar.gz
+            thinkstack-accel-vulkan-*.json
+          retention-days: 14
+
+      - name: Attach to the rolling accel release
+        if: steps.want.outputs.build == 'yes' && inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # A rolling tag, like the beta channel: the app fetches a stable
+          # address rather than a version it would have to discover.
+          gh release view accel-latest >/dev/null 2>&1 || \
+            gh release create accel-latest --title "Graphics engine (Vulkan)" \
+              --notes "llama.cpp built with its Vulkan backend. Downloaded on request by ThinkStack; never bundled." \
+              --prerelease
+          gh release upload accel-latest thinkstack-accel-vulkan-*.tar.gz \
+            thinkstack-accel-vulkan-*.json --clobber

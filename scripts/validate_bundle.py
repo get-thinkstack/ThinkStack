@@ -490,6 +490,43 @@ def main() -> int:
     except Exception as e:  # noqa: BLE001
         record(FAIL, "a document with an index could not be compiled", repr(e))
 
+    # 7d. graphics acceleration reports honestly on whatever this runner is.
+    #
+    #     CI machines have no GPU, so this cannot check that acceleration
+    #     WORKS. What it checks is the thing that broke for a real user: the
+    #     app must give a coherent answer about graphics hardware on every
+    #     machine, including one with none. The failure being guarded against
+    #     is a blank or crashing Bench card, which is what a missing key or an
+    #     exception from a graphics driver produces.
+    try:
+        acc = get(f"{base}/api/system/acceleration")
+        missing = {"active", "devices", "plan"} - set(acc)
+        if missing:
+            raise RuntimeError(f"payload is missing {sorted(missing)}")
+
+        plan = acc["plan"]
+        if not plan.get("supported") and not plan.get("reason"):
+            # a refusal with no reason is the dead end this feature exists to
+            # remove -- it must never come back as an empty string
+            raise RuntimeError("acceleration is unavailable and does not say why")
+
+        devices = acc["devices"].get("devices") or []
+        # a software rasteriser must never be selected: it IS the processor, so
+        # offloading to it would be slower while reporting success
+        chosen = acc["devices"].get("would_use")
+        for d in devices:
+            if d.get("kind") == "software" and d.get("name") == chosen:
+                raise RuntimeError("software rendering was selected for offload")
+
+        if plan.get("supported"):
+            detail = f"offers {plan.get('device')} ({plan.get('download_mb')} MB)"
+        else:
+            detail = plan.get("reason", "")
+        record(PASS, f"graphics acceleration answers coherently ({len(devices)} device(s))",
+               detail)
+    except Exception as e:  # noqa: BLE001
+        record(FAIL, "graphics acceleration endpoint failed", repr(e))
+
     # 8. model setup / consent endpoint answers
     try:
         setup = get(f"{base}/api/models/setup")

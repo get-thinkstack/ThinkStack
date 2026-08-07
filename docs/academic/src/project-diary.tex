@@ -9,8 +9,8 @@
 \markboth{About this Diary}{}
 
 This diary records the development of ThinkStack from 5 June to 7 August 2026.
-It is reconstructed from the repository itself: 248 commits, 59 merged pull
-requests, 47 recorded architecture decisions, and the published releases. It is
+It is reconstructed from the repository itself: 250 commits, 59 merged pull
+requests, 51 recorded architecture decisions, and the published releases. It is
 not written from memory.
 
 Two conventions are observed throughout. First, every quantity was measured or
@@ -703,6 +703,68 @@ The recurring lesson is the one this project has now recorded in several forms.
 The suite was green, the components rendered, and the feature did not exist.
 What was missing was not a test but an execution: none of this can be discovered
 without launching the thing a user launches.
+
+\subsection{7 August: the constraint was packaging, not hardware}
+
+A tester reported that the application told him his graphics card could not be
+used. The message was accurate. The inference engine is shipped compiled for the
+processor only, so the card genuinely could not be used, and the diagnosis had
+correctly said so. What the message did not do was offer anything, explain why,
+or indicate whether it would ever change. A correct sentence at a dead end.
+
+The first design took the obvious route. The manufacturer of that card publishes
+prebuilt libraries, so the plan was to download those on request. It was
+implemented to the point of working before a more careful look at the numbers
+undermined it. Those libraries are approximately four hundred megabytes, and
+they depend on a further half a gigabyte of mathematical libraries that are
+present only on machines where a developer toolkit has been installed. Close to
+a gigabyte, for one manufacturer's hardware.
+
+The alternative had been overlooked because nobody had packaged it. The same
+inference library can be built against a vendor-neutral graphics interface whose
+runtime component is installed alongside every graphics driver. Querying that
+interface on the development laptop --- a machine with none of the manufacturer's
+software installed, and which had been recorded in these notes as having an
+unusable card --- returned three devices: the integrated processor graphics, the
+discrete card through an open-source driver, and a software renderer. Two of the
+three were immediately usable. The proprietary route would have reached neither.
+
+The download for that approach is about ninety megabytes and requires nothing
+else, because the driver component is already present on any machine that can
+display graphics at all. The trade is genuine: the vendor-neutral path is slower
+on that vendor's hardware than the proprietary one. It is far faster than the
+processor on every machine, which is the comparison that matters when the
+alternative is no acceleration at all.
+
+The pattern is worth recording because this is the third time it has appeared.
+The language model is not included in the installer because of a file size limit
+imposed by the distribution platform. Typesetting worked everywhere only once
+the typesetting engine was included rather than assumed. And graphics hardware
+was unusable because of which build was shipped. In each case the question
+looked like ``is this machine capable'' and the answer was ``yes, but can it be
+delivered''. Capability was never the constraint; packaging was.
+
+Two errors were made during the work and are worth recording as much as the
+result. The first: the software renderer must be excluded. It is the processor
+presenting itself as a graphics device, so directing work to it would route
+through a translation layer to reach the hardware already performing the
+calculation, while reporting success at every step. The second: the memory each
+device reports is not its own. Both real devices claimed twelve gigabytes, which
+is the system's memory rather than the card's four, and the software renderer
+claimed the most of all. An early version ranked devices by reported memory,
+which would have selected precisely the device that must never be selected.
+Both were found by running the detection and reading the output, not by
+reasoning about it.
+
+A third error was caught by the supervisor rather than by any test. The module
+that answers hardware questions is deliberately constructed so that every fact
+is supplied to it rather than discovered by it, which is what allows a
+fabricated machine to be reasoned about on hardware that resembles it in no way.
+A convenience function was added that consulted the real graphics interface from
+inside that module. It was noticed immediately, from the outside, by someone
+asking whether that module was not supposed to be self-contained. It was, and
+the addition had quietly reintroduced exactly the class of assumption the module
+had been written to eliminate.
 
 \section{Division of Work}
 \markboth{Division of Work}{}
