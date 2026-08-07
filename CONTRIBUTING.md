@@ -159,7 +159,7 @@ in the commit why that version.
 ## Tests
 
 ```bash
-pytest                    # the whole suite (740 tests, a few seconds)
+pytest                    # the whole suite (839 tests, a few seconds)
 pytest tests/test_x.py    # one file
 pytest -m heavy           # tests that load real models / hit the network
 ```
@@ -554,7 +554,10 @@ domain/            core logic, one package per capability:
                                       huggingface
                      fine_tuning/     data_collector
 infrastructure/    ollama_client (llm runtime), local_vector_store, hardware,
-                   file_manager, atomic_io, caches and histories
+                   capability (every hardware-derived decision, from injected
+                   facts), vulkan (what graphics devices exist), acceleration
+                   + accel_download (the optional GPU engine), file_manager,
+                   atomic_io, caches and histories
 frontend/          react 19 + vite spa
                      features.js      every feature declared once; the nav,
                                       the routes and the brand mark render

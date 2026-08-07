@@ -90,6 +90,12 @@ launch. See [docs/ABOUT.md](docs/ABOUT.md) for the full walkthrough.
 | all-MiniLM-L6-v2 | 88 MB | embeddings for ingestion and search |
 | Tectonic + warmed package cache | 70 MB | LaTeX compilation with no TeX install |
 
+**Graphics acceleration is not bundled either.** The inference engine ships
+processor-only so the installer works on every machine. If yours has graphics
+hardware ThinkStack can use — NVIDIA, AMD, Intel or integrated, via Vulkan —
+Bench offers to add the ~90 MB graphics engine on request. Your graphics driver
+is already installed and is never downloaded.
+
 A larger model improves analysis quality. None of these are bundled:
 the application offers it once, only if your machine can run it, and reuses a
 copy you already have through Ollama or LM Studio rather than downloading again.
@@ -127,7 +133,7 @@ infrastructure/    llm client · vector store · hardware profiler · file manag
 frontend/          react 19 + vite spa
 src-tauri/         tauri 2 desktop shell (rust): diagnosis, supervision, updates
 scripts/           devops: setup, dev, preflight, build, promote, release
-tests/             740 tests across 37 modules
+tests/             839 tests across 41 modules
 ```
 
 The desktop shell diagnoses the machine, launches the backend as a supervised
@@ -142,9 +148,9 @@ users run an installer.
 
 | Tier | Runs on | Establishes |
 |---|---|---|
-| `preflight.sh` | your machine, every push | lint, 740 tests, shellcheck, actionlint, cargo |
+| `preflight.sh` | your machine, every push | lint, 839 tests, shellcheck, actionlint, cargo |
 | CI | every push | the same on a clean machine |
-| `validate_bundle.py` | **Linux, macOS, Windows**, every build | the packaged app starts, resolves models, ingests a PDF, searches, infers, compiles a PDF, embeds a user-supplied figure, and builds an index |
+| `validate_bundle.py` | **Linux, macOS, Windows**, every build | the packaged app starts, resolves models, ingests a PDF, searches, infers, compiles a PDF, embeds a user-supplied figure, builds an index, and reports its graphics hardware coherently |
 | GUI smoke test | Linux, every build | the launched application is still alive 45 seconds later |
 
 ## Documentation

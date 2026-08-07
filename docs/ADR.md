@@ -280,6 +280,76 @@ block nowhere to go. It emits the shortest legal document instead: `{}`.
 `json.loads` succeeds, so nothing downstream notices. The baseline is now
 chosen by measured behaviour on the two flagship jobs, not by size or recency.
 
+## 2026-08-07: graphics acceleration is offered, not shipped
+
+**Context.** ThinkStack ships a processor-only build of llama.cpp. A tester with
+an RTX 4050 was told, correctly, that "the installed inference engine is a
+CPU-only build and cannot use it" -- and offered nothing. The detection was
+right; the dead end was the defect.
+
+**Decision.** The engine is downloaded on request, verified, and switched on by
+pointing `LLAMA_CPP_LIB_PATH` at the user's writable data directory.
+
+**Consequences.** The installer does not grow by a byte. Nothing inside the
+installation is written to, which matters because on Linux that is a read-only
+AppImage mount and on macOS a signed bundle. `llama_cpp` is imported only inside
+functions, so `main.py` can set the variable at startup -- no Rust change, no
+restart choreography. Everything downstream already keys off
+`llama_supports_gpu_offload()`, so flipping that one fact makes the advice, the
+model suggestions and the routing GPU-aware with no further change.
+
+## 2026-08-07: Vulkan, not CUDA
+
+**Context.** CUDA had prebuilt wheels, so it looked cheapest. It reaches NVIDIA
+cards only, through NVIDIA's proprietary stack, and needs ~557 MB of maths
+libraries on any machine without the CUDA toolkit -- ~1 GB in total.
+
+**Decision.** Build llama.cpp with its Vulkan backend and publish that instead.
+
+**Consequences.** ~90 MB rather than ~1 GB, and it reaches NVIDIA, AMD, Intel
+and integrated graphics through the loader that ships WITH the graphics driver.
+The evidence that settled it: the development laptop has no NVIDIA packages
+installed at all, and Vulkan already reports both its Intel iGPU and its RTX
+3050 Ti through Mesa's open-source NVK driver. CUDA would have reached neither.
+The cost is real -- Vulkan is slower than CUDA on an NVIDIA card -- but the
+comparison that matters is against the processor, not against the fastest
+possible backend. Nobody publishes a Vulkan build of llama-cpp-python, so
+`.github/workflows/build-accel.yml` exists to make one.
+
+## 2026-08-07: a software rasteriser is not a graphics device
+
+**Context.** Vulkan reports `llvmpipe` as a device on most Linux machines. It is
+the processor pretending to be a graphics card.
+
+**Decision.** Usability is decided by device TYPE. Software and virtual devices
+are excluded, discrete is preferred over integrated, and reported memory decides
+nothing.
+
+**Consequences.** Offloading to llvmpipe would route work through a translation
+layer to reach the CPU already doing it, while reporting success -- a thing that
+passes every check and does the wrong thing. Memory is excluded from the
+decision because it lies: on the development laptop an Intel iGPU and an RTX
+3050 Ti both report 12.4 GB, which is system RAM, and llvmpipe reports the most
+of all. Ranking by memory would therefore have selected precisely the device
+that must never be selected.
+
+## 2026-08-07: nothing unverified is switched on
+
+**Context.** Libraries can download perfectly and still fail to load -- a driver
+too old, a missing dependency, a CPU without the instructions the build assumes.
+Discovering that inside the running backend means the backend is already
+damaged, on a machine where this app is the only thing that can read the user's
+papers.
+
+**Decision.** A separate process loads the libraries and reports back. The
+override is committed only if that process survives, and `active_lib_dir()`
+requires a `verified` flag that only a surviving probe writes.
+
+**Consequences.** A failed activation costs a download and changes nothing else.
+The checksum is verified before extraction, because a truncated download fails
+to load in a way indistinguishable from an incompatible driver -- and the user
+would then be told something untrue about their own machine.
+
 ## 2026-08-07: a paper is a directory, and the file tree is the way into it
 
 **Context.** A project has been a directory since the first version --

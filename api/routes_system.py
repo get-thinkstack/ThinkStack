@@ -178,6 +178,113 @@ async def diagnose_machine():
     return for_this_machine().report()
 
 
+# ── graphics acceleration ────────────────────────────────────────────────
+# Kept beside /diagnose because it answers the same question -- what can this
+# machine do -- and Bench renders both on one card. Splitting them would put
+# "your machine has a GPU" and "here is how to use it" behind two calls that
+# could disagree.
+
+
+@router.get("/acceleration")
+async def acceleration_status():
+    """What this machine could do with graphics acceleration, and what it is doing.
+
+    Everything the Bench card needs in one payload: the devices the graphics
+    driver exposes, whether an offer is available and what it would cost, and
+    whether a previous install is in effect. One call, so the panel can never
+    render two halves that disagree.
+    """
+    from infrastructure import acceleration, vulkan
+    from infrastructure.accel_download import fetch_manifest, installer
+    from infrastructure.hardware import engine_supports_gpu_offload
+
+    # Acceleration is optional, so nothing about it may take this endpoint
+    # down. A graphics driver is third-party code loaded into our process and
+    # can do anything, including raise from a function documented not to --
+    # and Bench renders the machine card from this response. Degrade to "no
+    # offer", which is the state the app was in anyway.
+    try:
+        plan = acceleration.plan(settings.data_dir)
+        devices = vulkan.report()
+    except Exception as e:  # noqa: BLE001 - a driver fault is not our crash
+        logger.warning("graphics detection failed: %s", e)
+        plan = acceleration.Plan(reason="Graphics hardware could not be read on "
+                                        "this machine.")
+        devices = {"loader_present": False, "devices": [], "would_use": None}
+
+    state = acceleration.read_state(settings.data_dir)
+    payload = {
+        "active": engine_supports_gpu_offload(),
+        "devices": devices,
+        "plan": plan.as_dict(),
+        "install": installer.progress(),
+        # a previous attempt that failed should say why rather than silently
+        # offering the same button again
+        "last_attempt": {
+            "verified": bool(state.get("verified")),
+            "detail": state.get("detail", ""),
+        } if state else None,
+    }
+
+    # Replace the built-in estimate with the measured figure when the release
+    # manifest can be read. The number shown before asking for consent should
+    # be the number that will actually be downloaded.
+    if plan.supported:
+        manifest = fetch_manifest(acceleration.platform_key())
+        if manifest and manifest.get("bytes"):
+            payload["plan"]["download_bytes"] = int(manifest["bytes"])
+            payload["plan"]["download_mb"] = round(int(manifest["bytes"]) / 1048576)
+            payload["plan"]["measured"] = True
+    return payload
+
+
+@router.post("/acceleration/enable")
+async def acceleration_enable():
+    """Download the graphics engine and switch it on, if it works here.
+
+    Runs in a worker thread: the download is tens of megabytes and the verify
+    step spawns a process, and neither may block the event loop that is also
+    serving the page showing the progress bar.
+    """
+    import asyncio
+
+    from infrastructure import acceleration
+    from infrastructure.accel_download import installer
+
+    plan = acceleration.plan(settings.data_dir)
+    if not plan.supported:
+        raise HTTPException(status_code=400, detail=plan.reason)
+    if installer.busy():
+        return installer.progress()
+
+    key = acceleration.platform_key()
+    asyncio.get_running_loop().run_in_executor(
+        None, installer.install, settings.data_dir, key
+    )
+    return {"status": "downloading", "device": plan.device}
+
+
+@router.get("/acceleration/progress")
+async def acceleration_progress():
+    from infrastructure.accel_download import installer
+    return installer.progress() or {"status": "idle"}
+
+
+@router.post("/acceleration/cancel")
+async def acceleration_cancel():
+    from infrastructure.accel_download import installer
+    return {"cancelled": installer.cancel()}
+
+
+@router.post("/acceleration/disable")
+async def acceleration_disable():
+    """Go back to the processor. The files stay, so re-enabling is instant."""
+    from infrastructure import acceleration
+
+    acceleration.deactivate(settings.data_dir)
+    return {"active": False, "restart_required": True}
+
+
 @router.get("/training-stats")
 async def get_training_stats():
     """return counts of collected training data pairs.

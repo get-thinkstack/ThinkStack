@@ -3109,3 +3109,104 @@ input::-webkit-credentials-auto-fill-button {
   color: #0A0A0A;
   border-color: var(--danger, #ff6b6b);
 }
+
+/* ── graphics acceleration, inside the machine card ────────────────────────
+   Beside the machine report rather than on its own card: "your machine has
+   graphics hardware" and "here is how to use it" are one thought, and keeping
+   them apart is what let the first exist for months without the second. */
+.accel {
+  margin-top: 1.1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.accel-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.7rem;
+}
+
+.accel-head .card-title { display: flex; align-items: center; gap: 0.4rem; }
+
+.accel-badge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.accel-badge.is-on {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+
+/* every device, including the ones that cannot be used: a machine reporting
+   three and a panel showing one reads as broken detection */
+.accel-devices { list-style: none; margin: 0 0 0.8rem; padding: 0; display: grid; gap: 4px; }
+
+.accel-devices li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.76rem;
+  color: var(--text-2);
+}
+
+.accel-devices li.is-unusable { opacity: 0.45; }
+
+.accel-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); flex-shrink: 0;
+}
+.accel-devices li.is-unusable .accel-dot { background: var(--text-3); }
+
+.accel-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.accel-kind { color: var(--text-3); font-size: 0.7rem; }
+
+.accel-would {
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-size: 0.64rem;
+  white-space: nowrap;
+}
+
+.accel-note { margin: 0 0 0.7rem; font-size: 0.8rem; color: var(--text-2); line-height: 1.5; }
+.accel-note.is-good { color: var(--accent); }
+.accel-note.is-warn { color: var(--warning); }
+
+/* the small print that answers "why are you downloading anything at all" */
+.accel-fine {
+  margin: 0 0 0.9rem;
+  font-size: 0.72rem;
+  line-height: 1.55;
+  color: var(--text-3);
+}
+
+.accel-progress { display: grid; gap: 0.5rem; }
+
+.accel-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.accel-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 220ms ease;
+}
+
+.accel-progress-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  font-size: 0.74rem;
+  color: var(--text-2);
+}
+.accel-progress-row span { display: flex; align-items: center; gap: 5px; }

@@ -3,6 +3,7 @@ import { Gauge, HardDrive, Plus, RefreshCw } from 'lucide-react';
 import { modelsApi, registryApi, systemApi } from '../utils/api';
 import PageHeader from './PageHeader';
 import { MachineReport } from './Diagnostics';
+import Acceleration from './Acceleration';
 import ModelCard from './ModelCard';
 import ModelImport from './ModelImport';
 import DiscoveredModels from './DiscoveredModels';
@@ -150,6 +151,12 @@ export default function Bench() {
         {examining && !report && <p style={{ color: 'var(--text-secondary)' }}>Examining this machine…</p>}
         {reportError && <p style={{ color: 'var(--warning)' }}>Could not read this machine: {reportError}</p>}
         {report && <MachineReport report={report} />}
+
+        {/* Beside the machine report on purpose: "your machine has graphics
+            hardware" and "here is how to use it" are one thought, and putting
+            them on separate cards is what let the first exist for months
+            without the second. */}
+        <Acceleration />
       </div>
 
       <div className="card fade-up stagger-3" style={{ marginBottom: '1.5rem' }}>
