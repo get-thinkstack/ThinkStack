@@ -533,10 +533,93 @@
 .lg-fact { margin: 0; font-size: 0.8rem; line-height: 1.6; color: var(--text-2); }
 
 /* ---------- the reader ---------- */
-/* The pdf scrolls inside its own viewer; the tabbody must not add a second
-   scrollbar or any padding around the page. */
-.lg-reader-pdf { padding: 0; overflow: hidden; display: flex; }
-.lg-pdf { flex: 1; width: 100%; border: 0; }
+/* We draw the pdf ourselves now, so this scrolls like the text reader rather
+   than handing scrolling to an embedded viewer. */
+.lg-reader-pdf { padding: 0 0 2rem; overflow-y: auto; }
+
+/* The four marker colours, declared where both readers and the legend can see
+   them. A colour has to mean the same thing in all three or the legend is
+   decoration -- so the pdf's strokes, the text reader's marks and the keys all
+   read from here, even though the shape of the mark differs by reader.
+   Chosen against the white of the paper: the page is white in either theme. */
+.lg-tabbody {
+  --hl-match: #7cf03d;   /* the accent: you searched for this */
+  --hl-claim: #ffe14d;   /* the canonical highlighter yellow */
+  --hl-gap: #ff7ab8;     /* evidence for something missing */
+  --hl-theme: #6fe3ff;   /* ambient: a theme word, not a finding */
+}
+
+.lg-pdf-page {
+  position: relative;
+  margin: 0 auto 1rem;
+  width: 100%;
+  background: #fff;
+  box-shadow: var(--shadow-sm, 0 1px 4px rgb(0 0 0 / 35%));
+}
+.lg-pdf-page canvas { display: block; width: 100%; height: auto; }
+
+/* pdf.js's own text layer: transparent glyphs sitting exactly over the painted
+   ones. It is what makes the pdf selectable and findable with the browser's own
+   Ctrl+F, and it is what the marker strokes are measured against. Positions
+   come from pdf.js as percentages; only the glyph size needs the scale factor,
+   which the reader keeps in step with the rendered width. */
+.lg-pdf-text {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  line-height: 1;
+  text-align: initial;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+}
+.lg-pdf-text span,
+.lg-pdf-text br {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0 0;
+}
+/* Selecting text in the paper should look like selecting text. */
+.lg-pdf-text ::selection { background: color-mix(in srgb, var(--accent) 40%, transparent); }
+
+.lg-pdf-marks {
+  position: absolute;
+  inset: 0;
+  /* The marks are a wash over the paper, not a target. Clicks, text selection
+     and the browser's own find go to the text layer underneath. */
+  pointer-events: none;
+}
+
+/* One stroke of a marker pen: laid over the words, not behind them, so the
+   glyphs stay black and readable through the colour. multiply is what makes
+   that true -- an opaque fill at any alpha greys the text it covers.
+
+   A Range measures the glyphs exactly, so the stroke is padded a little to
+   overshoot them; stopping precisely at cap height reads as a background fill
+   rather than a pen. */
+.lg-hl {
+  position: absolute;
+  margin: -0.14em -0.1em;
+  padding: 0.14em 0.1em;
+  border-radius: 0.14em 0.3em 0.2em 0.16em;
+  mix-blend-mode: multiply;
+}
+.lg-hl-match { background: var(--hl-match); }
+.lg-hl-claim { background: var(--hl-claim); }
+.lg-hl-gap { background: var(--hl-gap); }
+.lg-hl-theme { background: var(--hl-theme); }
+
+/* Where a claim jump landed on the page. Same fade as the text reader's. */
+.lg-hl.lg-chunk-landed { animation: lg-land-hl 1.6s ease-out; }
+@keyframes lg-land-hl {
+  from { filter: brightness(0.82) saturate(1.6); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lg-hl.lg-chunk-landed { animation: none; }
+}
 
 .lg-reader-head {
   position: sticky;
@@ -566,21 +649,33 @@
   color: var(--text-3);
 }
 
-/* Three marks, three CSS properties, so a passage that is all three stays
-   readable instead of stacking three backgrounds on top of each other. */
+/* Four marks, four CSS properties, so a passage that is all four stays
+   readable instead of stacking four backgrounds on top of each other. The
+   colours match the pdf reader's strokes; only the shape differs, because a
+   marker wash over light text on a dark surface would bury the words this
+   reader exists to show. */
 .lg-chunk.is-match {
   padding-left: 0.7em;
-  border-left: 2px solid var(--accent);
+  border-left: 2px solid var(--hl-match);
 }
 .lg-chunk.is-claim {
   padding: 0.35em 0.6em;
   border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  background: color-mix(in srgb, var(--hl-claim) 11%, transparent);
 }
 .lg-chunk.is-claim.is-match { padding-left: 0.7em; }
-.lg-chunk.is-theme {
-  text-decoration: underline dotted var(--text-3);
+.lg-chunk.is-gap {
+  text-decoration: underline wavy var(--hl-gap);
   text-underline-offset: 0.28em;
+}
+.lg-chunk.is-theme {
+  text-decoration: underline dotted var(--hl-theme);
+  text-underline-offset: 0.28em;
+}
+/* Both are underlines and only one can win, so the finding outranks the
+   ambient signal rather than replacing it silently. */
+.lg-chunk.is-gap.is-theme {
+  text-decoration: underline wavy var(--hl-gap);
 }
 
 /* Where a claim jump landed. Fades on its own -- a permanent mark would
@@ -601,20 +696,31 @@
   font-size: 0.68rem;
   color: var(--text-3);
 }
+/* In the pdf the legend is the only chrome, and the page it explains is long.
+   It stays put rather than scrolling away from what it describes. */
+.lg-reader-pdf .lg-legend {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0 0 0.6rem;
+  padding: 8px 10px;
+  background: var(--surface);
+}
+/* A swatch of the marker, not a sample of the mark: the same colour means the
+   same thing in both readers, while the shape of the mark does not. */
 .lg-key::before {
   display: inline-block;
   width: 1.4em;
+  height: 0.7em;
   margin-right: 0.4em;
+  border-radius: 0.14em 0.3em 0.2em 0.16em;
   vertical-align: middle;
   content: '';
 }
-.lg-key-match::before { border-top: 2px solid var(--accent); }
-.lg-key-claim::before {
-  height: 0.7em;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
-}
-.lg-key-theme::before { border-top: 2px dotted var(--text-3); }
+.lg-key-match::before { background: var(--hl-match); }
+.lg-key-claim::before { background: var(--hl-claim); }
+.lg-key-gap::before { background: var(--hl-gap); }
+.lg-key-theme::before { background: var(--hl-theme); }
 
 .lg-quote {
   margin-bottom: 8px;
@@ -761,3 +867,21 @@
   .lg-panel { display: none; }
   .lg-grip { display: none; }
 }
+
+/* ---------- a gap, read across the papers it cites ---------- */
+/* The title is the action; the passage under it is why it is worth taking. */
+.lg-gap-paper { margin-bottom: 0.7rem; }
+.lg-gap-paper .lg-claim { margin-bottom: 0.25rem; }
+.lg-gap-paper .lg-claim:disabled { cursor: default; opacity: 0.55; }
+
+.lg-gap-evidence {
+  display: block;
+  padding-left: 0.7em;
+  border-left: 2px solid var(--hl-gap);
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+/* A paper whose evidence could not be found gets no marker colour: the border
+   would promise a highlight that is not there when you open it. */
+.lg-gap-evidence.lg-muted { border-left-color: var(--border); }
