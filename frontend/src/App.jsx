@@ -1,33 +1,19 @@
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, useEffect, Suspense, useSyncExternalStore, createElement } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { BookOpen, Waypoints, PenLine, Sun, Moon, RefreshCw, Check, AlertCircle, Gauge } from 'lucide-react';
+import { Sun, Moon, RefreshCw, Check, AlertCircle } from 'lucide-react';
 import { systemApi } from './utils/api';
 import { checkForUpdatesInteractive, APP_VERSION } from './utils/updater';
+// Every feature is declared once, here, and the nav / routes / brand mark are
+// all rendered from it. The shell no longer names a single feature.
+import { FEATURES, featureForPath, markFor } from './features';
+import { shellStore } from './utils/shell';
 // Eager, not lazy: it decides whether to render on first paint, and a
 // lazy chunk would let the page settle before the note appears.
 import FirstRunNote from './components/FirstRunNote';
 import './index.css';
 
-// One page is on screen at a time, so one page is worth downloading at a
-// time. Loading all four eagerly meant Recharts and the whole canvas engine
-// landed before the first paint of whichever page you actually opened.
-const Library = lazy(() => import('./components/Library'));
-const LitGraph = lazy(() => import('./components/LitGraph'));
-const Scribe = lazy(() => import('./components/Scribe'));
-const Bench = lazy(() => import('./components/Bench'));
-
 const THEME_KEY = 'ts-theme';
-const SIDEBAR_KEY = 'ts-sidebar-collapsed';
-
-/** Restore the sidebar state. Expanded is the default for a first run. */
-function getInitialCollapsed() {
-  try {
-    return localStorage.getItem(SIDEBAR_KEY) === '1';
-  } catch {
-    return false;   // private mode / storage disabled
-  }
-}
 
 /** resolve the initial theme: stored choice wins, else follow the OS. */
 function getInitialTheme() {
@@ -70,10 +56,9 @@ function AnimatedRoutes() {
           spinner that flashes for one frame reads as a glitch. */}
       <Suspense fallback={null}>
         <Routes location={location} key={location.pathname}>
-          <Route path="/" element={<Page><Library /></Page>} />
-          <Route path="/litgraph" element={<Page><LitGraph /></Page>} />
-          <Route path="/write" element={<Page><Scribe /></Page>} />
-          <Route path="/bench" element={<Page><Bench /></Page>} />
+          {FEATURES.map(({ id, path, end, Component }) => (
+            <Route key={id} path={path} end={end} element={<Page><Component /></Page>} />
+          ))}
           {/* Search, Analysis and Gap Finder all became LitGraph. This is a
               desktop shell, so a stale deep link would otherwise be a dead end. */}
           <Route path="/search" element={<Navigate to="/litgraph" replace />} />
@@ -86,6 +71,38 @@ function AnimatedRoutes() {
 }
 
 /**
+ * The brand glyph, which follows whichever feature is open.
+ *
+ * Lives in its own component because it needs `useLocation`, which only works
+ * below <BrowserRouter>; App itself renders the router and so sits above it.
+ */
+function ActiveMark({ size }) {
+  const { pathname } = useLocation();
+  // createElement rather than <Mark />: the mark is LOOKED UP, not defined here,
+  // and assigning it to a capitalised local reads to the linter as a component
+  // declared during render -- which would remount on every navigation.
+  return createElement(markFor(featureForPath(pathname)), { size });
+}
+
+/**
+ * Hand the sidebar back when the user moves between features.
+ *
+ * Without this, a sidebar collapsed by opening a paper would stay collapsed
+ * after navigating to Bench, and the only way out would be the logo -- so an
+ * automatic action would have quietly changed a setting the user never touched.
+ * Releasing on navigation keeps the automatic collapse scoped to the thing that
+ * asked for it. A deliberate collapse is unaffected: that lives in a separate
+ * flag this does not clear.
+ */
+function ReleaseFocusOnNavigate() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    shellStore.releaseFocus();
+  }, [pathname]);
+  return null;
+}
+
+/**
  * main application shell with sidebar navigation and routing.
  *
  * provides the layout, navigation, light/dark theming (follows the OS
@@ -93,20 +110,17 @@ function AnimatedRoutes() {
  */
 export default function App() {
   const [llmStatus, setLlmStatus] = useState('checking');
-  // Persisted like the theme: a layout choice the user made once should not be
-  // undone by quitting the app.
-  const [collapsed, setCollapsed] = useState(getInitialCollapsed);
 
-  const toggleSidebar = () =>
-    setCollapsed((c) => {
-      const next = !c;
-      try {
-        localStorage.setItem(SIDEBAR_KEY, next ? '1' : '0');
-      } catch {
-        /* storage unavailable; the choice just will not survive a restart */
-      }
-      return next;
-    });
+  // The sidebar is hidden for either of two reasons -- the user asked, or a
+  // feature asked for room -- and only the first is remembered between runs.
+  // Both live in shellStore so a component at any depth can request the second
+  // without a setter threaded down to it. See utils/shell.js.
+  const shell = useSyncExternalStore(
+    shellStore.subscribe, shellStore.getSnapshot, shellStore.getSnapshot,
+  );
+  const collapsed = shell.userCollapsed || shell.focus;
+  const toggleSidebar = shellStore.toggleSidebar;
+
   const [{ theme, explicit }, setThemeState] = useState(getInitialTheme);
 
   // apply the active theme to <html> so every token switches
@@ -174,15 +188,6 @@ export default function App() {
 
   const isDark = theme === 'dark';
 
-  // three sections, in the order the work actually happens:
-  // collect -> understand -> write.
-  const navItems = [
-    { to: '/', icon: BookOpen, label: 'Library' },
-    { to: '/litgraph', icon: Waypoints, label: 'LitGraph' },
-    { to: '/write', icon: PenLine, label: 'Scribe' },
-    { to: '/bench', icon: Gauge, label: 'Bench' },
-  ];
-
   return (
     <>
       {/* The first-run "your machine can run a better model" modal is gone.
@@ -196,20 +201,18 @@ export default function App() {
       </div>
       <BrowserRouter>
         <div className={`app-layout ${collapsed ? 'is-collapsed' : ''}`}>
-          {/* Visible only while collapsed. The logo IS the way back -- with the
-              sidebar gone there is nothing else left to click. */}
+          {/* Gives the sidebar back after any collapse, deliberate or automatic.
+              While the sidebar is shut this button is the only thing on screen
+              that says where you are, so it carries the ACTIVE feature's mark
+              rather than a fixed logo. */}
+          <ReleaseFocusOnNavigate />
           <button
             className="sidebar-peek"
             onClick={toggleSidebar}
             aria-label="Show sidebar"
             aria-expanded={!collapsed}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="#0A0A0A"
-                 strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2L2 7l10 5 10-5-10-5z" />
-              <path d="M2 17l10 5 10-5" />
-              <path d="M2 12l10 5 10-5" />
-            </svg>
+            <ActiveMark size={18} />
           </button>
           <aside className="sidebar">
             <div className="sidebar-brand">
@@ -222,11 +225,7 @@ export default function App() {
                     aria-expanded="true"
                   >
                     <div className="brand-logo-icon">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="#0A0A0A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-                        <path d="M2 17l10 5 10-5"/>
-                        <path d="M2 12l10 5 10-5"/>
-                      </svg>
+                      <ActiveMark size={18} />
                     </div>
                   </button>
                   ThinkStack
@@ -236,11 +235,11 @@ export default function App() {
             </div>
 
             <nav className="sidebar-nav">
-              {navItems.map(({ to, icon: Icon, label }) => (
+              {FEATURES.map(({ id, path: to, end, icon: Icon, label }) => (
                 <NavLink
-                  key={to}
+                  key={id}
                   to={to}
-                  end={to === '/'}
+                  end={end}
                   className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
                 >
                   <Icon size={18} />
@@ -337,7 +336,29 @@ export default function App() {
             </div>
           </aside>
 
-          <main className="main-content">
+          {/* ── the auto-collapse mechanism, in one place ──
+              Any interaction with the page itself gets the sidebar out of the
+              way. Watched here rather than wired into each feature: features
+              would each have to remember to call it, every new one would start
+              out not doing it, and "any action" is not a list anybody can keep
+              complete -- it is every button, field, canvas drag and keystroke
+              on four screens.
+
+              pointerdown, not click: LitGraph's lasso is a drag that may never
+              produce a click, and a press should move the layout immediately
+              rather than on release.
+
+              Capture phase: several children call stopPropagation (the delete
+              buttons on a paper row, the canvas handlers), and a bubbling
+              listener would simply never hear about those.
+
+              The sidebar is deliberately OUTSIDE this element, so using the nav
+              or the theme toggle does not count as "using the page". */}
+          <main
+            className="main-content"
+            onPointerDownCapture={shellStore.requestFocus}
+            onKeyDownCapture={shellStore.requestFocus}
+          >
             {/* Shown once on a new install: a model is included and can be
                 changed. Inside the router because "Show me" navigates. */}
             <FirstRunBanner />

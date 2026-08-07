@@ -7,11 +7,30 @@
    and territory instead, which is what makes the map legible zoomed out.
    ═══════════════════════════════════════════════════════════════════ */
 
+/* LitGraph carries the same PageHeader as every other screen, and the canvas
+   takes whatever is left. A column flex rather than another height calc: the
+   header's height depends on the title's wrap and the subtitle, so subtracting
+   a guessed constant would leave a gap under short headers and a scrollbar
+   under tall ones. */
+.lg-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 3rem);
+}
+
 .lg-root {
   position: relative;
   display: grid;
   grid-template-columns: 1fr;
   height: calc(100vh - 3rem);
+}
+
+.lg-page > .lg-root {
+  height: auto;
+  flex: 1;
+  /* a flex child defaults to min-height:auto, which refuses to shrink below its
+     content -- the canvas would push the header off the top instead of fitting. */
+  min-height: 0;
 }
 /* The panel width is a variable the grip writes to directly, so a drag never
    goes through React. --lg-panel-w is set on .lg-root itself; the fallback

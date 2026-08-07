@@ -6,6 +6,7 @@ import {
 import {
   documentsApi, searchApi, graphApi, analysisApi, gapsApi, useLlmBusy, useJobs,
 } from '../utils/api';
+import PageHeader from './PageHeader';
 import useThemeColors from './charts/useThemeColors';
 import useCanvas from './litgraph/useCanvas';
 import { clampPanel } from './litgraph/panel';
@@ -315,22 +316,41 @@ export default function LitGraph() {
 
   // ---- empty states -------------------------------------------------------
   if (loading) {
-    return <div className="lg-empty"><div className="spinner spinner-lg" /><p>Building the map…</p></div>;
+    return (
+      <div className="lg-page">
+      <PageHeader
+        title="LitGraph"
+        subtitle="Your papers as a map - placed by meaning, grouped by theme, with research gaps marked."
+      />
+        <div className="lg-empty"><div className="spinner spinner-lg" /><p>Building the map…</p></div>
+      </div>
+    );
   }
   if (!nodeCount) {
     return (
-      <div className="lg-empty">
+      <div className="lg-page">
+      <PageHeader
+        title="LitGraph"
+        subtitle="Your papers as a map - placed by meaning, grouped by theme, with research gaps marked."
+      />
+        <div className="lg-empty">
         <BookOpen size={44} />
         <h3>Nothing to map yet</h3>
         <p>LitGraph draws your collection in embedding space — papers that argue
           about the same things sit together. Upload a few papers in Library
           and the map builds itself.</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div ref={setRoot} className={`lg-root ${panel ? 'lg-has-panel' : ''}`}>
+    <div className="lg-page">
+      <PageHeader
+        title="LitGraph"
+        subtitle="Your papers as a map - placed by meaning, grouped by theme, with research gaps marked."
+      />
+      <div ref={setRoot} className={`lg-root ${panel ? 'lg-has-panel' : ''}`}>
       {/* ---------- canvas ---------- */}
       <div className="lg-stage">
         {/* The cursor lives in CSS (crosshair, because dragging selects). The
@@ -703,6 +723,7 @@ export default function LitGraph() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }
