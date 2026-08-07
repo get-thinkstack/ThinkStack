@@ -195,6 +195,77 @@ class TestTheReportTheUIRenders:
         assert any("free" in a for a in MachineCapability(p).advice())
 
 
+class TestTheGpuAdviceDoesNotOverpromise:
+    """What a card owner is told, and what they are NOT told.
+
+    Whether acceleration can be offered is a fact about the graphics DRIVERS,
+    injected like `engine_offload` and for the same reason. A draft of this
+    asked the Vulkan loader from inside `advice()`, so a fabricated profile
+    produced advice about the machine running the test -- reintroducing exactly
+    the guess this module exists to remove.
+    """
+
+    def test_a_usable_device_is_offered_the_upgrade(self):
+        advice = " ".join(MachineCapability(RTX, False, "RTX 4070").advice())
+        assert "RTX 4070" in advice
+        assert "can be added" in advice
+
+    def test_a_card_with_no_usable_driver_is_NOT_offered_it(self):
+        # promising a button that cannot exist is worse than saying nothing
+        advice = " ".join(MachineCapability(RTX, engine_offload=False).advice())
+        assert "can be added" not in advice
+        assert "no graphics driver" in advice
+
+    def test_an_amd_card_IS_offered_it_when_the_driver_can_run_it(self):
+        # the vendor gate was right for CUDA and wrong for Vulkan, which reaches
+        # AMD and Intel through drivers the user already has
+        p = machine(gpu_name="AMD Radeon RX 7600", gpu_vendor="amd", vram_gb=8)
+        advice = " ".join(MachineCapability(p, False, "AMD Radeon RX 7600").advice())
+        assert "can be added" in advice
+
+    def test_an_integrated_gpu_is_offered_it_too(self):
+        p = machine(gpu_name="Intel(R) UHD Graphics", gpu_vendor="intel", vram_gb=2)
+        advice = " ".join(MachineCapability(p, False, "Intel(R) UHD Graphics").advice())
+        assert "can be added" in advice
+
+    def test_the_device_named_is_the_one_that_would_be_USED(self):
+        # a laptop can report three devices; naming the wrong one sends the
+        # user looking at the wrong hardware
+        p = machine(gpu_name="Intel(R) UHD Graphics", gpu_vendor="intel", vram_gb=2)
+        advice = " ".join(MachineCapability(p, False, "NVIDIA RTX 3050 Ti (NVK)").advice())
+        assert "NVIDIA RTX 3050 Ti (NVK)" in advice
+
+    def test_no_download_size_is_quoted(self):
+        # advice() cannot see the filesystem or the release manifest; the
+        # measured figure belongs where the button is
+        advice = " ".join(MachineCapability(RTX, False, "RTX 4070").advice())
+        assert "MB" not in advice and "GB more" not in advice
+
+    def test_a_machine_with_no_card_is_told_nothing_about_one(self):
+        p = machine(gpu_name="", gpu_vendor="none", vram_gb=0)
+        advice = " ".join(MachineCapability(p, False, None).advice())
+        assert "graphics card" not in advice
+
+    def test_an_accelerated_machine_is_not_nagged(self):
+        advice = " ".join(MachineCapability(RTX, True, "RTX 4070").advice())
+        assert "not being used" not in advice
+
+    def test_advice_never_consults_real_hardware(self):
+        # the property the whole module rests on: same inputs, same answer,
+        # whatever machine the test happens to run on
+        a = MachineCapability(RTX, False, "RTX 4070").advice()
+        b = MachineCapability(RTX, False, "RTX 4070").advice()
+        assert a == b
+        assert " ".join(a).count("RTX 4070") >= 1
+
+    def test_a_mac_keeps_its_own_message(self):
+        # Apple Silicon needs Metal, not CUDA, and must not be sent down the
+        # NVIDIA path by a vendor check that only looks at vram
+        advice = " ".join(MachineCapability(M1_8GB, engine_offload=False).advice())
+        assert "Metal" in advice
+        assert "NVIDIA" not in advice
+
+
 class TestItNeverCrashesOnNonsense:
     """Detection can fail or a future Rust build can send something new. None
     of that may take the app down: a wrong number is recoverable, an exception

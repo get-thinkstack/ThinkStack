@@ -7,14 +7,37 @@ and startup/shutdown lifecycle events.
 """
 
 import logging
+import sys
 from contextlib import asynccontextmanager
+
+# ── before anything imports llama.cpp ───────────────────────────────────────
+# Two things have to happen at the very top of this file, ahead of every other
+# import, because both are about which shared library llama.cpp will load and
+# that is decided the first time it is imported.
+#
+# 1. The probe. A separate process asks whether downloaded GPU libraries can
+#    actually load. It has to answer and exit before the application exists,
+#    since the whole point is that it is allowed to crash where the backend is
+#    not.
+# 2. The override. If a previous activation was verified, LLAMA_CPP_LIB_PATH is
+#    set now -- llama_cpp reads it at import, and every import of it in this
+#    codebase is inside a function, so this is early enough.
+from config import settings  # noqa: E402  - must precede the accel import
+from infrastructure import acceleration  # noqa: E402
+
+if acceleration.PROBE_FLAG in sys.argv:
+    _i = sys.argv.index(acceleration.PROBE_FLAG)
+    _dir = sys.argv[_i + 1] if len(sys.argv) > _i + 1 else ""
+    raise SystemExit(acceleration.run_probe(_dir))
+
+acceleration.apply_override(settings.data_dir)
+# ────────────────────────────────────────────────────────────────────────────
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from config import settings
 from infrastructure.file_manager import ensure_directories
 from infrastructure.jobs import job_queue
 from infrastructure.local_vector_store import get_vector_store

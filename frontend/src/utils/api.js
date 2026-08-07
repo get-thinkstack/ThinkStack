@@ -239,6 +239,19 @@ export const systemApi = {
   // POST, not GET: it discards the cached hardware profile and looks again.
   // Reads nothing the user owns and changes no setting.
   diagnose: () => request('/system/diagnose', { method: 'POST' }),
+
+  /**
+   * Graphics acceleration.
+   *
+   * One call returns the devices the driver exposes, whether an offer exists
+   * and what it costs, and any install in flight -- so the Bench card can never
+   * render two halves that disagree with each other.
+   */
+  acceleration: () => request('/system/acceleration'),
+  enableAcceleration: () => request('/system/acceleration/enable', { method: 'POST' }),
+  cancelAcceleration: () => request('/system/acceleration/cancel', { method: 'POST' }),
+  disableAcceleration: () => request('/system/acceleration/disable', { method: 'POST' }),
+  accelerationProgress: () => request('/system/acceleration/progress'),
 };
 
 /**
