@@ -19,6 +19,14 @@
  * @param {number}  opts.min       px, floor
  * @param {number}  opts.max       px, ceiling (or a function of window width)
  * @param {boolean} opts.fromRight measure from the right edge instead of the left
+ * @param {number|function} opts.reserve px that must remain for everything the
+ *                                 divider is NOT resizing. A three-column layout
+ *                                 needs more than a two-column one, and the hook
+ *                                 cannot see the other columns -- so the caller
+ *                                 states it rather than a constant guessing. A
+ *                                 function is called at clamp time, for the case
+ *                                 where a sibling pane is itself resizable and
+ *                                 the figure is only knowable during the drag.
  * @param {object}  opts.ref       an existing ref to the container. Two dividers
  *                                 resizing columns of the SAME grid must both
  *                                 measure and write to that one element, so the
@@ -27,6 +35,22 @@
  */
 import { useCallback, useEffect, useRef } from 'react';
 
+/**
+ * Where a divider is allowed to stop. Pure, exported and tested separately,
+ * because this is the whole behaviour of the thing and every bug in it so far
+ * has been arithmetic rather than DOM.
+ *
+ * The floor wins ties. When the window is too narrow to satisfy both `min` and
+ * `reserve`, something has to give, and it is better to overflow than to
+ * collapse a pane to a sliver that cannot be dragged back.
+ */
+export function clampWidth(px, { min, max, reserve, viewportW }) {
+  const ceiling = typeof max === 'function' ? max(viewportW) : max;
+  const keep = typeof reserve === 'function' ? reserve() : reserve;
+  const hardMax = Math.min(ceiling, Math.max(min, viewportW - keep));
+  return Math.round(Math.min(hardMax, Math.max(min, px)));
+}
+
 export default function useSplitter({
   varName,
   storageKey,
@@ -34,18 +58,16 @@ export default function useSplitter({
   min = 140,
   max = 720,
   fromRight = false,
+  reserve = 320,
   ref = null,
 }) {
   const ownRef = useRef(null);
   const containerRef = ref || ownRef;
 
-  const clamp = useCallback((px) => {
-    const ceiling = typeof max === 'function' ? max(window.innerWidth) : max;
-    // never let a pane eat the window: whatever the stored value, something
-    // has to be left for everything else
-    const hardMax = Math.min(ceiling, Math.max(min, window.innerWidth - 320));
-    return Math.round(Math.min(hardMax, Math.max(min, px)));
-  }, [min, max]);
+  const clamp = useCallback(
+    (px) => clampWidth(px, { min, max, reserve, viewportW: window.innerWidth }),
+    [min, max, reserve],
+  );
 
   // apply the remembered width before first paint, so the pane does not
   // visibly jump from its default to the stored value

@@ -11,6 +11,12 @@ import useSplitter from '../utils/useSplitter';
 
 const AUTOCOMPILE_KEY = 'thinkstack.paperWriter.autoCompile';
 
+// Narrower than this and the editor stops being one: LaTeX is long lines, and a
+// column that wraps \begin{figure}[htbp] three times is not somewhere anyone
+// writes a paper. Every divider on the page is limited by this and not by a
+// fraction of the window.
+const EDITOR_MIN_W = 340;
+
 /**
  * Insert generated LaTeX where the author is working.
  *
@@ -100,22 +106,41 @@ export default function Scribe() {
   // Draggable dividers. Both write a CSS variable straight onto the grid, so a
   // drag costs no re-render, and both remember where you left them -- someone
   // who widens the PDF to read it wants it wide tomorrow too.
+  //
+  // Both dividers move columns of the SAME three-column grid, so they share one
+  // ref, and neither may squeeze the middle column -- the editor -- below the
+  // width at which LaTeX stops being writable. Neither divider has a percentage
+  // ceiling: a grip that stops partway across with room still visible reads as
+  // broken rather than considered, which is exactly what LitGraph's panel got
+  // wrong at 50%. The limit is a real one instead, stated in the pixels the
+  // other two columns need.
+  const gridRef = useRef(null);
+  const gridPx = (name, fallback) =>
+    parseInt(gridRef.current?.style.getPropertyValue(name), 10) || fallback;
+
+  // Stable identities: `reserve` is a dependency of the hook's clamp, so a new
+  // function every render would re-run the effect that applies the stored width
+  // and snap a pane back mid-interaction.
+  const keepForTree = useCallback(() => gridPx('--pv-w', 520) + EDITOR_MIN_W, []);
+  const keepForPreview = useCallback(() => gridPx('--ft-w', 200) + EDITOR_MIN_W, []);
+
   const {
-    containerRef: gridRef,
     onPointerDown: onTreeGrip,
     onKeyDown: onTreeGripKey,
   } = useSplitter({
     varName: '--ft-w', storageKey: 'ts.scribe.treeW',
-    initial: 200, min: 140, max: 420,
+    // a file list does not get more useful past a point; the editor and the
+    // preview do, so the tree is the one pane with a ceiling of its own
+    initial: 200, min: 140, max: 420, reserve: keepForTree,
+    ref: gridRef,
   });
-  // Both dividers resize columns of the SAME grid, so the second is handed the
-  // first's ref rather than creating its own.
   const {
     onPointerDown: onPreviewGrip,
     onKeyDown: onPreviewGripKey,
   } = useSplitter({
     varName: '--pv-w', storageKey: 'ts.scribe.previewW',
-    initial: 520, min: 260, max: (w) => w * 0.7, fromRight: true,
+    initial: 520, min: 260, reserve: keepForPreview,
+    fromRight: true,
     ref: gridRef,
   });
 
