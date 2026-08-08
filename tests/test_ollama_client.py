@@ -6,12 +6,18 @@ graceful downgrade. no real gguf is loaded — _get_llama / generation are not
 exercised here (they are the `heavy` tier).
 """
 
+import json
+
 import pytest
 
 from config import settings
 from infrastructure import hardware
 from domain.model_manager import discovery
-from infrastructure.ollama_client import OllamaClient, _extract_json_text
+from infrastructure.ollama_client import (
+    OllamaClient,
+    _extract_json_text,
+    _repair_json,
+)
 
 ANALYSIS = settings.llm_analysis_model  # e.g. qwen2.5-1.5b-instruct-q4_k_m.gguf
 BASE = "qwen2.5-0.5b-instruct-q4_k_m.gguf"
@@ -46,6 +52,84 @@ class TestExtractJsonText:
 
     def test_no_json_returns_stripped_text(self):
         assert _extract_json_text("  just words  ") == "just words"
+
+
+def _parsed(raw: str) -> dict:
+    """Run the real recovery path an LLM response goes through, then parse."""
+    return json.loads(_repair_json(_extract_json_text(raw)))
+
+
+class TestRepairsTruncatedModelOutput:
+    """A small local model hitting max_tokens stops mid-token, not at a
+    sensible boundary. That shipped to users as a summary reading
+    'summarization failed: Unterminated string starting at: line 9 column 5'.
+    Partial output is worth more than an error message, so it is closed off
+    and parsed rather than discarded."""
+
+    def test_truncated_mid_string_keeps_the_completed_entries(self):
+        raw = (
+            '{"summary": "Hybrid retrieval improves recall.", '
+            '"key_points": ["BM25 and dense vectors are complementary", '
+            '"Quantised models stay accur'
+        )
+        data = _parsed(raw)
+        assert data["summary"] == "Hybrid retrieval improves recall."
+        assert "BM25 and dense vectors are complementary" in data["key_points"]
+
+    def test_truncated_after_a_comma_does_not_become_a_bare_list(self):
+        # Regression: narrowing to the outermost {...} needed a closing brace,
+        # so a truncated object fell through to the array branch and returned
+        # key_points as the whole result, losing the summary entirely.
+        raw = '{"summary": "A summary.", "key_points": ["one", "two"],'
+        data = _parsed(raw)
+        assert isinstance(data, dict)
+        assert data["summary"] == "A summary."
+        assert data["key_points"] == ["one", "two"]
+
+    def test_truncated_mid_key_drops_the_half_written_key(self):
+        data = _parsed('{"summary": "A summary.", "key_po')
+        assert data["summary"] == "A summary."
+
+    def test_unclosed_array_and_object_are_both_closed(self):
+        data = _parsed('{"summary": "x", "key_points": ["a", "b"')
+        assert data["key_points"] == ["a", "b"]
+
+    def test_a_truncated_summary_value_is_kept_not_discarded(self):
+        # Half a summary still reads as a summary. Throwing it away to return
+        # a strictly-valid empty result serves nobody.
+        data = _parsed('{"summary": "The authors argue that retrieval qual')
+        assert data["summary"].startswith("The authors argue")
+
+    def test_a_truncated_bullet_is_dropped_but_its_siblings_survive(self):
+        raw = '{"summary": "ok", "key_points": ["complete point", "half a poi'
+        data = _parsed(raw)
+        assert data["key_points"] == ["complete point"]
+
+    def test_unclosed_code_fence_is_still_stripped(self):
+        # Truncation cuts the closing ``` too, so the fence regex never matched
+        # and the payload no longer started with "{".
+        data = _parsed('```json\n{"summary": "fenced", "key_points": ["a"]}')
+        assert data["summary"] == "fenced"
+
+
+class TestRepairsControlCharacters:
+    def test_raw_newline_inside_a_string_is_escaped(self):
+        # json.loads rejects a literal newline inside a string with
+        # "Invalid control character". Models emit them constantly.
+        data = _parsed('{"summary": "Line one\nline two.", "key_points": []}')
+        assert data["summary"] == "Line one\nline two."
+
+    def test_tab_and_carriage_return_are_escaped(self):
+        data = _parsed('{"summary": "a\tb\rc", "key_points": []}')
+        assert data["summary"] == "a\tb\rc"
+
+    def test_valid_json_is_returned_unchanged(self):
+        raw = '{"summary": "fine", "key_points": ["a"]}'
+        assert _parsed(raw) == json.loads(raw)
+
+    def test_escaped_quote_does_not_end_the_string_early(self):
+        data = _parsed('{"summary": "he said \\"hi\\" loudly", "key_points": []}')
+        assert data["summary"] == 'he said "hi" loudly'
 
 
 @pytest.fixture

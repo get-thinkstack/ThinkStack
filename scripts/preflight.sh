@@ -95,6 +95,22 @@ fi
 # compare against the upstream when there is one, else the working tree. this is
 # what lets us skip whole toolchains that the change cannot possibly affect.
 BASE="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || echo "")"
+if [ -z "$BASE" ]; then
+    # A branch that has never been pushed has no upstream, which is every
+    # feat/ and fix/ branch on its first run -- the workflow CONTRIBUTING
+    # tells people to use. Falling through to the working-tree diff meant
+    # that once the work was COMMITTED there was nothing left to see, so
+    # "0 changed files" skipped every toolchain and preflight reported
+    # "CI should be green" without having run anything at all.
+    #
+    # Compare against the branch this one merges back into instead.
+    for cand in refs/remotes/origin/dev refs/remotes/origin/main; do
+        if git rev-parse --verify --quiet "$cand" >/dev/null; then
+            BASE="$cand"
+            break
+        fi
+    done
+fi
 if [ -n "$BASE" ] && git rev-parse --verify --quiet "$BASE" >/dev/null; then
     CHANGED="$(git diff --name-only "$BASE"...HEAD 2>/dev/null; git diff --name-only HEAD 2>/dev/null; git diff --cached --name-only 2>/dev/null)"
 else
@@ -142,6 +158,12 @@ if changed_matches '\.py$|ruff\.toml'; then
     fi
 fi
 
+# ── pinned dependencies (CI: "Dependencies are pinned") ─────
+# A range lets the same commit build a different program tomorrow.
+if changed_matches 'requirements.*\.txt|scripts/check_pins\.py'; then
+    run_check "dependency pins" python3 scripts/check_pins.py
+fi
+
 # ── 2. unit tests (CI: "Test (pytest)") ─────────────────────
 if changed_matches '\.py$|pytest\.ini|requirements.*\.txt'; then
     if python3 -m pytest --version >/dev/null 2>&1; then
@@ -164,8 +186,12 @@ if changed_matches '^\.github/workflows/'; then
             echo -e "\n${YELLOW}!${NC} shellcheck missing - actionlint will SKIP shell checks (CI won't)"
             WARNINGS=$((WARNINGS+1))
         }
-        # actionlint takes files, not a directory
-        run_check "actionlint" "$AL" .github/workflows/*.yml
+        # actionlint takes files, not a directory.
+        # -shellcheck MUST match .github/workflows/ci.yml exactly: actionlint
+        # uses whatever shellcheck is installed, and versions disagree about
+        # SC2015, so without this a clean local run can still fail CI.
+        run_check "actionlint" "$AL" -shellcheck "shellcheck -e SC1091,SC2015" \
+            .github/workflows/*.yml
     else
         echo -e "\n${YELLOW}!${NC} actionlint not installed - workflow changes unverified"
         WARNINGS=$((WARNINGS+1))
@@ -218,13 +244,39 @@ if changed_matches '^src-tauri/'; then
 fi
 
 # ── 6. frontend (non-blocking: CI does not gate on it) ──────
-if [ "$LEVEL" = "full" ] && echo "$CHANGED" | grep -qE '^frontend/'; then
-    echo ""
-    echo -e "${CYAN}[frontend lint]${NC}"
-    if npm --prefix frontend run lint >/dev/null 2>&1; then
-        echo -e "  ${GREEN}✓${NC} frontend lint passed"
+# ── frontend (CI: "Frontend (lint + test + build)") ─────────
+# Mirrors that job exactly: same three commands, same blocking behaviour, on
+# any frontend change rather than only the full gate.
+#
+# This used to run lint alone, non-blocking, and only on `full`. CI ran nothing
+# at all. So every UI change reached users unchecked, which is how a duplicate
+# "Run summarize" button and an updater that reported no progress on a 900 MB
+# download both shipped.
+if changed_matches '^frontend/'; then
+    # Local and CI must run the same node major, or this whole section proves
+    # nothing. jsdom refused to load on CI's node 20 while passing locally on
+    # 22, and preflight reported "CI should be green" for a commit that failed.
+    CI_NODE="$(grep -A6 'setup-node@v4' .github/workflows/ci.yml \
+                | grep -m1 "node-version:" | tr -dc '0-9')"
+    LOCAL_NODE="$(node -v 2>/dev/null | sed 's/^v//; s/\..*//')"
+    if [ -n "$CI_NODE" ] && [ -n "$LOCAL_NODE" ] && [ "$CI_NODE" != "$LOCAL_NODE" ]; then
+        echo -e "\n${YELLOW}!${NC} node mismatch: local v${LOCAL_NODE}, CI pins v${CI_NODE}"
+        echo -e "  frontend results here do not predict CI. Use nvm to match."
+        WARNINGS=$((WARNINGS+1))
+    fi
+    if command -v npm >/dev/null 2>&1; then
+        if [ -d frontend/node_modules ]; then
+            run_check "frontend lint"  npm --prefix frontend run lint
+            run_check "frontend tests" npm --prefix frontend test
+            # The build is a check in its own right: it produces what ships, and
+            # a broken import passes lint but fails here.
+            run_check "frontend build" npm --prefix frontend run build
+        else
+            echo -e "\n${YELLOW}!${NC} frontend/node_modules missing (npm --prefix frontend ci)"
+            WARNINGS=$((WARNINGS+1))
+        fi
     else
-        echo -e "  ${YELLOW}!${NC} frontend lint warnings (non-blocking)"
+        echo -e "\n${YELLOW}!${NC} npm not installed - frontend checks skipped"
         WARNINGS=$((WARNINGS+1))
     fi
 fi

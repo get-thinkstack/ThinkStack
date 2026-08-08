@@ -6,6 +6,7 @@ supporting both ollama and llama.cpp runtimes.
 """
 
 import asyncio
+import json
 import logging
 import re
 from pathlib import Path
@@ -63,19 +64,159 @@ def _extract_json_text(raw: str) -> str:
     """
     s = (raw or "").strip()
 
-    # strip a fenced code block: ```json ... ``` or ``` ... ```
+    # Strip a fenced code block: ```json ... ``` or ``` ... ```
+    #
+    # The opening fence is removed even when the closing one is missing.
+    # Truncated output has no closing fence, and leaving the opener in place
+    # meant the text no longer began with "{", so the object detection below
+    # gave up on something that was perfectly recoverable.
     if "```" in s:
         match = re.search(r"```(?:json)?\s*(.*?)```", s, re.DOTALL)
         if match:
             s = match.group(1).strip()
+        else:
+            s = re.sub(r"^\s*```(?:json)?\s*", "", s).strip()
 
-    # narrow to the outermost object/array
+    # Narrow to the outermost object or array.
+    #
+    # If the text STARTS with "{" it is an object, even when truncation left it
+    # without a closing brace. Falling through to the array branch there
+    # extracted a nested list and threw the object away, turning a recoverable
+    # truncation into a result of the wrong shape entirely. _repair_json closes
+    # what is left open, so an unterminated object is fine to return as-is.
+    lead = s.lstrip()[:1]
+    if lead == "{":
+        end = s.rfind("}")
+        return s[s.find("{"): end + 1] if end > s.find("{") else s[s.find("{"):]
+    if lead == "[":
+        end = s.rfind("]")
+        return s[s.find("["): end + 1] if end > s.find("[") else s[s.find("["):]
     if "{" in s and "}" in s:
-        s = s[s.find("{"): s.rfind("}") + 1]
-    elif "[" in s and "]" in s:
-        s = s[s.find("["): s.rfind("]") + 1]
+        return s[s.find("{"): s.rfind("}") + 1]
+    if "[" in s and "]" in s:
+        return s[s.find("["): s.rfind("]") + 1]
 
     return s
+
+
+def _repair_json(s: str) -> str:
+    """Make a best effort to parse JSON a small model did not finish writing.
+
+    Two failure modes account for essentially every parse error we see, and
+    neither is the model being wrong about the content:
+
+    1. A raw newline inside a string. JSON forbids literal control characters
+       in strings, but a model wrapping a long sentence emits one, and the
+       parser stops at "Invalid control character".
+    2. Truncation. The generation hits its token limit mid-string, so the
+       string, and every enclosing array and object, is left open. The parser
+       stops at "Unterminated string".
+
+    Both are recoverable: escape the control characters, then close whatever is
+    still open, discarding a trailing fragment that cannot be completed. A
+    summary missing its last bullet is worth far more to the reader than an
+    error message where the summary should be.
+
+    Returns the input unchanged if it already parses.
+    """
+    if not s:
+        return s
+    try:
+        json.loads(s)
+        return s
+    except (ValueError, TypeError):
+        pass
+
+    out: list[str] = []
+    stack: list[str] = []
+    in_string = False
+    escaped = False
+    # where the currently open string begins, so a string the model never
+    # finished can be judged on what it was: prose worth keeping, or a
+    # fragment worth dropping.
+    last_open_idx = -1
+
+    for ch in s:
+        if in_string:
+            if escaped:
+                out.append(ch)
+                escaped = False
+                continue
+            if ch == "\\":
+                out.append(ch)
+                escaped = True
+                continue
+            if ch == '"':
+                in_string = False
+                out.append(ch)
+                continue
+            # escape the control characters JSON will not accept raw
+            if ch == "\n":
+                out.append("\\n")
+            elif ch == "\r":
+                out.append("\\r")
+            elif ch == "\t":
+                out.append("\\t")
+            elif ord(ch) < 0x20:
+                out.append(f"\\u{ord(ch):04x}")
+            else:
+                out.append(ch)
+            continue
+
+        if ch == '"':
+            in_string = True
+            last_open_idx = len(out)
+        elif ch in "{[":
+            stack.append("}" if ch == "{" else "]")
+        elif ch in "}]":
+            if stack and stack[-1] == ch:
+                stack.pop()
+        out.append(ch)
+
+    if in_string:
+        # The model was cut off mid-string. What to do with the fragment
+        # depends on what the fragment IS, which is decided by what precedes
+        # its opening quote:
+        #
+        #   {"summary": "the paper argu     <- a VALUE. Half a summary still
+        #                                      reads, so it is kept.
+        #   {"summary": "done", "key_po     <- a KEY. Cannot be completed into
+        #   ["first point", "second poi     <- an ARRAY ELEMENT. Half a bullet
+        #                                      is noise, so both are dropped.
+        prefix = "".join(out[:last_open_idx]).rstrip() if last_open_idx >= 0 else ""
+        if prefix.endswith(":"):
+            out.append('"')
+        else:
+            del out[last_open_idx:]
+
+    repaired = "".join(out).rstrip()
+
+    # A dangling comma closes into nothing valid, so drop back to the last
+    # point that does. This runs after the fragment removal above, which is
+    # what leaves the comma exposed in the key/element cases.
+    repaired = re.sub(r",\s*$", "", repaired)
+
+    while stack:
+        repaired += stack.pop()
+
+    try:
+        json.loads(repaired)
+        logger.info("repaired truncated/invalid json from the model")
+        return repaired
+    except (ValueError, TypeError):
+        # Last resort: keep only the complete leading entries of the object.
+        m = re.match(r"\s*\{.*", repaired, re.S)
+        if m:
+            for cut in range(len(repaired) - 1, 0, -1):
+                if repaired[cut] == ",":
+                    candidate = repaired[:cut] + "}"
+                    try:
+                        json.loads(candidate)
+                        logger.info("recovered a partial json object from the model")
+                        return candidate
+                    except (ValueError, TypeError):
+                        continue
+        return repaired
 
 
 class OllamaClient:
@@ -96,6 +237,16 @@ class OllamaClient:
         self.model = model
         self.model_path = Path(model_path)
         self.ctx_size = ctx_size
+        # The context the resident model was actually loaded with. The
+        # configured value is only a ceiling: _compute_load_params lowers it
+        # to match the machine, and the OOM path below lowers it again. Callers
+        # that must size a prompt need the real number, not the wish.
+        self._effective_ctx: int | None = None
+        # Cached MachineCapability; see _capability().
+        self._cap = None
+        # which registry entry the router last chose, so a load failure can be
+        # attributed to it and explained on the Bench card afterwards.
+        self._last_resolution = None
         self.gpu_layers = gpu_layers
         self.timeout = timeout
         self._llama = None
@@ -171,7 +322,21 @@ class OllamaClient:
     # produces unparseable / truncated json on them. only one model is
     # resident at a time - _get_llama swaps on demand to cap memory use.
     TASK_MODEL_MAP = {
-        "latex_writer": ["latex-writer.gguf", "latex_writer.gguf"],
+        # The heavier model FIRST. Writing LaTeX is a structured-output task --
+        # it has to emit compilable markup and honour instructions like "use
+        # pgfplots for charts, not \\includegraphics". Measured on the 0.5B:
+        # charts came back as \\includegraphics of a file that does not exist,
+        # and "state the equation for mean squared error" came back as prose
+        # with no math at all. The dedicated fine-tuned writer models below are
+        # aspirational -- neither is built or shipped -- so listing only those
+        # meant this task silently fell through to the base model while
+        # `analysis` got the better one. Falls back to base when the 1.5B is
+        # absent or does not fit the memory budget.
+        "latex_writer": [
+            settings.llm_analysis_model,
+            "latex-writer.gguf",
+            "latex_writer.gguf",
+        ],
         "analysis": [settings.llm_analysis_model],
         "gap_analysis": [settings.llm_analysis_model, "gap-analysis.gguf", "gap_analysis.gguf"],
         "general": [],  # always uses the base model
@@ -300,71 +465,151 @@ class OllamaClient:
         returns:
             path to the gguf file to use.
         """
-        candidates = self.TASK_MODEL_MAP.get(task_type, [])
-        models_dir = self._models_dir()
-        budget = self._hw_model_budget_gb()
-
-        first_existing: Optional[Path] = None
-        for name in candidates:
-            path = models_dir / name
-            # not in our dir -> the user may still have these exact weights under
-            # another runtime's naming; use those rather than degrading.
-            if not path.is_file():
-                external = self._find_external_model(name)
-                if external is None:
-                    continue
-                logger.info("task %s -> reusing %s (already on this machine)",
-                            task_type, external)
-                path = external
-            if first_existing is None:
-                first_existing = path
-            if self._fits_budget(path, budget):
-                logger.info(
-                    "task %s -> %s (fits hw budget %.1f gb)", task_type, path.name, budget
-                )
-                return path
-
-        # no task-specific model both exists and fits -> base model (user-selected
-        # if they picked one). warn when the skip was specifically about budget.
         base = self._resolve_llama_model_path()
-        if first_existing is not None and not self._fits_budget(first_existing, budget):
-            logger.warning(
-                "task %s model %s exceeds hw budget %.1f gb; downgrading to %s",
-                task_type, first_existing.name, budget, base.name,
-            )
-        return base
+        resolution = self._route(task_type, base)
 
-    def _compute_load_params(self, model_path: Path) -> tuple[int, int]:
-        """compute safe ctx_size and gpu_layers using the hardware profiler.
+        # Attribute a failure to the registry entry that caused it, so the
+        # Bench card can explain itself later. Only the router knows which
+        # entry won, which is why resolution carries the id at all.
+        self._last_resolution = resolution
+        return resolution.path or base
 
-        returns:
-            (n_ctx, n_gpu_layers) tuple tuned to the detected hardware.
+    def _record_load_error(self, exc: BaseException) -> None:
+        """Remember, on the registry entry, why its model would not load.
+
+        A load failure happens deep inside a generation; the Bench card that
+        has to explain it renders much later, possibly after a restart. Nothing
+        else survives that gap, which is why `last_error` is persisted rather
+        than derived.
+
+        Best-effort throughout: this runs on an error path, and failing to
+        record why something failed must never replace the original failure.
         """
-        from infrastructure.hardware import (
-            profile_system, recommended_ctx_size, recommended_gpu_layers,
-            model_file_size_gb,
+        res = self._last_resolution
+        if res is None or not getattr(res, "entry_id", None):
+            return
+        try:
+            from domain.model_manager.registry import Registry
+
+            models_dir = self._models_dir()
+            registry = Registry.load(models_dir)
+            if registry.get(res.entry_id) is None:
+                return
+            registry.record_error(res.entry_id, f"{type(exc).__name__}: {exc}"[:300])
+            registry.save(models_dir)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("could not record the load error: %s", e)
+
+    def _route(self, task_type: str, base: Optional[Path] = None):
+        """Ask domain.model_manager.router which model answers this task.
+
+        Routing moved OUT of this class. It now lives in a module whose every
+        dependency is passed in, so the precedence rules can be tested against
+        fabricated registries and budgets with no llama.cpp, no filesystem and
+        no hardware -- none of which was possible while the decision was tangled
+        up with the loader.
+
+        This method is the seam. It supplies the runtime facts the router
+        cannot know: where our models live, what this machine can take, how to
+        find the same weights under another runtime's naming, and the legacy
+        TASK_MODEL_MAP that a tester's .env may still be overriding.
+
+        An EMPTY registry must produce exactly the routing this class did
+        before -- tests/test_model_router.py::TestRegressionAgainstTodaysBehaviour
+        is the guard on that, and it is why the extraction was safe to land with
+        a beta in testers' hands.
+        """
+        from domain.model_manager.manifest import BundledManifest
+        from domain.model_manager.registry import Registry
+        from domain.model_manager.router import resolve
+
+        models_dir = self._models_dir()
+        # Read per call, not cached at import: TASK_MODEL_MAP is a class
+        # attribute frozen at import time, and a model the user assigns in
+        # Bench has to be visible without restarting the whole process.
+        registry = Registry.load(models_dir)
+        manifest = BundledManifest.load(settings.bundled_models_dir)
+        cap = self._capability()
+
+        return resolve(
+            task_type,
+            registry=registry,
+            manifest=manifest,
+            models_dir=models_dir,
+            budget_gb=self._hw_model_budget_gb(),
+            external_finder=self._find_external_model,
+            legacy_defaults=self.TASK_MODEL_MAP.get(task_type, []),
+            base_model=base if base is not None else self._resolve_llama_model_path(),
+            plan_for_size=cap.plan_for_size if cap is not None else None,
         )
 
-        ctx = self.ctx_size
-        layers = self.gpu_layers
+    def _capability(self):
+        """This machine's capability, resolved once and cached.
+
+        Cached because detection is not free and the machine does not change
+        while the app is running. The Diagnose screen clears it deliberately
+        when the user asks for a fresh look.
+        """
+        if self._cap is None:
+            from infrastructure.capability import for_this_machine
+            self._cap = for_this_machine()
+        return self._cap
+
+    def _compute_load_params(self, model_path: Path) -> tuple[int, int]:
+        """(n_ctx, n_gpu_layers) for loading this model on this machine.
+
+        Both numbers now come from infrastructure.capability, which is the one
+        place that turns hardware facts into decisions. This method used to
+        derive them itself from three separate helpers, while diagnosis.rs
+        derived its own answers for the same questions -- two policies, one
+        silently winning, and an Apple Silicon Mac pinned to CPU by neither of
+        them quite meaning to.
+
+        The explicit settings still win. THINKSTACK_LLM_GPU_LAYERS=0 has to
+        remain an escape hatch: it is what a user reaches for when offload
+        misbehaves on their machine.
+        """
+        from infrastructure.hardware import model_file_size_gb
+
+        cap = self._capability()
         file_size = model_file_size_gb(model_path)
+        plan = cap.plan_for_size(file_size)
 
-        # auto-detect context size from hardware tier
-        if settings.llm_auto_ctx:
-            profile = profile_system()
-            ctx = recommended_ctx_size(profile.tier)
-            logger.info(
-                "hardware tier %s → ctx_size=%d (model %.2f gb, ram %.1f/%.1f gb)",
-                profile.tier, ctx, file_size,
-                profile.available_ram_gb, profile.total_ram_gb,
-            )
+        # llm_auto_ctx=False means "use exactly what I configured".
+        ctx = plan.n_ctx if settings.llm_auto_ctx else self.ctx_size
+        # gpu_layers=-1 means "decide for me"; anything else is a deliberate
+        # override and is obeyed.
+        layers = plan.n_gpu_layers if self.gpu_layers == -1 else self.gpu_layers
 
-        # auto-detect gpu layers (-1 = auto)
-        if layers == -1:
-            layers = recommended_gpu_layers(model_size_gb=file_size)
-            logger.info("auto-detected gpu_layers=%d for %.2f gb model", layers, file_size)
-
+        p = cap.profile
+        logger.info(
+            "%s tier → ctx=%d, gpu_layers=%d (model %.2f gb, ram %.1f/%.1f gb, "
+            "gpu=%s, engine offload=%s)",
+            cap.tier, ctx, layers, file_size,
+            p.available_ram_gb, p.total_ram_gb,
+            p.gpu_name or "none", cap.engine_offload,
+        )
         return ctx, layers
+
+    def output_token_budget(
+        self, task_type: str = "general", ceiling: int = 1024, floor: int = 256
+    ) -> int:
+        """How many tokens of REPLY to ask for on this machine.
+
+        Delegates to infrastructure.capability. Kept as a method here because
+        callers already hold the client, but the policy lives in one place.
+        """
+        return self._capability().output_tokens(self._effective_ctx)
+
+    def input_char_budget(self, max_tokens: int, task_type: str = "general") -> int:
+        """Prompt characters that fit alongside `max_tokens` of reply.
+
+        The context window holds BOTH. Summarization asked for 6000 characters
+        of paper plus 1024 tokens of output inside a 2048-token window -- it
+        could not fit, and the reader was told the model's response "could not
+        be read".
+        """
+        return self._capability().input_chars(self._effective_ctx, max_tokens)
 
     def _get_llama(self, task_type: str = "general"):
         """lazily initialize llama.cpp model instance with hardware-aware loading.
@@ -425,6 +670,7 @@ class OllamaClient:
                     n_gpu_layers=n_gpu_layers,
                     verbose=False,
                 )
+                self._effective_ctx = n_ctx
                 self._llama_path = requested
                 return self._llama
             except (MemoryError, RuntimeError, Exception) as e:
@@ -454,7 +700,9 @@ class OllamaClient:
                 n_gpu_layers=0,
                 verbose=False,
             )
+            self._effective_ctx = n_ctx
         except (MemoryError, RuntimeError) as e:
+            self._record_load_error(e)
             # absolute last resort: minimal context
             logger.error(
                 "cpu load failed with ctx=%d: %s. last resort ctx=2048", n_ctx, e,
@@ -465,6 +713,7 @@ class OllamaClient:
                 n_gpu_layers=0,
                 verbose=False,
             )
+            self._effective_ctx = n_ctx
         self._llama_path = requested
         return self._llama
 
@@ -630,7 +879,7 @@ class OllamaClient:
                     prompt=prompt, system=system, temperature=temperature,
                     max_tokens=max_tokens, json_mode=True, model=via_ollama,
                 )
-                return _extract_json_text(raw)
+                return _repair_json(_extract_json_text(raw))
             raw = await self._generate_llama_cpp(
                 prompt=prompt,
                 system=system,
@@ -639,7 +888,7 @@ class OllamaClient:
                 json_mode=True,
                 task_type=task_type,
             )
-            return _extract_json_text(raw)
+            return _repair_json(_extract_json_text(raw))
 
         raw = await self._generate_ollama(
             prompt=prompt,
@@ -648,7 +897,7 @@ class OllamaClient:
             max_tokens=max_tokens,
             json_mode=True,
         )
-        return _extract_json_text(raw)
+        return _repair_json(_extract_json_text(raw))
 
     def _models_dir(self) -> Path:
         """the directory holding the gguf model files."""

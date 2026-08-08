@@ -125,3 +125,32 @@ docs/superpowers/
 
 # appimage extraction scratch (scripts/build.sh, --appimage-extract)
 squashfs-root/
+
+# bundled TeX engine + warm package cache (fetched by scripts/fetch-tex.sh)
+data/tex/
+
+# local working notes, never shared
+TODO.md
+
+# ── Local-only docs and scratch design artifacts ─────────
+# Personal reference material and prototypes that live on this machine. The
+# SHARED docs stay tracked: docs/*.md, docs/TEAM/, and docs/academic/ (the
+# coursework record) are the project's documentation and are committed.
+#
+# Anything listed here must NOT appear in src-tauri/tauri.conf.json
+# bundle.resources -- the bundler errors on a resource path it cannot find, so
+# an ignored file that CI is told to bundle turns into a broken CI build.
+docs/LitGraph.pdf
+docs/ThinkStack Design Philosophy.pdf
+docs/litchart.html
+docs/litgraph-demo.html
+litgraph-app.png
+
+# Screenshots taken while checking the interface, and the browser automation's
+# own output. Both land at the repo root by default. They are evidence for a
+# conversation, not part of the product.
+#
+# Anchored to the root on purpose: src-tauri/icons/ is the app's real artwork
+# and stays tracked.
+/*.png
+.playwright-mcp/

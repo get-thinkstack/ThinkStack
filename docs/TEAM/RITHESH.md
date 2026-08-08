@@ -5,20 +5,74 @@ the team (and future me) can find the reasoning behind the decisions.
 
 ## Paper writer
 
-The paper writer is the LaTeX side of the app: an editor, an AI draft helper, a
-compiler, and a live preview. The pieces I own:
+Scribe is the LaTeX side of the app: a file tree, an editor, an AI draft helper,
+and a compiler. The pieces I own:
 
-- `domain/paper_writer/compiler.py`: the pdflatex wrapper. It parses compiler
-  errors, injects missing packages, and degrades gracefully, so a broken figure
-  or table still produces a PDF instead of failing the whole document.
-- `api/routes_papers.py`: the project endpoints (create, read, save, generate,
-  compile, download, delete).
-- `frontend/src/components/PaperWriter.jsx`: the editor, the AI prompt bar, and
-  the preview tabs.
-- `frontend/src/components/LatexPreview.jsx`: a client-side LaTeX-to-HTML
-  renderer that uses KaTeX for math, so the "Live Preview" tab updates as you
-  type without waiting on a compile. The "Compiled PDF" tab shows the real
-  pdflatex output.
+- `domain/paper_writer/compiler.py`: the engine wrapper. Tectonic when it is
+  bundled, `pdflatex` when it is not. It parses compiler errors, injects missing
+  packages, and degrades gracefully, so a broken figure or table still produces
+  a PDF instead of failing the whole document.
+- `domain/paper_writer/files.py`: a project is a directory, and this is the
+  boundary around it. See the section below.
+- `domain/paper_writer/indexing.py`: generates the `.ind` an index needs.
+- `api/routes_papers.py` and `api/routes_paper_files.py`: the project endpoints
+  and the file endpoints.
+- `frontend/src/components/Scribe.jsx` and `FileTree.jsx`: the tree, the editor,
+  the AI prompt bar, and the PDF preview.
+
+There was a second preview once: `LatexPreview.jsx` rendered the source to HTML
+with KaTeX so a "Live Preview" tab could update without compiling. I removed it,
+along with the KaTeX dependency. It was a second, worse renderer that disagreed
+with the real PDF, which meant the thing you were looking at while writing was
+never the thing you would publish. The compiled PDF is the only preview now, and
+it rebuilds a moment after you stop typing.
+
+## A paper is a folder
+
+A colleague's paper would not compile: the engine could not load a figure, then
+divided by zero. The second message was the first one's consequence — the
+graphics package reading a width from a file it had never opened.
+
+The compiler was not at fault, which took some looking to establish. A project
+had been a directory on disk since the first version, and compilation always ran
+with that directory as its working directory, so the relative path in
+`\includegraphics` resolved correctly. What was missing was any way to put a
+second file into the folder. `main.tex` was the only file the application could
+reach, so a figure could be referenced and never supplied.
+
+I exposed the directory that already existed — list, read, write, upload,
+rename, move, copy, delete — and replaced the row of project chips with a file
+tree that has the papers themselves as its top level. The chips had been a
+second picker for the upper level of the same hierarchy, with no way at all to
+reach the level below.
+
+The part I would want reviewed is the boundary. This API is reachable from the
+webview, which Tauri treats as remote content, so a filename arriving here is
+untrusted input in the same sense a download URL is: `../../../.ssh/id_rsa` is a
+filename. Every operation resolves its argument against the project directory
+and refuses anything landing outside. Resolution happens *before* the check
+rather than a string test for `..`, because that is what catches a symlink —
+nothing about the name `notes.tex` says it points at `/etc`. I disabled the
+containment check deliberately to confirm the tests fail.
+
+## Indexes, and what not to depend on
+
+The same paper failed a second way: `\printindex` produced `Undefined control
+sequence \indexentry`. An index needs two passes with an external step between
+them, and the bundled engine performs that step for bibliographies but not for
+indexes — so the intermediate file was never converted and `imakeidx` fell back
+to reading the raw entry list as markup.
+
+The obvious fix was to call `makeindex`. It is installed on my machine and would
+be installed on no user's, which is the same error as assuming a system TeX —
+exactly what bundling an engine was meant to eliminate. So the index is
+generated in Python instead. It is a small, stable format, and it fits what the
+compiler already does: repair what it is given rather than refuse it.
+
+Both failures are now checks in `validate_bundle.py`, run against the packaged
+app on all three platforms. The figure check inspects the PDF for an image
+XObject rather than trusting `status: compiled`, because a compile that silently
+drops the figure reports success too.
 
 ## Fine-tuning data pipeline
 
@@ -45,11 +99,11 @@ Two packaging corrections are worth recording:
   sentence_transformers`. Neither ships a PyInstaller hook, so without those
   flags the frozen build silently drops llama.cpp's shared libraries and the
   embedding model's data. I confirmed the fix by building a frozen backend
-  locally and running ingest, search, and chat against it.
+  locally and running ingest, search, and generation against it.
 
 ## Model bundling and routing
 
-The installer bundles one model - a 0.5B for chat, search, and the paper writer.
+The installer bundles one model - a 0.5B for general tasks, search, and Scribe.
 The 0.5B is fast and light but produces malformed JSON on the structured-output
 tasks (summarize, claims, gap-finder), so those route to a 1.5B when one is
 available; it is fetched on consent or reused from an existing Ollama/LM Studio
@@ -57,22 +111,88 @@ install rather than shipped, which kept installers clear of GitHub's 2 GiB asset
 limit. Analysis degrades to the 0.5B when no larger model is present.
 
 To keep memory bounded, `ollama_client.py` keeps only one model resident at a
-time and swaps on demand rather than holding both. GPU is used when available,
-with a CPU fallback so the app still runs on machines without a usable CUDA
-setup. `file_manager.seed_bundled_models()` copies the bundled model into the
+time and swaps on demand rather than holding both.
+`file_manager.seed_bundled_models()` copies the bundled model into the
 writable data directory on first run, since a frozen build ships it read-only.
+
+## Machine capability and diagnosis
+
+`infrastructure/capability.py` is the single place that answers "what can this
+machine do". Before it, that question was answered in about ten places, and two
+of them disagreed: `src-tauri/src/diagnosis.rs` classified the machine and chose
+GPU layers, `infrastructure/hardware.py` did the same again in Python, and the
+Rust answer won at runtime -- so the Python one was unreachable code that still
+looked authoritative.
+
+The split is now Rust detects, Python decides. Rust reports facts about the
+machine; every derived number -- tier, context size, GPU layers, output tokens,
+how much prompt fits -- comes from `capability.py`. Callers ask it; they no
+longer compute.
+
+Two bugs this fixed:
+
+- **Summarization could not fit in its own context window.** 6000 characters of
+  paper (~1500 tokens) plus 1024 tokens of reply needs ~2650 tokens; a low-tier
+  machine is given 2048. The request failed before the model was asked to think,
+  and the error handler then told the reader the response "could not be read",
+  which was untrue. Nobody owned the arithmetic, so nobody noticed it was wrong.
+  Both summarizers now size the prompt from the context the model was actually
+  loaded with, and fall back to map-reduce when a paper will not fit in one pass.
+- **Every Mac was pinned to CPU.** GPU layers were decided by
+  `has_cuda && vram_gb >= 2.0`. Apple Silicon reports no CUDA and 0 GB of
+  dedicated VRAM -- both true, because its GPU shares system memory -- so the
+  test could never pass whatever the machine could do. `HardwareProfile` could
+  not express "unified memory", so three consumers each guessed and all three
+  guessed wrong. Capability asks `llama_supports_gpu_offload()` instead: a fact
+  about the binary we shipped, which is the only thing that decides whether
+  offload works.
+
+Detection no longer imports torch. Torch is bundled for embeddings, not
+inference -- the SLMs run on llama.cpp -- and torch having CUDA says nothing
+about our llama.cpp build. `nvidia-smi` and the platform answer the same
+question in 0.18s rather than 0.82s.
+
+`POST /api/system/diagnose` re-examines the machine on request, behind the
+**Diagnose my machine** button. The profile is cached at startup, which is
+right -- hardware does not change while the app runs -- but a user who frees
+memory, or who upgraded from a build predating this, had no way to make the app
+look again. The button is that way. It reads the local machine, sends nothing,
+and changes no setting, so the click is the consent.
+
+**Bench** is where this surfaces. The capability report and the model picker
+were two sidebar buttons opening modals; they answer two halves of one question,
+so they are one section now. It is deliberately thin: HuggingFace acquisition,
+per-task model suggestions and the registry are being built separately and land
+here, rather than being mocked up against a data shape that does not exist yet.
+
+`tests/test_capability.py` covers it against fabricated machines rather than
+real ones, so an 8 GB M1 and a 64 GB workstation are both testable on CI with no
+GPU present.
 
 ## CI/CD and auto-updates
 
-the release pipeline is config-driven and split into reusable workflows:
-`release.config.json` holds the repo, platform matrix, channels, and models;
-`.github/workflows/_build-desktop.yml` and `_publish-release.yml` are reusable
-(`workflow_call`) and hold all the build/publish logic; and the thin channel
-callers `release-stable.yml`, `release-beta.yml`, and `nightly.yml` trigger them
-for the stable / beta / nightly channels. each builds installers for Linux,
-macOS, and Windows and publishes them to GitHub Releases. Updates use Tauri's
-updater: the installed app checks a signed `latest.json` on each launch and
-installs a newer version if one exists (each channel has its own manifest URL).
+the release pipeline is config-driven: `release.config.json` holds the repo,
+platform matrix, channels, and models; `.github/workflows/_build-desktop.yml`
+and `_publish-release.yml` are reusable (`workflow_call`) and hold all the
+build/publish logic; and `release.yml` is the single entry point.
+
+it used to be five entry points -- `release-stable`, `release-beta`,
+`release-on-main`, `release-on-beta` and `nightly` -- which differed only in
+what started them and how the version was worked out. their build and publish
+halves were byte-identical, and two even shared a concurrency group. one
+workflow with three triggers replaced them: merging into beta cuts a beta,
+merging into main publishes what beta validated, and the cron cuts a nightly.
+Ten workflows became six.
+
+a merge is the decision to release; the tag is the record of what was built.
+tags trigger nothing, because while they did, `git push origin v1.2.3`
+published a release to every user without the merge being reviewed.
+
+each build produces installers for Linux, macOS, and Windows and publishes them
+to GitHub Releases. Updates use Tauri's updater, but only when the user asks:
+the check is behind the sidebar button rather than on launch, because an
+offline-first app should not contact the network unprompted (each channel has
+its own manifest URL).
 The signing key stays out of the repo (the private key lives at `~/.tauri` and as
 a CI secret; only the public key is committed). The supporting scripts are
 `scripts/compose-updater-manifest.sh`, which builds the manifest, and
@@ -119,8 +239,85 @@ the `max_tokens` caps, and the onedir packaging) rather than taking it as-is.
 - `scripts/` holds the devops scripts only (bootstrap, run, build, validate,
   release); non-devops utilities moved to `tools/`. See `scripts/README.md`.
 - `tests/` is the automated `pytest` suite (run `pytest`), gated in CI by
-  `.github/workflows/ci.yml`. `tools/test_paper_writer.py` remains as a manual
-  end-to-end paper-writer integration check (real pdflatex compile).
+  `.github/workflows/ci.yml`. `tools/check_paper_writer.py` remains as a manual
+  end-to-end paper-writer integration check (real pdflatex compile). It is
+  named `check_` rather than `test_` so it cannot be mistaken for part of the
+  automated suite: `pytest.ini` sets `testpaths = tests`, so a `test_*.py`
+  living in `tools/` is never collected and would imply coverage that does
+  not run.
 - `scripts/README.md` is the runbook for cutting a release and for how
   downloads and updates work. I also maintain the landing page (`landing.html`)
   and the ADR entries for the decisions above.
+
+## Model management (Bench)
+
+Bench is where the machine's capability and the models that use it live
+together. The parts I own:
+
+- `domain/model_manager/registry.py`: the user's model choices, persisted
+  through `atomic_io`. Two flags carry most of the safety. `managed` says
+  whether ThinkStack created a file, so nothing here can delete weights we did
+  not write — an imported model is referenced where it already is, never
+  copied, because a 7 GB import must not cost 14 GB on a machine we already
+  know is constrained. `user_assigned` says whether a human chose the tasks, so
+  an update can refresh what a release assigned but never overwrite a choice
+  somebody made on purpose.
+
+- `domain/model_manager/router.py`: which model answers a given task, on this
+  machine, right now. Every dependency is passed in rather than imported, which
+  is what makes routing testable against fabricated hardware with no llama.cpp
+  present. It returns a `Resolution` carrying the *reason*, not a bare path —
+  the old code put its reasoning in a log line and threw it away, so when
+  analysis quietly ran on the smaller model the interface had no way to say so.
+
+- `domain/model_manager/manifest.py` and `reconcile.py`: what this build
+  bundled, and what to do about it on an update. The `replaces` field is what
+  makes an upgrade work rather than just an install; without it, retirement has
+  to infer intent from absence, which is how the `beta-latest` installs got
+  stranded.
+
+- `domain/model_manager/huggingface.py`: search and acquisition, the only part
+  of the app that reaches the network. Download URLs are constructed from a
+  repository id and a filename, never accepted — the local API is reachable
+  from the webview, so an endpoint that fetched whatever it was handed would be
+  a general-purpose downloader aimed by anything that could reach it.
+
+- `scripts/make_bundled_manifest.py`: the build writes what it shipped beside
+  the weights, so exchanging the bundled model is one edit to
+  `release.config.json` rather than four coordinated source changes.
+
+### What this taught me
+
+Three bugs in one day had the same shape: a legitimate `0.0` being read as "no
+value". A size rounded before being compared against a budget; `measured or
+declared` preferring a stale figure; and a budget that floors at zero on a
+constrained machine, where zero already meant *unmeasured, therefore
+unconstrained* — so the machine least able to run anything was told it could
+run everything.
+
+And two things that "passed" without working. Qwen3 0.6B cleared every
+structural check and returned `{}`, because the JSON grammar leaves a reasoning
+model's `<think>` block nowhere to go. A React render test I had just written
+to catch a blank page did not catch it, because it mounted the page components
+and never `App.jsx`, where the missing import actually was. Both were found by
+deliberately breaking the code and checking the tests noticed — a test that has
+never failed is a hypothesis, not evidence.
+
+A third shape, found the day the file tree shipped: three menu items — new file,
+new folder, new paper — did nothing at all. They were built on the browser's
+`prompt()`, which the Tauri webview does not implement; it returns `null`, and
+the code read that as the user cancelling. Deleting had the same dependency on
+`confirm()`, where the failure is worse in a way worth stating: a guard written
+as `if (!confirm(...)) return` either blocks the action forever or performs it
+without ever asking, depending which way `undefined` falls.
+
+Behind that sat a second defect that would have broken the menu even with a
+working dialog — it dismissed on a capture-phase `pointerdown` without checking
+whether the press was *inside* it, so pressing an item unmounted the button
+before its own click arrived.
+
+Neither is visible in the source, and neither would be caught by any test I
+could reasonably have written: both are about what the *host* provides. The
+lesson is narrower than "test more". A desktop web view is not a browser, and
+the platform's absences are as much a part of the contract as its APIs. I had
+tested the code; I had not run the product.

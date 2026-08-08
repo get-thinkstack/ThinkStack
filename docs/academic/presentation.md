@@ -40,7 +40,7 @@ Department of Computer Science, CHRIST (Deemed to be University) · First Review
 - **No grounded writing:** no offline LaTeX authoring tied to *your own* ingested corpus and gap analysis.
 
 ### Slide 6 - SRS Analysis: Proposed Work & Advantages
-- **Proposed work:** a single offline desktop app unifying ingestion, hybrid search, SLM analysis, gap finder, RAG chat, encryption, and an AI LaTeX paper writer + compiler.
+- **Proposed work:** a single offline desktop app unifying ingestion, semantic search, a spatial literature map (LitGraph) carrying SLM analysis and gap finding, RAG chat, encryption, and an AI LaTeX editor (Scribe) + compiler.
 - **Advantages:**
   - **100% offline & private** - nothing leaves the machine.
   - **Zero recurring cost**; GPU-accelerated local SLM (sub-second responses).
@@ -84,7 +84,7 @@ Department of Computer Science, CHRIST (Deemed to be University) · First Review
 - Summarization, claim extraction, and theme clustering.
 - Research-gap analysis with actionable directions + RAG chat assistant grounded in your papers.
 
-**Module 3 - AI Paper Writer** *(author · compile)*
+**Module 3 - Scribe, the AI paper writer** *(author · compile)*
 - Plain-language / pseudo-code compilable LaTeX via the local SLM.
 - Project workspace (create / save / list / delete) with a starter template.
 - Offline `pdflatex` compilation and one-click PDF download.

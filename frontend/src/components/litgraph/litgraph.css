@@ -1,0 +1,847 @@
+/* ═══════════════════════════════════════════════════════════════════
+   LitGraph — the canvas that replaced Search, Analysis and Gap Finder.
+
+   Every colour is a design token, so the map reads in both themes: the
+   prototype's acid-on-black was dark-only. Hue encodes STATE (matched,
+   focused, dimmed) and never category — category is carried by position
+   and territory instead, which is what makes the map legible zoomed out.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* LitGraph carries the same PageHeader as every other screen, and the canvas
+   takes whatever is left. A column flex rather than another height calc: the
+   header's height depends on the title's wrap and the subtitle, so subtracting
+   a guessed constant would leave a gap under short headers and a scrollbar
+   under tall ones. */
+.lg-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 3rem);
+}
+
+.lg-root {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr;
+  height: calc(100vh - 3rem);
+}
+
+.lg-page > .lg-root {
+  height: auto;
+  flex: 1;
+  /* a flex child defaults to min-height:auto, which refuses to shrink below its
+     content -- the canvas would push the header off the top instead of fitting. */
+  min-height: 0;
+}
+/* The panel width is a variable the grip writes to directly, so a drag never
+   goes through React. --lg-panel-w is set on .lg-root itself; the fallback
+   here is the width it opens at before you have ever dragged it. */
+.lg-root.lg-has-panel {
+  grid-template-columns: 1fr 5px var(--lg-panel-w, 360px);
+}
+
+.lg-grip {
+  cursor: col-resize;
+  background: var(--border);
+  opacity: 0;
+  transition: opacity var(--transition-fast, 140ms ease);
+}
+.lg-grip:hover,
+.lg-grip.is-dragging { opacity: 1; }
+
+.lg-stage {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+}
+/* Grab, because dragging pans. The pointer handlers write grabbing/grab
+   inline during a drag; keeping the idle cursor here (not as an inline style
+   on the svg) is what lets them win only while they need to. */
+#lg-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+}
+.lg-label { font-size: 9px; pointer-events: none; }
+.lg-label.lg-sub { font-size: 7.5px; }
+.lg-hull-label {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.5;
+  pointer-events: none;
+}
+.lg-node { cursor: pointer; }
+
+/* ---------- top chrome ---------- */
+.lg-top {
+  position: absolute;
+  inset: 12px 12px auto 12px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  pointer-events: none;
+  z-index: 3;
+}
+.lg-top > * { pointer-events: auto; }
+
+.lg-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  max-width: 440px;
+  height: 38px;
+  padding: 0 10px;
+  color: var(--text-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.lg-search:focus-within { border-color: var(--accent); }
+.lg-search input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+}
+.lg-x { display: flex; background: none; border: none; color: var(--text-3); cursor: pointer; }
+.lg-x:hover { color: var(--text); }
+
+.lg-layers { display: flex; gap: 6px; }
+.lg-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 11px;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.lg-chip.on { color: var(--text); border-color: var(--accent); }
+.lg-chip.lg-amber.on { border-color: var(--warning); }
+
+/* ---------- results ---------- */
+.lg-results {
+  position: absolute;
+  top: 58px;
+  left: 12px;
+  z-index: 4;
+  width: min(440px, calc(100% - 24px));
+  max-height: 52%;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 0.28);
+}
+.lg-results-head {
+  padding: 9px 12px;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  border-bottom: 1px solid var(--border);
+}
+.lg-rrow {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  text-align: left;
+  color: inherit;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.lg-rrow:last-child { border-bottom: none; }
+.lg-rrow:hover,
+.lg-rrow.on { background: var(--accent-soft); }
+.lg-score { font-size: 0.72rem; color: var(--accent); font-variant-numeric: tabular-nums; }
+.lg-rtitle { display: block; font-size: 0.8rem; line-height: 1.35; color: var(--text); }
+.lg-rmeta { display: block; margin-top: 3px; font-size: 0.7rem; color: var(--text-3); }
+
+/* ---------- bottom chrome ---------- */
+/* Present but quiet: legible enough to find when wanted, dim enough to ignore
+   for the ninety-nine visits after the first. */
+/* the canvas hint moved to the shell's page guide -- see PageGuide.jsx */
+
+/* what the map is made of, readable before you touch anything */
+.lg-stats {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  margin-left: auto;
+  padding: 7px 12px;
+  white-space: nowrap;
+  font-size: 0.7rem;
+  color: var(--text-3);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+.lg-stats b {
+  margin-right: 3px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.lg-stats .lg-amber-t b { color: var(--warning); }
+.lg-stat-sep { opacity: 0.35; }
+/* the search box and the layer chips are what you act with; the counts are
+   what you read. The counts go first when the window gets tight. */
+@media (max-width: 1180px) { .lg-stats { display: none; } }
+
+/* result count, in the box where the query is */
+.lg-qcount {
+  padding: 1px 6px;
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-radius: 999px;
+}
+
+/* where you are in a map bigger than the window */
+.lg-minimap {
+  position: absolute;
+  right: 14px;
+  bottom: 136px;
+  width: 132px;
+  height: 92px;
+  padding: 5px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+.lg-minimap svg { width: 100%; height: 100%; }
+
+.lg-zoom {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: stretch;
+  padding: 4px;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  backdrop-filter: blur(6px);
+}
+.lg-zoom-readout {
+  padding-bottom: 2px;
+  font-size: 0.64rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  text-align: center;
+}
+.lg-zoom button { border-color: transparent; background: transparent; }
+.lg-zoom button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  color: var(--text-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.lg-zoom button:hover { color: var(--accent); border-color: var(--accent); }
+
+/* the selection is what every analysis action runs on */
+.lg-actbar {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  max-width: calc(100% - 28px);
+  padding: 7px 8px 7px 13px;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.3);
+}
+.lg-actbar > span { margin-right: 4px; font-size: 0.72rem; color: var(--accent); }
+.lg-actbar button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  font-size: 0.72rem;
+  color: var(--text-2);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.lg-actbar button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+.lg-actbar button:disabled { opacity: 0.4; cursor: not-allowed; }
+.lg-busy { display: flex; align-items: center; gap: 6px; font-size: 0.7rem; color: var(--text-3); }
+
+/* ---------- background analysis progress ----------
+   Ingest queues minutes of model work. This sits top-left, out of the way of
+   the action bar and the error toast, and says both what is running and how
+   far through the batch it is. */
+.lg-jobs {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 5;
+  width: 268px;
+  max-width: calc(100% - 28px);
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.lg-jobs-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.72rem;
+  color: var(--text-2);
+}
+
+.lg-jobs-head > span:first-of-type {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lg-jobs-count {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+.lg-jobs-bar {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 3px;
+  margin-top: 8px;
+  background: var(--border);
+  border: none;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.lg-jobs-bar::-webkit-progress-bar { background: var(--border); }
+.lg-jobs-bar::-webkit-progress-value {
+  background: var(--accent);
+  transition: inline-size 240ms ease;
+}
+.lg-jobs-bar::-moz-progress-bar { background: var(--accent); }
+
+/* Indeterminate: one opaque model call, so the bar sweeps rather than
+   claiming a position it does not know. */
+.lg-jobs-bar:not([value]) { position: relative; background: var(--border); }
+.lg-jobs-bar:not([value])::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  inline-size: 34%;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: lg-jobs-sweep 1.5s ease-in-out infinite;
+}
+
+@keyframes lg-jobs-sweep {
+  0%   { inset-inline-start: -34%; }
+  100% { inset-inline-start: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lg-jobs-bar:not([value])::after { animation-duration: 4s; }
+  .lg-jobs-bar::-webkit-progress-value { transition: none; }
+}
+
+.lg-jobs-note {
+  margin-top: 6px;
+  font-size: 0.66rem;
+  color: var(--text-3);
+}
+
+.lg-error {
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  z-index: 6;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  max-width: 70%;
+  padding: 9px 12px;
+  transform: translateX(-50%);
+  font-size: 0.8rem;
+  color: var(--danger);
+  background: var(--surface);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+}
+.lg-error button { display: flex; background: none; border: none; color: inherit; cursor: pointer; }
+
+/* ---------- side panel ---------- */
+/* A column, not a scrolling block: the title and the tabs stay put and only
+   the tab body scrolls, or reading a paper scrolls its own title away. */
+.lg-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  padding: 18px 16px 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: none;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+.lg-tabbody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 18px;
+}
+.lg-panel-x {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: none;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.lg-panel-x:hover { color: var(--text); }
+.lg-kind {
+  margin-bottom: 8px;
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.lg-kind-gap { color: var(--warning); }
+.lg-panel h3 { margin: 0 0 4px; font-size: 1rem; line-height: 1.25; }
+.lg-panel h4,
+.lg-drawer h4 {
+  margin: 18px 0 8px;
+  padding-bottom: 6px;
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  border-bottom: 1px solid var(--border);
+}
+.lg-panel p { margin: 0 0 10px; font-size: 0.82rem; line-height: 1.6; color: var(--text-2); }
+.lg-authors { margin-bottom: 12px; font-size: 0.75rem; color: var(--text-3); }
+.lg-muted { color: var(--text-3); font-style: italic; }
+
+/* Tabs. Same shape as the Scribe preview switcher (.pw-preview-tab), copied
+   rather than shared: that one renders a single static tab and the two
+   surfaces have no reason to move together. */
+.lg-tabs {
+  display: flex;
+  flex-shrink: 0;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.lg-tab {
+  padding: 0.5rem 0.9rem;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--font-base);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+.lg-tab:hover { color: var(--text-2); }
+.lg-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* A statement about the paper, as opposed to a quote from it. */
+.lg-fact { margin: 0; font-size: 0.8rem; line-height: 1.6; color: var(--text-2); }
+
+/* ---------- the reader ---------- */
+/* We draw the pdf ourselves now, so this scrolls like the text reader rather
+   than handing scrolling to an embedded viewer. */
+.lg-reader-pdf { padding: 0 0 2rem; overflow-y: auto; }
+
+/* The four marker colours, declared where both readers and the legend can see
+   them. A colour has to mean the same thing in all three or the legend is
+   decoration -- so the pdf's strokes, the text reader's marks and the keys all
+   read from here, even though the shape of the mark differs by reader.
+   Chosen against the white of the paper: the page is white in either theme. */
+.lg-tabbody {
+  --hl-match: #7cf03d;   /* the accent: you searched for this */
+  --hl-claim: #ffe14d;   /* the canonical highlighter yellow */
+  --hl-gap: #ff7ab8;     /* evidence for something missing */
+  --hl-theme: #6fe3ff;   /* ambient: a theme word, not a finding */
+}
+
+.lg-pdf-page {
+  position: relative;
+  margin: 0 auto 1rem;
+  width: 100%;
+  background: #fff;
+  box-shadow: var(--shadow-sm, 0 1px 4px rgb(0 0 0 / 35%));
+}
+.lg-pdf-page canvas { display: block; width: 100%; height: auto; }
+
+/* pdf.js's own text layer: transparent glyphs sitting exactly over the painted
+   ones. It is what makes the pdf selectable and findable with the browser's own
+   Ctrl+F, and it is what the marker strokes are measured against. Positions
+   come from pdf.js as percentages; only the glyph size needs the scale factor,
+   which the reader keeps in step with the rendered width. */
+.lg-pdf-text {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  line-height: 1;
+  text-align: initial;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+}
+.lg-pdf-text span,
+.lg-pdf-text br {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0 0;
+}
+/* Selecting text in the paper should look like selecting text. */
+.lg-pdf-text ::selection { background: color-mix(in srgb, var(--accent) 40%, transparent); }
+
+.lg-pdf-marks {
+  position: absolute;
+  inset: 0;
+  /* The marks are a wash over the paper, not a target. Clicks, text selection
+     and the browser's own find go to the text layer underneath. */
+  pointer-events: none;
+}
+
+/* One stroke of a marker pen: laid over the words, not behind them, so the
+   glyphs stay black and readable through the colour. multiply is what makes
+   that true -- an opaque fill at any alpha greys the text it covers.
+
+   A Range measures the glyphs exactly, so the stroke is padded a little to
+   overshoot them; stopping precisely at cap height reads as a background fill
+   rather than a pen. */
+.lg-hl {
+  position: absolute;
+  margin: -0.14em -0.1em;
+  padding: 0.14em 0.1em;
+  border-radius: 0.14em 0.3em 0.2em 0.16em;
+  mix-blend-mode: multiply;
+}
+.lg-hl-match { background: var(--hl-match); }
+.lg-hl-claim { background: var(--hl-claim); }
+.lg-hl-gap { background: var(--hl-gap); }
+.lg-hl-theme { background: var(--hl-theme); }
+
+/* Where a claim jump landed on the page. Same fade as the text reader's. */
+.lg-hl.lg-chunk-landed { animation: lg-land-hl 1.6s ease-out; }
+@keyframes lg-land-hl {
+  from { filter: brightness(0.82) saturate(1.6); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lg-hl.lg-chunk-landed { animation: none; }
+}
+
+.lg-reader-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 0;
+  background: var(--surface);
+  /* A filename is not a heading -- uppercasing one makes it unreadable. */
+  font-size: 0.68rem;
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+.lg-chunk {
+  position: relative;
+  margin: 0 0 1.1em;
+  /* A measure, not the panel width: the grip goes to half the window and
+     prose stops being readable long before that. */
+  max-width: 62ch;
+  font-size: 0.83rem;
+  line-height: 1.75;
+  color: var(--text);
+}
+.lg-page {
+  margin-right: 0.5em;
+  font-size: 0.65rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+/* Four marks, four CSS properties, so a passage that is all four stays
+   readable instead of stacking four backgrounds on top of each other. The
+   colours match the pdf reader's strokes; only the shape differs, because a
+   marker wash over light text on a dark surface would bury the words this
+   reader exists to show. */
+.lg-chunk.is-match {
+  padding-left: 0.7em;
+  border-left: 2px solid var(--hl-match);
+}
+.lg-chunk.is-claim {
+  padding: 0.35em 0.6em;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--hl-claim) 11%, transparent);
+}
+.lg-chunk.is-claim.is-match { padding-left: 0.7em; }
+.lg-chunk.is-gap {
+  text-decoration: underline wavy var(--hl-gap);
+  text-underline-offset: 0.28em;
+}
+.lg-chunk.is-theme {
+  text-decoration: underline dotted var(--hl-theme);
+  text-underline-offset: 0.28em;
+}
+/* Both are underlines and only one can win, so the finding outranks the
+   ambient signal rather than replacing it silently. */
+.lg-chunk.is-gap.is-theme {
+  text-decoration: underline wavy var(--hl-gap);
+}
+
+/* Where a claim jump landed. Fades on its own -- a permanent mark would
+   compete with the three that mean something. */
+.lg-chunk-landed { animation: lg-land 1.6s ease-out; }
+@keyframes lg-land {
+  from { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lg-chunk-landed { animation: none; }
+}
+
+.lg-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.9rem;
+  margin-bottom: 1.1em;
+  font-size: 0.68rem;
+  color: var(--text-3);
+}
+/* In the pdf the legend is the only chrome, and the page it explains is long.
+   It stays put rather than scrolling away from what it describes. */
+.lg-reader-pdf .lg-legend {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0 0 0.6rem;
+  padding: 8px 10px;
+  background: var(--surface);
+}
+/* A swatch of the marker, not a sample of the mark: the same colour means the
+   same thing in both readers, while the shape of the mark does not. */
+.lg-key::before {
+  display: inline-block;
+  width: 1.4em;
+  height: 0.7em;
+  margin-right: 0.4em;
+  border-radius: 0.14em 0.3em 0.2em 0.16em;
+  vertical-align: middle;
+  content: '';
+}
+.lg-key-match::before { background: var(--hl-match); }
+.lg-key-claim::before { background: var(--hl-claim); }
+.lg-key-gap::before { background: var(--hl-gap); }
+.lg-key-theme::before { background: var(--hl-theme); }
+
+.lg-quote {
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.lg-quote q { display: block; font-size: 0.78rem; font-style: italic; line-height: 1.6; color: var(--text); }
+.lg-quote span { display: block; margin-top: 7px; font-size: 0.68rem; color: var(--text-3); }
+
+.lg-claim {
+  display: block;
+  width: 100%;
+  padding: 9px 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  text-align: left;
+  color: var(--text-2);
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.lg-claim:hover { color: var(--text); }
+.lg-tag {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.lg-sugg {
+  padding: 9px 0;
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: var(--text-2);
+  border-bottom: 1px solid var(--border);
+}
+.lg-sugg b { display: block; margin-bottom: 3px; color: var(--text); }
+.lg-stat {
+  display: flex;
+  justify-content: space-between;
+  padding: 7px 0;
+  font-size: 0.78rem;
+  color: var(--text-3);
+  border-bottom: 1px solid var(--border);
+}
+.lg-stat b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* ---------- runs drawer ---------- */
+.lg-drawer-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: flex-end;
+  background: rgb(0 0 0 / 0.4);
+}
+.lg-drawer {
+  width: min(460px, 92vw);
+  height: 100%;
+  overflow-y: auto;
+  padding: 18px;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+}
+.lg-drawer-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.lg-drawer-head > span { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.lg-drawer-head button { background: none; border: none; color: var(--text-3); cursor: pointer; }
+
+.lg-run { display: flex; gap: 6px; align-items: stretch; border-bottom: 1px solid var(--border); }
+.lg-run > button:first-child {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 0;
+  text-align: left;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.lg-run.on { background: var(--accent-soft); }
+.lg-run b { font-size: 0.8rem; color: var(--text); }
+.lg-run span { font-size: 0.7rem; color: var(--text-3); }
+.lg-run-x { padding: 0 6px; background: none; border: none; color: var(--text-3); cursor: pointer; }
+.lg-run-x:hover { color: var(--danger); }
+.lg-runres { margin-top: 18px; padding-top: 6px; border-top: 1px solid var(--border); }
+
+/* ---------- password gate ---------- */
+.lg-modal-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 0.5);
+}
+.lg-modal {
+  width: min(430px, 92vw);
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.lg-modal h3 {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0 0 10px;
+  font-size: 1rem;
+  color: var(--warning);
+}
+.lg-modal p { margin-bottom: 14px; font-size: 0.82rem; line-height: 1.6; color: var(--text-2); }
+.lg-pw { display: flex; gap: 8px; align-items: center; }
+.lg-pw input { flex: 1; }
+.lg-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+/* ---------- empty states ---------- */
+.lg-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 60vh;
+  text-align: center;
+  color: var(--text-3);
+}
+.lg-empty > svg { color: var(--accent); opacity: 0.5; }
+.lg-empty h3 { margin: 0; color: var(--text); }
+.lg-empty p { max-width: 420px; margin: 0; font-size: 0.85rem; line-height: 1.7; }
+
+@media (max-width: 900px) {
+  .lg-root.lg-has-panel { grid-template-columns: 1fr; }
+  .lg-panel { display: none; }
+  .lg-grip { display: none; }
+}
+
+/* ---------- a gap, read across the papers it cites ---------- */
+/* The title is the action; the passage under it is why it is worth taking. */
+.lg-gap-paper { margin-bottom: 0.7rem; }
+.lg-gap-paper .lg-claim { margin-bottom: 0.25rem; }
+.lg-gap-paper .lg-claim:disabled { cursor: default; opacity: 0.55; }
+
+.lg-gap-evidence {
+  display: block;
+  padding-left: 0.7em;
+  border-left: 2px solid var(--hl-gap);
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+/* A paper whose evidence could not be found gets no marker colour: the border
+   would promise a highlight that is not there when you open it. */
+.lg-gap-evidence.lg-muted { border-left-color: var(--border); }

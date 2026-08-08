@@ -11,10 +11,21 @@ import json
 import logging
 import uuid
 
+from domain.analysis.parsing import as_dict, as_items, as_str_list, one_of
 from domain.gap_finder.models import ResearchGap, Suggestion
 from infrastructure.ollama_client import ollama_client
 
 logger = logging.getLogger(__name__)
+
+# the gap categories the prompt offers and the ui knows how to render. a
+# category the model invents reaches the canvas as a label and the severity
+# chart as a bucket that matches nothing.
+GAP_TYPES = (
+    "contradictions", "under_explored", "methodological",
+    "missing_validation", "temporal",
+)
+SEVERITIES = ("high", "medium", "low")
+LEVELS = ("high", "medium", "low")
 
 # cap on the combined summaries+claims text fed to the model. the local
 # context window is 4096 tokens and this single call must leave room for the
@@ -70,35 +81,48 @@ def _build_content(summaries: list[dict], claims: list[dict]) -> str:
 
 def _parse_gaps(gaps_data: list, doc_ids: list[str]) -> list[ResearchGap]:
     gaps = []
-    for item in gaps_data:
+    for entry in gaps_data:
+        item = as_dict(entry, "description")
+        description = item.get("description") or ""
+        if not description:
+            continue
+        # a hallucinated doc_id would draw gap evidence to a paper that is not
+        # on the canvas, so membership is intersected with the papers actually
+        # under analysis rather than trusted.
+        related = [d for d in as_str_list(item.get("related_doc_ids")) if d in doc_ids]
         gaps.append(ResearchGap(
             gap_id=uuid.uuid4().hex[:8],
-            gap_type=item.get("gap_type", "under_explored"),
-            description=item.get("description", ""),
-            evidence=item.get("evidence", []) or [],
-            related_doc_ids=item.get("related_doc_ids", doc_ids),
-            severity=item.get("severity", "medium"),
+            gap_type=one_of(item.get("gap_type"), GAP_TYPES, "under_explored"),
+            description=str(description),
+            evidence=as_str_list(item.get("evidence")),
+            related_doc_ids=related or list(doc_ids),
+            severity=one_of(item.get("severity"), SEVERITIES, "medium"),
         ))
     return gaps
 
 
 def _parse_suggestions(sugg_data: list, gaps: list[ResearchGap]) -> list[Suggestion]:
     suggestions = []
-    for item in sugg_data:
+    for entry in sugg_data:
+        item = as_dict(entry, "title")
         # remap 1-based gap indexes to the ids we assigned; drop anything
         # out of range so a hallucinated index can't crash the response.
         related = []
         for idx in item.get("related_gap_indexes", []) or []:
-            if isinstance(idx, int) and 1 <= idx <= len(gaps):
+            # bool is an int subclass, and True would silently mean gap 1.
+            if isinstance(idx, int) and not isinstance(idx, bool) and 1 <= idx <= len(gaps):
                 related.append(gaps[idx - 1].gap_id)
+        title = item.get("title") or ""
+        if not title:
+            continue
         suggestions.append(Suggestion(
             suggestion_id=uuid.uuid4().hex[:8],
-            title=item.get("title", ""),
-            description=item.get("description", ""),
-            rationale=item.get("rationale", ""),
+            title=str(title),
+            description=str(item.get("description") or ""),
+            rationale=str(item.get("rationale") or ""),
             related_gaps=related,
-            feasibility=item.get("feasibility", "medium"),
-            potential_impact=item.get("potential_impact", "medium"),
+            feasibility=one_of(item.get("feasibility"), LEVELS, "medium"),
+            potential_impact=one_of(item.get("potential_impact"), LEVELS, "medium"),
         ))
     return suggestions
 
@@ -127,14 +151,21 @@ async def analyze_gaps_and_suggestions(
             prompt,
             system=_SYSTEM,
             max_tokens=1100,
+            # naming the task is what makes the user's choice count: the router
+            # looks up whatever model is assigned to THIS task in Bench. Omit it
+            # and the argument defaults to "general", so the lookup happens
+            # against the wrong task, finds nothing, and quietly falls back to
+            # the base model -- while Bench still shows the model the user
+            # picked for gap finding.
+            task_type="gap_analysis",
         )
         data = json.loads(response)
     except Exception as e:  # noqa: BLE001 - any failure -> no gaps/suggestions
         logger.error("gap analysis failed: %s", e)
         return [], []
 
-    gaps = _parse_gaps(data.get("gaps", []) or [], doc_ids)
-    suggestions = _parse_suggestions(data.get("suggestions", []) or [], gaps)
+    gaps = _parse_gaps(as_items(data, "gaps"), doc_ids)
+    suggestions = _parse_suggestions(as_items(data, "suggestions"), gaps)
 
     logger.info(
         "identified %d gaps and %d suggestions across %d papers",

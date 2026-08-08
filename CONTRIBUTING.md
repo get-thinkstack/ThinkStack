@@ -22,6 +22,21 @@ git clone git@github.com:get-thinkstack/ThinkStack.git && cd ThinkStack
 runs the same checks and updates arrive with a normal `git pull`. It also audits
 your local tooling and tells you what's missing.
 
+> **Windows: set your Rust toolchain locally, never in the repo.** The default
+> host on Windows is often `x86_64-pc-windows-gnu`, which needs MinGW's
+> `dlltool.exe`; the MSVC toolchain works without it. Fix that for your machine
+> only:
+>
+> ```bash
+> rustup override set stable-x86_64-pc-windows-msvc   # this directory, untracked
+> ```
+>
+> Do **not** commit `src-tauri/rust-toolchain.toml` with a host triple in the
+> channel. That file is repo-wide, so pinning `stable-x86_64-pc-windows-msvc`
+> makes `cargo metadata` fail outright on Linux and macOS -- `tauri build` then
+> cannot run at all. It happened once, reached `dev`, and `build.sh` reported
+> success over a build that produced no binary.
+
 **Install `shellcheck`.** Without it, `actionlint` silently skips its shell
 checks, a broken `run:` block passes locally, and CI catches it instead. That has
 already cost us a release build.
@@ -50,8 +65,8 @@ huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct-GGUF \
 | Branch | What it's for | Push gate | Ships installers? |
 |--------|---------------|-----------|-------------------|
 | `dev`  | day-to-day work, experiments | **fast** — lint + tests on what changed | no |
-| `beta` | integration; bundle and test real installers | **full** — everything CI runs | on a `vX.Y.Z-beta.N` tag |
-| `main` | official releases | **full** | on a `vX.Y.Z` tag |
+| `beta` | integration; bundle and test real installers | **full** — everything CI runs | on a merge into `beta` |
+| `main` | official releases | **full** | on merge |
 
 **Work on `dev`.** Branch from it, and merge back into it. `beta` and `main` are
 promoted into, never developed on.
@@ -66,6 +81,22 @@ gh workflow run dev-build.yml -f platform=all -f skip_models=true
 ```
 
 That produces downloadable artifacts and publishes nothing.
+
+### Rolling release tags are suffixed on purpose
+
+The beta and nightly channels publish to *rolling* tags, named `beta-latest`
+and `nightly-latest` in [`release.config.json`](release.config.json). The suffix
+is not decoration: git resolves `refs/tags/` before `refs/heads/`, so when the
+tag was called plain `beta` a bare `beta` meant the **release**, not the branch,
+and `git checkout beta` detached onto a published build while `git pull`
+reported a divergence that did not exist.
+
+Nothing special is needed now. `git checkout beta`, `git pull`, and
+`git pull origin beta` all mean the branch. **Never name a rolling tag after a
+branch.**
+
+If you cloned before this change, `./scripts/install-hooks.sh` deletes the two
+stale tags.
 
 ---
 
@@ -103,10 +134,32 @@ the gate is wrong — fix the gate.
 
 ---
 
+## Dependencies
+
+**Every requirement is pinned with `==`, and `scripts/check_pins.py` refuses a
+range or a bare name** — in CI, and in `preflight.sh` before you push.
+
+This is not tidiness. `nltk` was declared `>=3.9.1`. Version 3.10.1 was released
+between two builds and refuses to import `xml.etree` when the working directory
+is importable, so the frozen backend died during startup on Linux, macOS and
+Windows at the same moment — from a commit that changed no Python code. It could
+not be reproduced locally either: the developer's venv had 3.9.4. A range is a
+promise that every future release will work, and nobody can make that promise.
+
+Do not upgrade by editing the file. Dependabot proposes each upgrade as a pull
+request against `dev`, one package at a time, and the full pipeline runs on it.
+Review it, let CI build it, then merge. That way an upgrade like the one above
+is rejected in a PR instead of at a beta tester's desk.
+
+If you genuinely need a new package: add it pinned to an exact version, and say
+in the commit why that version.
+
+---
+
 ## Tests
 
 ```bash
-pytest                    # the whole suite (~300 tests, a few seconds)
+pytest                    # the whole suite (839 tests, a few seconds)
 pytest tests/test_x.py    # one file
 pytest -m heavy           # tests that load real models / hit the network
 ```
@@ -249,7 +302,7 @@ Check, at minimum:
       after install, not a second launch — the difference is minutes).
 - [ ] Ingest one PDF. This is the first thing to touch the embedding model, and
       the first thing that would reveal a missing bundled model.
-- [ ] Ask one chat question and run one analysis.
+- [ ] Ask Scribe for one paragraph and run one analysis.
 - [ ] If anything fails, the screen shows a **real error and a log path** —
       never an endless spinner.
 
@@ -262,16 +315,71 @@ stderr are captured there.
 Only once the installer in `local/` has been validated:
 
 ```bash
-# a feature: soak it on beta first, users later
-scripts/promote.sh feature 1.1.0     # dev -> beta,  tags v1.1.0-beta.N
-#   ... testers install the beta on all three OSes ...
-scripts/promote.sh release 1.1.0     # beta -> main, tags v1.1.0
-
-# a bug fix: beta AND main together, no soak
-scripts/promote.sh fix 1.0.1
+scripts/promote.sh feature     # dev -> beta,   next MINOR
+scripts/promote.sh fix         # dev -> beta AND main, next PATCH
+scripts/promote.sh major       # dev -> beta,   next MAJOR
+scripts/promote.sh release     # beta -> main,  what beta validated
 ```
 
+**You do not pass a version.** It is derived from the newest published stable
+tag, so nobody has to remember the rule or look it up:
+
+| Kind | Bump | Example |
+|------|------|---------|
+| `fix` | patch | `1.0.0` -> `1.0.1` |
+| `feature` | minor | `1.0.0` -> `1.1.0` |
+| `major` | major | `1.0.0` -> `2.0.0` |
+| `release` | none | promotes exactly what beta has been testing |
+
+### Branch names carry the version
+
+Name your branch for what it is, and the number follows:
+
+| Branch | Counts as | Effect on `X.Y.Z` |
+|--------|-----------|-------------------|
+| `feat/short-description` | a feature | **Y+1**, and Z resets to 0 |
+| `fix/short-description` | a fix | **Z+1** |
+| `chore/...`, `docs/...` | neither | nothing |
+| merging `beta` into `main` | a release | **nothing** — main publishes the number beta validated |
+
+```bash
+scripts/next_version.py --next --explain   # replay the merges, show each one
+scripts/next_version.py --current          # the newest version, any channel
+```
+
+The base is the **newest tag across every channel**, stable or beta. It is not
+the newest *stable* tag: beta was testing 1.6.7 while stable was 1.0.0, so a
+patch bump computed from stable gave 1.0.1 — below what testers already had
+installed. `release.sh` refuses to publish below what is out, and the updater
+would have shown installed apps an "update" that moved them backwards.
+
+From that base, every `feat/` and `fix/` branch merged since is replayed **in
+the order it landed**, one bump each. Order matters and is not cosmetic: a fix
+then a feature gives `X.(Y+1).0`, while a feature then a fix gives `X.(Y+1).1`.
+
+> **Merges into `dev`, `beta` and `main` must be `--no-ff`.** A fast-forward
+> creates no merge commit, so the branch name never enters the history and the
+> landing is invisible to the replay. The release number would then depend on
+> whether a merge happened to be fast-forwardable, which is not a property of
+> the work. `promote.sh` passes `--no-ff` for you; pass it yourself when you
+> merge by hand, and prefer a merge commit when merging a PR on GitHub.
+
+**Direct commits do not move the version**, whatever their prefix. A merge is
+what "landing" means; counting the commits inside one as well would bump the
+number several times for a single piece of work. If you push `fix: typo`
+straight to `dev`, the version does not change — put it on a `fix/` branch if
+it should.
+
+Pass a version explicitly to override, e.g. `scripts/promote.sh feature 1.6.7`.
+
 `--dry-run` prints every git command without running one. Use it the first time.
+
+**Merging `beta` into `main` releases automatically.** `release.yml` reads the
+version beta validated, records the tag, builds all three platforms and
+publishes, so the installers users download are swapped without a manual step.
+The same workflow cuts a beta when `dev` lands on `beta`, and a nightly on the
+cron — one file, three triggers.
+It does nothing if that version is already tagged.
 
 Each tag kicks off a **~45 minute three-OS build** that publishes installers and
 the signed updater manifest. Installed apps pick the update up on next launch —
@@ -373,8 +481,9 @@ Not "does it look fine" — these five, in order. Each one has caught a real bug
 3. **Ingest one PDF.** This is the first thing to touch the embedding model, and
    the only check that proves the weights actually shipped. It must not need a
    network connection.
-4. **Ask one chat question.** Slow is fine — the bundled 0.5B on a CPU takes
-   ~20s. Wrong or empty is not.
+4. **Ask Scribe to write one paragraph.** This is the plain-text generation
+   path, the one that is not grammar-constrained. Slow is fine — the bundled
+   0.5B on a CPU takes ~20s. Wrong or empty is not.
 5. **Run one analysis.** With only the baseline model this degrades to the 0.5B
    and will be rougher than a 1.5B. It must still produce something coherent.
 
@@ -400,8 +509,11 @@ we'll correct this table.
 
 Report these only if the workaround fails:
 
-- **macOS** — "ThinkStack can't be opened because it is from an unidentified
-  developer." Right-click the app → **Open** → Open. One time only.
+- **macOS** — "Apple could not verify ThinkStack is free of malware." The build
+  is not notarized (that needs a paid Apple Developer account). On **macOS 15+
+  the right-click → Open trick no longer works**: go **System Settings → Privacy
+  & Security → Open Anyway**. On macOS 14 and earlier, right-click → Open. One
+  time either way.
 - **Windows** — SmartScreen blue box. **More info** → **Run anyway**. One time.
 - **Linux** — the AppImage needs `chmod +x` before it will run.
 
@@ -417,25 +529,92 @@ installed app, and cannot be un-shipped.
 
 ---
 
-## Repository layout
+## Repository layout and dependencies
 
 ```text
 main.py            fastapi app: serves the react spa and /api
 config.py          pydantic-settings config (env prefix: THINKSTACK_)
-api/               rest endpoints
-domain/            core logic (ingestion, search, analysis, paper_writer,
-                   encryption, model_manager, ...)
-infrastructure/    llm client, vector store, hardware profiler, file manager
+api/               12 routers: documents, search, graph, analysis, gaps,
+                   encryption, papers, paper_files, models, registry, hf,
+                   system
+domain/            core logic, one package per capability:
+                     ingestion/       pdf_parser, chunker, metadata_extractor
+                     knowledge_base/  embedding_service, repository
+                     search/          semantic search over chunk embeddings
+                     analysis/        summarizer, claim_extractor, theme_clusterer
+                     gap_finder/      gap_pipeline (gaps + suggestions, one call)
+                     paper_writer/    compiler (the largest single module),
+                                      files (a project is a directory; this is
+                                      the boundary around it), indexing
+                                      (generates .ind, since the bundled engine
+                                      runs BibTeX but not makeindex)
+                     encryption/      kdf (argon2), cipher, envelope, vault
+                     model_manager/   registry, router, catalog, manifest,
+                                      reconcile, discovery, downloader,
+                                      huggingface
+                     fine_tuning/     data_collector
+infrastructure/    ollama_client (llm runtime), local_vector_store, hardware,
+                   capability (every hardware-derived decision, from injected
+                   facts), vulkan (what graphics devices exist), acceleration
+                   + accel_download (the optional GPU engine), file_manager,
+                   atomic_io, caches and histories
 frontend/          react 19 + vite spa
-src-tauri/         tauri 2 desktop shell (rust), incl. startup hardware diagnosis
-scripts/           devops only — setup, dev, preflight, build, promote, release
-tools/             developer utilities (gpu checks, fine-tuning, manual e2e)
+                     features.js      every feature declared once; the nav,
+                                      the routes and the brand mark render
+                                      from it
+                     utils/shell.js   sidebar state. A feature at any depth
+                                      calls requestFocus() for room; only the
+                                      logo's own collapse is persisted
+src-tauri/         tauri 2 desktop shell (rust): lib.rs, diagnosis.rs
+scripts/           devops only
+tools/             developer utilities
 tests/             the pytest suite
-docs/              ABOUT (users), FEATURES (reference), ADR (decisions), TEAM
 ```
 
-If you add a script, ask whether it's **devops** (`scripts/`) or a **developer
-utility** (`tools/`). `scripts/` stays small enough to read in one sitting.
+7,377 lines across 51 modules. Small enough to read; do that before guessing.
+
+### Every runtime dependency
+
+This table is the answer to "what does a clean machine need?". It was
+compiled by walking every import and every `subprocess`/`Command::new` call,
+after we shipped a build whose flagship feature needed a package no user had.
+
+**Python — all frozen into the bundle by PyInstaller:**
+
+`argon2` `cryptography` `fastapi` `fitz` (pymupdf) `httpx` `llama_cpp`
+`numpy` `pdfplumber` `psutil` `pydantic` `pydantic_settings` `rank_bm25`
+`sentence_transformers` `torch` `uvicorn`
+
+**Model weights — shipped inside the installer:**
+
+| Asset | Purpose | Bundled |
+|---|---|---|
+| `qwen2.5-0.5b-instruct-q4_k_m.gguf` | general, search, Scribe | yes |
+| `all-MiniLM-L6-v2` | embeddings (ingest + search) | yes |
+| `qwen2.5-1.5b-instruct-q4_k_m.gguf` | analysis, gap finder | no — offered on consent |
+
+**External binaries:**
+
+| Binary | Used by | Status |
+|---|---|---|
+| `tectonic` | paper writer, PDF compilation | **Bundled** (`scripts/fetch-tex.sh`), with a package cache warmed against the writer's whole preamble, so a clean machine compiles offline. A system `pdflatex`/`tectonic` is used only when the bundled one is absent, i.e. source checkouts. |
+| `nvidia-smi` | Rust hardware diagnosis | optional, timeout-guarded; absent simply means "no GPU" |
+| `taskkill` | Rust, Windows shutdown | ships with Windows |
+
+**Every runtime dependency is now shipped.** `nvidia-smi` and `taskkill` are the
+only externals left, and neither is required: one is an optional GPU probe, the
+other is part of Windows.
+
+**If you add a dependency, add it here.** A dependency that exists only in
+`requirements.txt` is invisible to whoever later asks why a fresh install
+fails on someone else's machine.
+
+### Verifying it
+
+`scripts/validate_bundle.py` runs against a built bundle and exercises the
+real paths — ingest (embedding model), search (vector similarity), inference
+(llama.cpp). CI runs it on macOS, Windows and Linux on every build, so a
+dependency that did not ship fails the build rather than reaching a user.
 
 ---
 

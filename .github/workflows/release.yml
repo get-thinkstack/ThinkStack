@@ -1,0 +1,254 @@
+name: Release
+
+# ONE pipeline for every channel. It used to be four near-identical files
+# (release-stable, release-beta, release-on-main, release-on-beta, nightly) that
+# differed only in what started them and how the version was worked out -- the
+# build and publish halves were byte-identical, and two of them even shared a
+# concurrency group, which is what gave the duplication away.
+#
+# What starts a release:
+#
+#     merge into beta  ->  beta channel,    vX.Y.Z   (the tag is created here)
+#     merge into main  ->  stable channel,  vX.Y.Z   (the SAME tag, reused)
+#     the 05:00 cron   ->  nightly channel, rolling, untagged
+#
+# One number, carried through. Beta decides X.Y.Z and records the tag; promoting
+# into main publishes that exact version, so what users install is the number
+# testers ran. There is no -beta.N: the bundle version must be numeric for MSI,
+# so a prerelease suffix was stripped from the binary while the updater manifest
+# kept it, and semver ranks 1.6.7-beta.2 BELOW the 1.6.7 the app reports -- which
+# is why every beta answered "Up to date" and never updated.
+#
+# A MERGE is the decision to release; a tag is the RECORD of what was built.
+# Tags deliberately trigger nothing: when they did, a stray `git push origin
+# v1.2.3` published a stable release to every user without the merge ever being
+# reviewed. The `v*` ruleset still forbids moving or deleting a published tag.
+
+on:
+  push:
+    branches: [beta, main]
+    # Documentation cannot change what gets built, so it must not cost a
+    # three-OS build. Without this, correcting a typo in a README cut a new
+    # version and rebuilt ~1 GB per platform -- about twenty minutes and 2.8 GB
+    # of published assets for a change that alters no shipped byte.
+    #
+    # Deliberately narrow: only prose. Anything under scripts/ or .github/ CAN
+    # change the resulting binary (the bundler, the packaging step, the model
+    # list), so those still build.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - 'THIRD-PARTY-NOTICES.md'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/CODEOWNERS'
+  schedule:
+    - cron: '0 5 * * *'   # 05:00 UTC daily, nightly channel
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'which channel to build'
+        required: true
+        default: 'beta'
+        type: choice
+        options: [beta, stable, nightly]
+      bump:
+        description: 'X/Y are a decision, not a branch name. Required for stable.'
+        required: false
+        default: 'none'
+        type: choice
+        options: [none, minor, major]
+      version:
+        description: 'override the derived version entirely, e.g. 2.1.0'
+        required: false
+        type: string
+      force:
+        description: 'nightly only: build even with no commits today'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+# One publish per channel at a time. _publish-release.yml DELETES the rolling
+# release before re-uploading a clean asset set, so overlapping runs on the same
+# channel can leave a release holding half of each build. Queue rather than
+# cancel: cancelling mid-upload is what produces a partial release.
+concurrency:
+  group: >-
+    release-${{ github.event_name == 'schedule' && 'nightly'
+      || (github.event_name == 'workflow_dispatch' && inputs.channel)
+      || (github.ref_name == 'main' && 'stable')
+      || 'beta' }}
+  cancel-in-progress: false
+
+jobs:
+  decide:
+    runs-on: ubuntu-latest
+    # Never react to a push this repo's own automation made. Nothing does that
+    # today (sync-docs, which pushed back to dev and beta, is gone), and a
+    # GITHUB_TOKEN push cannot trigger a workflow anyway -- but the guard costs
+    # nothing and holds if either of those changes.
+    if: github.actor != 'github-actions[bot]'
+    outputs:
+      channel: ${{ steps.v.outputs.channel }}
+      version: ${{ steps.v.outputs.version }}
+      release: ${{ steps.v.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # next_version.py replays merges and reads tags
+
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OVERRIDE: ${{ inputs.version }}
+          FORCE: ${{ inputs.force }}
+          BUMP: ${{ inputs.bump }}
+          DISPATCH_CHANNEL: ${{ inputs.channel }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # -- which channel? --
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            CH=nightly
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            CH="$DISPATCH_CHANNEL"
+          elif [ "${{ github.ref_name }}" = "main" ]; then
+            CH=stable
+          else
+            CH=beta
+          fi
+          echo "channel=$CH" >> "$GITHUB_OUTPUT"
+          echo "channel: $CH"
+
+          RELEASE=true
+
+          case "$CH" in
+            stable)
+              # An official release bumps X and clears the rest: beta 2.0.2
+              # promotes as 3.0.0. X therefore counts official releases, which
+              # is the coarsest event the scheme has.
+              #
+              # This deliberately REPLACED reusing beta's number. The old
+              # behaviour published exactly what testers ran, which was good
+              # for traceability, but left X moving only via the Y carry at
+              # ten -- so nothing in the number said "this one shipped".
+              #
+              # The build is byte-identical to the beta it came from; only the
+              # label differs. Monotonicity is preserved, which is the property
+              # the updater actually depends on: 3.0.0 > 2.0.2, so every tester
+              # is offered the release rather than being stranded on a number
+              # higher than production's.
+              # An official release states its own bump. There is no default.
+              #
+              # A merge into main used to be enough to publish to every user,
+              # which meant the decision "this is a release, and it is a major
+              # one" was implied by a git operation rather than made. It now
+              # has to be said out loud: run this workflow, choose stable, pick
+              # the bump. A plain push to main builds nothing.
+              #
+              # The cost is one extra step for the rarest event in the project.
+              # The thing it buys is that nobody ships to production by
+              # merging.
+              if [ -n "$OVERRIDE" ]; then
+                V="$OVERRIDE"
+              elif [ -z "${BUMP:-}" ] || [ "${BUMP:-none}" = "none" ]; then
+                echo "::error::a stable release must declare its bump."
+                echo "::error::run this workflow with channel=stable and bump=minor or major."
+                echo "::error::merging into main does not publish on its own, by design."
+                exit 1
+              else
+                V="$(python3 scripts/next_version.py --bump "$BUMP")"
+                echo "declared $BUMP release -> $V"
+              fi
+              if gh release view "v$V" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+                echo "v$V is already published as a stable release"
+                RELEASE=false
+              fi
+              ;;
+
+            beta)
+              # Beta carries a plain X.Y.Z. There is deliberately no -beta.N.
+              #
+              # MSI/WiX requires a numeric ProductVersion, so the bundle strips
+              # any prerelease suffix -- while the updater manifest kept the
+              # full string. Semver then ranked the advertised "1.6.7-beta.2"
+              # BELOW the "1.6.7" the installed app reported, so the updater
+              # offered nothing and every beta build said "Up to date". Keeping
+              # one plain number on both sides is what makes updates work.
+              # Z advances on its own for anything that landed. X and Y move
+              # only when a human says so, by running this workflow with a
+              # bump -- deciding that a set of landings amounts to a minor
+              # version is editorial, and a branch prefix cannot make that
+              # judgement.
+              if [ -n "$OVERRIDE" ]; then
+                V="$OVERRIDE"
+              elif [ "${BUMP:-none}" != "none" ]; then
+                V="$(python3 scripts/next_version.py --bump "$BUMP")"
+                echo "declared $BUMP bump -> $V"
+              else
+                V="$(python3 scripts/next_version.py --next --explain)"
+              fi
+              if git rev-parse "v$V" >/dev/null 2>&1; then
+                echo "v$V is already built; nothing that moves the version has landed"
+                RELEASE=false
+              fi
+              ;;
+
+            nightly)
+              # No point rebuilding an identical tree.
+              if [ "$FORCE" != "true" ] \
+                 && [ -z "$(git log --since='24 hours ago' --oneline)" ]; then
+                echo "no commits in the last 24h -- skipping nightly"
+                RELEASE=false
+              fi
+              BASE="$(jq -r '.version' src-tauri/tauri.conf.json)"
+              V="${BASE}-nightly.$(date -u +%Y%m%d).$(git rev-parse --short HEAD)"
+              ;;
+          esac
+
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "release=$RELEASE" >> "$GITHUB_OUTPUT"
+          echo "version: $V (release=$RELEASE)"
+
+      # Nightly is rolling and deliberately untagged: it republishes the same
+      # release every day, so a version tag per night would be noise.
+      - name: Record the build as a tag
+        if: steps.v.outputs.release == 'true' && steps.v.outputs.channel != 'nightly'
+        shell: bash
+        run: |
+          V='${{ steps.v.outputs.version }}'
+          if git rev-parse "v$V" >/dev/null 2>&1; then
+            echo "v$V already recorded (beta created it); reusing it"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$V" -m "ThinkStack v$V"
+          git push origin "v$V"
+          echo "tagged v$V"
+
+  build:
+    needs: decide
+    if: needs.decide.outputs.release == 'true'
+    uses: ./.github/workflows/_build-desktop.yml
+    with:
+      channel: ${{ needs.decide.outputs.channel }}
+      version: ${{ needs.decide.outputs.version }}
+    # inherit passes every repo secret through, so adding a new signing/notary
+    # secret later needs no edit here.
+    secrets: inherit
+
+  publish:
+    needs: [decide, build]
+    if: needs.decide.outputs.release == 'true'
+    uses: ./.github/workflows/_publish-release.yml
+    with:
+      channel: ${{ needs.decide.outputs.channel }}
+      version: ${{ needs.decide.outputs.version }}
+    secrets: inherit

@@ -21,6 +21,26 @@ def ensure_directories() -> None:
         directory.mkdir(parents=True, exist_ok=True)
         logger.info("ensured directory: %s", directory)
     seed_bundled_models()
+    _reconcile_model_registry()
+
+
+def _reconcile_model_registry() -> None:
+    """bring the model registry in line with what this build ships.
+
+    Runs after seeding so the weights are already in the writable dir. Kept
+    separate from ``seed_bundled_models`` because seeding is a file operation
+    and this is a bookkeeping one: it records what is available, retires what
+    this build supersedes, and honours a user who removed the bundled model.
+
+    Best-effort by design -- ``reconcile_and_save`` swallows its own errors, so
+    a damaged registry degrades to "no user models" rather than blocking start.
+    """
+    try:
+        from domain.model_manager.reconcile import reconcile_and_save
+
+        reconcile_and_save(settings.models_dir, settings.bundled_models_dir)
+    except Exception as e:  # noqa: BLE001 - never let bookkeeping kill startup
+        logger.warning("could not reconcile the model registry: %s", e)
 
 
 def seed_bundled_models() -> None:

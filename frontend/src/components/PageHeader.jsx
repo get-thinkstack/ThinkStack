@@ -9,8 +9,13 @@
  *
  * pass action buttons as children - they align to the title baseline on the
  * right, replacing the ad-hoc per-page header markup (and its alignment bugs).
+ *
+ * There is no subtitle. A sentence explaining the page is worth reading once
+ * and was then occupying a strip of every screen forever -- which Scribe needs
+ * for its editor and preview to have half the height each. That copy now lives
+ * in features.js and is shown by the "i" in the bottom-left corner.
  */
-export default function PageHeader({ title, subtitle, className = '', children }) {
+export default function PageHeader({ title, className = '', children }) {
   return (
     <div className={`page-header ${className}`.trim()}>
       <div className="page-header-left">
@@ -29,7 +34,6 @@ export default function PageHeader({ title, subtitle, className = '', children }
             />
           </svg>
         </h2>
-        {subtitle && <p>{subtitle}</p>}
       </div>
       {children}
     </div>

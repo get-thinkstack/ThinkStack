@@ -5,7 +5,7 @@
  * with consistent error handling and response parsing.
  */
 
-import { useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 
 const BASE_URL = '/api';
 
@@ -47,6 +47,58 @@ export function useLlmBusy() {
     llmBusyStore.getSnapshot,
   );
   return { busy: snap.count > 0, label: snap.label };
+}
+
+/**
+ * Background analysis progress, polled from the server.
+ *
+ * Distinct from `useLlmBusy`, which only knows about calls THIS tab started.
+ * Ingest-time analysis is queued server-side and outlives the request that
+ * triggered it, so the only way to know it is running is to ask.
+ *
+ * Polls slowly and only while there is something to report — an idle app makes
+ * one request every 5 s, and a busy one every 1.5 s, which is well inside the
+ * granularity of jobs measured in tens of seconds.
+ *
+ * @returns {{active: boolean, label: string, done: number, total: number,
+ *            queued: number, error: string}}
+ */
+export function useJobs() {
+  const [state, setState] = useState({
+    active: false, label: '', done: 0, total: 0, queued: 0, error: '',
+  });
+
+  useEffect(() => {
+    let alive = true;
+    let timer = null;
+
+    const tick = async () => {
+      try {
+        const s = await systemApi.jobs();
+        if (!alive) return;
+        const active = !!s.running || s.queued > 0;
+        setState({
+          active,
+          label: s.label || '',
+          done: s.done || 0,
+          total: s.total || 0,
+          queued: s.queued || 0,
+          error: s.last_error || '',
+        });
+        timer = setTimeout(tick, active ? 1500 : 5000);
+      } catch {
+        // The backend may still be starting, or already gone. Back off rather
+        // than hammering it, and never surface this as a user-facing error —
+        // failing to read a progress bar is not something to interrupt for.
+        if (alive) timer = setTimeout(tick, 5000);
+      }
+    };
+
+    tick();
+    return () => { alive = false; if (timer) clearTimeout(timer); };
+  }, []);
+
+  return state;
 }
 
 async function request(path, options = {}) {
@@ -101,14 +153,38 @@ export const documentsApi = {
   get: (docId) => request(`/documents/${docId}`),
 
   delete: (docId) => request(`/documents/${docId}`, { method: 'DELETE' }),
+
+  /** the originally uploaded pdf, served inline for the litgraph reader */
+  pdfUrl: (docId) => `${BASE_URL}/documents/${docId}/pdf`,
 };
 
 export const searchApi = {
+  /** ranked chunks, best passage first */
   search: (query, topK = 10, docIds = []) =>
     request('/search', {
       method: 'POST',
       body: { query, top_k: topK, doc_ids: docIds },
     }),
+
+  /**
+   * the same search rolled up to papers, each carrying every chunk of its
+   * that matched. the canvas asks "which papers does this touch, and where
+   * in each", which a flat chunk list cannot answer.
+   */
+  papers: (query, topK = 20, docIds = []) =>
+    request('/search', {
+      method: 'POST',
+      body: { query, top_k: topK, doc_ids: docIds, group_by_doc: true },
+    }),
+};
+
+/**
+ * The library graph. Derived on every request from embeddings, the analysis
+ * cache and past runs -- there is no graph state to invalidate, so this is
+ * simply re-fetched whenever the library or a run changes.
+ */
+export const graphApi = {
+  get: () => request('/graph'),
 };
 
 export const analysisApi = {
@@ -157,8 +233,25 @@ export const systemApi = {
   health: () => request('/system/health'),
   models: () => request('/system/models'),
   stats: () => request('/system/stats'),
+  jobs: () => request('/system/jobs'),
   setModel: (model) =>
     request('/system/model', { method: 'POST', body: { model } }),
+  // POST, not GET: it discards the cached hardware profile and looks again.
+  // Reads nothing the user owns and changes no setting.
+  diagnose: () => request('/system/diagnose', { method: 'POST' }),
+
+  /**
+   * Graphics acceleration.
+   *
+   * One call returns the devices the driver exposes, whether an offer exists
+   * and what it costs, and any install in flight -- so the Bench card can never
+   * render two halves that disagree with each other.
+   */
+  acceleration: () => request('/system/acceleration'),
+  enableAcceleration: () => request('/system/acceleration/enable', { method: 'POST' }),
+  cancelAcceleration: () => request('/system/acceleration/cancel', { method: 'POST' }),
+  disableAcceleration: () => request('/system/acceleration/disable', { method: 'POST' }),
+  accelerationProgress: () => request('/system/acceleration/progress'),
 };
 
 /**
@@ -177,6 +270,107 @@ export const modelsApi = {
     request('/models/download', { method: 'POST', body: { name } }),
   downloadStatus: () => request('/models/download/status'),
   cancelDownload: () => request('/models/download/cancel', { method: 'POST' }),
+};
+
+/**
+ * The model registry: what this install has, and what each model is used for.
+ *
+ * Every mutating call returns a fresh `snapshot` alongside its own result, so
+ * the UI re-renders from one authoritative payload instead of stitching a
+ * local guess onto the previous state. Removing a model changes what every
+ * OTHER card says (a task may now be uncovered), and optimistic updates would
+ * show a view that never actually existed on the server.
+ */
+export const registryApi = {
+  get: () => request('/models/registry'),
+  import: (path, tasks, label = '') =>
+    request('/models/registry/import', { method: 'POST', body: { path, tasks, label } }),
+  update: (id, body) =>
+    request(`/models/registry/${encodeURIComponent(id)}`, { method: 'PATCH', body }),
+  // deleteFile is opt-in: forgetting a model and destroying several GB of
+  // weights are different intentions, and only one of them is reversible.
+  // `${!!deleteFile}` renders true/false with no quotes on purpose: quotes
+  // inside the template literal break the api-contract test's parser, which
+  // scans this file to prove every caller hits a real route.
+  remove: (id, deleteFile = false) =>
+    request(`/models/registry/${encodeURIComponent(id)}?delete_file=${!!deleteFile}`, {
+      method: 'DELETE',
+    }),
+};
+
+/**
+ * Hugging Face. The ONLY part of this client that reaches the internet.
+ *
+ * Every call here is the direct result of a click -- there is deliberately no
+ * prefetch and no search-as-you-type, because an offline-first app that fires
+ * a remote request on every keystroke is not one.
+ */
+export const hfApi = {
+  search: (q, limit = 20) =>
+    request(`/hf/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+  repo: (repoId) => {
+    const [owner, name] = String(repoId).split('/');
+    return request(`/hf/repo/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`);
+  },
+  download: (repoId, filename, tasks = []) =>
+    request('/hf/download', {
+      method: 'POST',
+      body: { repo_id: repoId, filename, tasks },
+    }),
+};
+
+/**
+ * The files inside a paper project.
+ *
+ * A project has always been a directory; until now `main.tex` was the only
+ * thing in it anything could reach, which is why `\includegraphics{chart.png}`
+ * failed -- the compiler already runs with the project directory as its working
+ * directory, so the relative path was right and the file simply was not there.
+ *
+ * Every mutating call returns the whole `files` listing alongside its own
+ * result, so the tree re-renders from one authoritative payload. A rename
+ * changes a path the editor may have open and a delete can remove it entirely;
+ * patching a local guess would show a tree that never existed on disk.
+ */
+export const projectFilesApi = {
+  list: (projectId) => request(`/papers/projects/${projectId}/files`),
+
+  read: (projectId, path) =>
+    request(`/papers/projects/${projectId}/files/content?path=${encodeURIComponent(path)}`),
+
+  write: (projectId, path, content) =>
+    request(`/papers/projects/${projectId}/files/content`, {
+      method: 'PUT',
+      body: { path, content },
+    }),
+
+  /** the URL a figure can be rendered from, straight off disk */
+  rawUrl: (projectId, path) =>
+    `${BASE_URL}/papers/projects/${projectId}/files/raw?path=${encodeURIComponent(path)}`,
+
+  upload: (projectId, file, dest = '') => {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('dest', dest);
+    return request(`/papers/projects/${projectId}/files/upload`, {
+      method: 'POST',
+      body: form,
+    });
+  },
+
+  mkdir: (projectId, path) =>
+    request(`/papers/projects/${projectId}/files/folder`, { method: 'POST', body: { path } }),
+
+  move: (projectId, src, dst) =>
+    request(`/papers/projects/${projectId}/files/move`, { method: 'POST', body: { src, dst } }),
+
+  copy: (projectId, src, dst) =>
+    request(`/papers/projects/${projectId}/files/copy`, { method: 'POST', body: { src, dst } }),
+
+  remove: (projectId, path) =>
+    request(`/papers/projects/${projectId}/files?path=${encodeURIComponent(path)}`, {
+      method: 'DELETE',
+    }),
 };
 
 export const encryptionApi = {
@@ -205,6 +399,11 @@ export const papersApi = {
   create: (name) =>
     request('/papers/projects', { method: 'POST', body: { name } }),
 
+  // Only the display name. The directory is named after the project id, so a
+  // rename cannot break a compile, a PDF preview, or an \includegraphics path.
+  rename: (projectId, name) =>
+    request(`/papers/projects/${projectId}`, { method: 'PATCH', body: { name } }),
+
   get: (projectId) => request(`/papers/projects/${projectId}`),
 
   save: (projectId, source) =>
@@ -213,13 +412,16 @@ export const papersApi = {
       body: { project_id: projectId, source },
     }),
 
-  generate: (projectId, prompt, currentSource = '', { docIds = [], analysisContext = '' } = {}) =>
+  generate: (projectId, prompt, currentSource = '', { docIds = [], analysisContext = '', cursor = null } = {}) =>
     llmRequest('Generating LaTeX', '/papers/generate', {
       method: 'POST',
       body: {
         project_id: projectId,
         prompt,
         current_source: currentSource,
+        // where the author is working, so the model is shown that part of the
+        // document rather than its opening
+        cursor,
         doc_ids: docIds,
         analysis_context: analysisContext,
       },

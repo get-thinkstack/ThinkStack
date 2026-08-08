@@ -7,10 +7,16 @@ embeddings and metadata for efficient vector search.
 """
 
 import logging
+from typing import TYPE_CHECKING
 
 from infrastructure.local_vector_store import get_vector_store
 from domain.knowledge_base.embedding_service import generate_embeddings
 from domain.ingestion.models import TextChunk, DocumentMetadata
+
+if TYPE_CHECKING:
+    # numpy stays a deferred import at the one call site that needs it; this is
+    # only so the "np.ndarray" annotation below resolves for linters.
+    import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +117,48 @@ def get_all_doc_ids() -> list[str]:
             doc_ids.add(meta["doc_id"])
 
     return sorted(doc_ids)
+
+
+def get_doc_centroids(doc_ids: list[str] | None = None) -> tuple[list[str], "np.ndarray"]:
+    """mean embedding per document, as (ids, matrix of shape (n, d)).
+
+    a document's centroid is the cheapest honest summary of what it is about:
+    it already exists (written at ingest), it costs no model call, and cosine
+    between two of them is a far better similarity signal than asking a small
+    model to eyeball two text excerpts.
+
+    args:
+        doc_ids: restrict to these documents. None means every document.
+
+    returns:
+        (ids, centroids) aligned by index. documents with no stored vectors are
+        dropped rather than given a zero row -- a zero row would sit at the
+        origin and claim similarity to everything else parked there.
+    """
+    import numpy as np
+
+    got = get_vector_store().get_embeddings()
+    if got["embeddings"] is None or len(got["ids"]) == 0:
+        return [], np.empty((0, 0), dtype=np.float32)
+
+    wanted = set(doc_ids) if doc_ids else None
+    embeddings = np.asarray(got["embeddings"], dtype=np.float32)
+
+    order: list[str] = []
+    rows: dict[str, list] = {}
+    for i, meta in enumerate(got["metadatas"]):
+        doc_id = (meta or {}).get("doc_id")
+        if not doc_id or (wanted is not None and doc_id not in wanted):
+            continue
+        if doc_id not in rows:
+            rows[doc_id] = []
+            order.append(doc_id)
+        rows[doc_id].append(embeddings[i])
+
+    if not order:
+        return [], np.empty((0, 0), dtype=np.float32)
+
+    return order, np.vstack([np.mean(rows[d], axis=0) for d in order])
 
 
 def get_collection_stats() -> dict:

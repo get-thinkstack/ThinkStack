@@ -7,25 +7,52 @@ and startup/shutdown lifecycle events.
 """
 
 import logging
+import sys
 from contextlib import asynccontextmanager
+
+# ── before anything imports llama.cpp ───────────────────────────────────────
+# Two things have to happen at the very top of this file, ahead of every other
+# import, because both are about which shared library llama.cpp will load and
+# that is decided the first time it is imported.
+#
+# 1. The probe. A separate process asks whether downloaded GPU libraries can
+#    actually load. It has to answer and exit before the application exists,
+#    since the whole point is that it is allowed to crash where the backend is
+#    not.
+# 2. The override. If a previous activation was verified, LLAMA_CPP_LIB_PATH is
+#    set now -- llama_cpp reads it at import, and every import of it in this
+#    codebase is inside a function, so this is early enough.
+from config import settings  # noqa: E402  - must precede the accel import
+from infrastructure import acceleration  # noqa: E402
+
+if acceleration.PROBE_FLAG in sys.argv:
+    _i = sys.argv.index(acceleration.PROBE_FLAG)
+    _dir = sys.argv[_i + 1] if len(sys.argv) > _i + 1 else ""
+    raise SystemExit(acceleration.run_probe(_dir))
+
+acceleration.apply_override(settings.data_dir)
+# ────────────────────────────────────────────────────────────────────────────
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from config import settings
 from infrastructure.file_manager import ensure_directories
+from infrastructure.jobs import job_queue
 from infrastructure.local_vector_store import get_vector_store
 from api.routes_documents import router as documents_router
 from api.routes_search import router as search_router
+from api.routes_graph import router as graph_router
 from api.routes_analysis import router as analysis_router
 from api.routes_gaps import router as gaps_router
 from api.routes_system import router as system_router
-from api.routes_chat import router as chat_router
 from api.routes_encryption import router as encryption_router
 from api.routes_papers import router as papers_router
+from api.routes_paper_files import router as paper_files_router
 from api.routes_models import router as models_router
+from api.routes_hf import router as hf_router
+from api.routes_registry import router as registry_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,9 +67,13 @@ async def lifespan(app: FastAPI):
     logger.info("initializing thinkstack")
     ensure_directories()
     get_vector_store()
+    # started here rather than at import so the worker binds to the loop that
+    # actually serves requests.
+    job_queue.start()
     logger.info("thinkstack ready at http://%s:%s", settings.host, settings.port)
     yield
     logger.info("shutting down thinkstack")
+    await job_queue.stop()
 
 
 app = FastAPI(
@@ -62,20 +93,66 @@ app.add_middleware(
 
 app.include_router(documents_router, prefix="/api/documents", tags=["documents"])
 app.include_router(search_router, prefix="/api/search", tags=["search"])
+app.include_router(graph_router, prefix="/api/graph", tags=["graph"])
 app.include_router(analysis_router, prefix="/api/analysis", tags=["analysis"])
 app.include_router(gaps_router, prefix="/api/gaps", tags=["gaps"])
 app.include_router(system_router, prefix="/api/system", tags=["system"])
-app.include_router(chat_router, prefix="/api/chat", tags=["chat"])
 app.include_router(encryption_router, prefix="/api/encryption", tags=["encryption"])
 app.include_router(papers_router, prefix="/api/papers", tags=["papers"])
+# The files inside a project. Same prefix on purpose: a project's files are part
+# of the project, not a separate resource.
+app.include_router(paper_files_router, prefix="/api/papers", tags=["papers"])
 app.include_router(models_router, prefix="/api/models", tags=["models"])
+# the registry shares the /api/models prefix on purpose: it is the same
+# resource, split across two modules because setup and management are
+# different jobs with different consequences.
+app.include_router(registry_router, prefix="/api/models", tags=["models"])
+# The ONLY routes that reach the internet, kept under their own prefix so
+# that is obvious from the URL alone.
+app.include_router(hf_router, prefix="/api/hf", tags=["huggingface"])
 
 frontend_dist = settings.base_dir / "frontend" / "dist"
+
+# Caching rules for the bundled UI, and why they are not optional.
+#
+# The desktop shell is a WebKit view pointed at http://127.0.0.1:8000, and it
+# keeps an HTTP cache that OUTLIVES the application: updating the app replaces
+# the binary, not the webview's cache. Nothing here sent any cache header, so
+# WebKit applied *heuristic* freshness -- with no Cache-Control it may reuse a
+# response for a fraction of its age without revalidating at all.
+#
+# index.html is the file that breaks: its name never changes, so a stale copy
+# keeps referencing the PREVIOUS build's asset filenames. An updated app then
+# renders the old UI, reports the old __APP_VERSION__ in the sidebar, and looks
+# for all the world like the update never installed. That is exactly what was
+# reported after 1.6.8 shipped -- a freshly downloaded build still showing
+# v1.6.7 and the old two-button Analysis screen.
+#
+# Vite content-hashes everything under /assets (index-B4FzKC14.js), so a new
+# build is always a new URL and can never be served stale. Those are safe to
+# cache permanently; index.html must never be cached.
+INDEX_CACHE = "no-store, no-cache, must-revalidate, max-age=0"
+ASSET_CACHE = "public, max-age=31536000, immutable"
+
+
+class _ImmutableAssets(StaticFiles):
+    """StaticFiles for content-hashed bundles: cache forever, safely."""
+
+    def is_not_modified(self, response_headers, request_headers) -> bool:
+        response_headers.setdefault("cache-control", ASSET_CACHE)
+        return super().is_not_modified(response_headers, request_headers)
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        response.headers.setdefault("cache-control", ASSET_CACHE)
+        return response
+
+
 if frontend_dist.exists() and (frontend_dist / "index.html").exists():
     # serve hashed build assets directly
     assets_dir = frontend_dist / "assets"
     if assets_dir.exists():
-        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+        app.mount("/assets", _ImmutableAssets(directory=str(assets_dir)), name="assets")
 
     @app.get("/{full_path:path}")
     async def spa(full_path: str):
@@ -89,8 +166,15 @@ if frontend_dist.exists() and (frontend_dist / "index.html").exists():
             raise HTTPException(status_code=404, detail="not found")
         candidate = frontend_dist / full_path
         if full_path and candidate.is_file():
-            return FileResponse(str(candidate))
-        return FileResponse(str(frontend_dist / "index.html"))
+            # A hashed asset can be cached forever; anything else (favicon,
+            # manifest, and index.html itself) must not be, because its name
+            # is stable across builds.
+            cache = ASSET_CACHE if full_path.startswith("assets/") else INDEX_CACHE
+            return FileResponse(str(candidate), headers={"Cache-Control": cache})
+        return FileResponse(
+            str(frontend_dist / "index.html"),
+            headers={"Cache-Control": INDEX_CACHE},
+        )
 
 if __name__ == "__main__":
     import argparse

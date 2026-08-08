@@ -70,10 +70,13 @@ class Settings(BaseSettings):
     # value above.
     llm_auto_ctx: bool = True
 
-    # generation defaults for interactive chat (kept small for low latency)
-    chat_max_tokens: int = 512
-    chat_context_chunks: int = 5
-    chat_context_char_budget: int = 3000
+    # retrieval grounding: how much of the user's library to show a model
+    # before it writes. bounded because the local context window is small --
+    # an unbounded block pushes out the instructions and the room to answer.
+    # (named chat_* until the chat feature was scrapped; the retrieval it used
+    # is now shared, and lives in domain/search/grounding.py)
+    grounding_context_chunks: int = 5
+    grounding_char_budget: int = 3000
 
     # ollama (optional fallback runtime)
     ollama_base_url: str = "http://localhost:11434"
@@ -92,6 +95,21 @@ class Settings(BaseSettings):
     # `is_dir()` was always False and a packaged, offline build silently fell
     # through to a HuggingFace download it could never complete.
     bundled_embedding_dir: Path = BUNDLE_DIR / "data" / "models" / "all-MiniLM-L6-v2"
+
+    # TeX engine. We ship Tectonic (a single self-contained binary) plus a
+    # pre-warmed package cache, so the paper writer compiles on a machine with
+    # no LaTeX installed -- which is every machine that is not a developer's.
+    # A system pdflatex/tectonic is still used when the bundled one is absent
+    # (source checkouts).
+    # Under data/ so the one path works in both modes, exactly like the models
+    # above: in a source checkout BUNDLE_DIR is the repo root (data/tex), and in
+    # a frozen build PyInstaller stages it to _internal/data/tex. Getting this
+    # wrong is how the embedding model ended up looking in a directory that is
+    # never built.
+    bundled_tex_dir: Path = BUNDLE_DIR / "data" / "tex"
+    # Tectonic needs its cache writable, and the bundle is read-only, so the
+    # shipped cache is seeded into here on first use -- same pattern as models.
+    tex_cache_dir: Path = STATE_DIR / "texcache"
 
     # chunking
     chunk_size: int = 512

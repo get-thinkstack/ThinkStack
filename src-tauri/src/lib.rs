@@ -19,6 +19,16 @@ use tauri::{AppHandle, Emitter, Manager};
 
 mod diagnosis;
 
+// tauri.conf.json's frontendDist points at frontend/public -- the LOADING
+// SCREEN only, not the application. The window opens loading.html, then
+// navigates here once the backend answers, and the backend serves the real UI
+// from the copy PyInstaller bundled.
+//
+// It used to point at frontend/dist, which embedded the whole SPA a second
+// time: 872 KB of dead weight in every installer, and two copies of the
+// interface that could disagree about what they were. tauri.conf.json cannot
+// hold a comment (it rejects unknown fields), so the reason lives here, next
+// to the address that makes the embedded copy unnecessary.
 const BACKEND_ADDR: &str = "127.0.0.1:8000";
 
 /// How long to wait for the backend socket before declaring the launch failed.
@@ -221,6 +231,22 @@ fn scrub_python_env(cmd: &mut Command) {
     ] {
         cmd.env_remove(key);
     }
+
+    // Keep the working directory off sys.path.
+    //
+    // nltk 3.10.1 added a security hook that REFUSES to import xml.etree when
+    // the current directory is importable, and the frozen backend imports nltk
+    // during startup. The result was "Blocked import of xml.etree from current
+    // working directory", the process died before serving anything, and every
+    // platform failed identically -- from a dependency release, with no change
+    // on our side.
+    //
+    // The backend never needs the working directory on its path: PyInstaller
+    // resolves its modules from the bundle. Setting this makes that explicit
+    // and closes the whole class of "something in the CWD shadowed a stdlib
+    // module", which is also how a stray file next to the app could hijack an
+    // import.
+    cmd.env("PYTHONSAFEPATH", "1");
 }
 
 fn apply_inference_env(cmd: &mut Command) {
@@ -532,6 +558,12 @@ pub fn run() {
 
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        // Native file dialog. Bench uses it to let the user point at a .gguf
+        // they already have: the UI is served over http, so a webview file
+        // input hands back a File with no filesystem path -- and the whole
+        // point of importing is to REFERENCE weights where they sit rather
+        // than copy several gigabytes through the backend.
+        .plugin(tauri_plugin_dialog::init())
         .manage(StartupLog::default())
         .invoke_handler(tauri::generate_handler![startup_log]);
 

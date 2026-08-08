@@ -44,12 +44,23 @@
     }
   ],
   "models": [
-    "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf"
+    {
+      "url": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+      "id": "qwen2-5-0-5b-instruct-q4-k-m",
+      "label": "Qwen2.5 0.5B",
+      "tasks": [
+        "general",
+        "gap_analysis",
+        "latex_writer"
+      ],
+      "replaces": []
+    }
   ],
   "supply_chain": {
     "checksums": true,
     "sbom": true,
     "provenance": true
   },
-  "$comment_models": "Only the BASELINE model ships inside the installer, so a fresh install works offline immediately without a download. Heavier models are optional: the app detects what the machine can run, checks whether an equivalent is already present (ThinkStack, Ollama or LM Studio), and only then asks permission to fetch one. Adding a model here puts it back in the installer - keep in step with domain/model_manager/catalog.py, and mind GitHub's 2 GiB asset limit."
+  "$comment_models": "ONE bundled model, chosen by measurement rather than by spec sheet. A bake-off on the two flagship jobs -- gap finding under the GBNF grammar, and LaTeX through the plain-text path Scribe actually uses -- ranked this first among Qwen3 0.6B, Gemma 3 1B and Llama 3.2 1B. NEVER bundle a reasoning model (Qwen3, DeepSeek-R1, QwQ): the grammar permits only JSON from the first token, leaving their <think> block nowhere to go, and they return an empty object that parses perfectly. tests/test_model_manager.py guards this. `replaces` is empty because this IS what shipped before; set it when the model changes, or existing installs keep both.",
+  "$comment_rolling": "The rolling tags are named after their channel, and deliberately match the branch names. Renaming them to beta-latest/nightly-latest split the download path in production: the new build published to beta-latest while the /beta/ landing page, which is generated from MAIN's copy of this file, still wrote /releases/download/beta/ links -- so testers downloaded the previous build. The branch/tag ambiguity these names cause is a developer inconvenience; handing testers the wrong binary is not. Tags no longer trigger any workflow, so the ambiguity costs much less than it did."
 }

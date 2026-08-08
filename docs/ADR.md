@@ -198,7 +198,296 @@ fails silently when offline.
 **rationale:** the product's entire claim is that nothing leaves the device. an unprompted request to github on every launch contradicts that even though it carries no user data - a user watching their firewall would see an "offline" research tool calling home, and would be right to distrust the rest of the claim. the cost is that a user who never presses the button never updates; that is the correct trade for this product, and the button reporting "Up to date" makes the state visible rather than implicit. a silent variant of the checker was deleted rather than left unused, because leaving it in invites re-adding the launch-time call.
 **status:** accepted.
 
+## 2026-08-01: litgraph replaces search, analysis and gap finder
+**decision:** collapse the search, analysis and gap-finder pages into a single spatial canvas, and rename the remaining sections. the app is now three: bibliotekh (collect), litgraph (understand), scribe (write).
+**rationale:** the three pages were three views onto one question -- what is in this collection, and what is missing from it -- and splitting them across three routes pushed the joins into the user's head: which paper a claim came from, which papers a gap was about, whether a "theme" and a "cluster" were the same thing. on a canvas those joins are drawn instead of remembered: position is meaning, edges are similarity, hulls are themes, amber nodes are gaps with dashed edges to their evidence. the decisive part is that the map becomes the *selector* -- lasso a region or run a search and that set is what every analysis action operates on, so choosing papers and seeing why you chose them are one gesture rather than a checkbox list on another page. cost: it is a large surface with more state than three simple pages, and the old routes had to keep redirecting because a desktop shell makes a stale deep link a dead end.
+**status:** accepted.
+
+## 2026-08-01: search is purely semantic; bm25 and rrf removed
+**decision:** delete `hybrid_search.py` and `keyword_search.py`, drop the `rank-bm25` dependency, and rank search results by cosine similarity alone -- plus a small exact-token bonus. sweep every chunk in the corpus rather than a `top_k` candidate pool, and add a per-paper rollup.
+**rationale:** the fused ranking undercut the thing semantic search exists for. a paraphrase query that shares no vocabulary with the passage answering it was routinely out-ranked by lexically similar noise, because rrf merges by rank position and bm25 always has an opinion. worse, each leg only ever saw `top_k` chunks, so there was no full-corpus sweep at all and a passage deep in a long paper could not be reached. the one thing bm25 was genuinely better at -- rare literal tokens like `FedAvg` or an author surname -- is preserved by adding `0.05 x (fraction of query tokens present verbatim)` *after* the cosine score: it can break a near-tie upward but cannot lift a lexical match over a genuinely better semantic one. the rollup groups surviving chunks by paper, keeping every match rather than the best one, because the canvas asks "which papers does this touch, and where in each" rather than "which passage wins".
+**tradeoff:** every query now scores every chunk. that is what makes the search exhaustive, and it is cheap at a few thousand chunks; an ann index is the upgrade if collections grow much larger.
+**status:** accepted.
+
 ## 2026-07-30: the model prompt records what was answered, not that it was answered
 **decision:** `ModelSetup` stores `{outcome, model, at}` instead of `dismissed=true`, treats declining and installing as different answers, only stays quiet about the *specific* model already answered for, and can be reopened from a sidebar button. the legacy boolean is dropped on read rather than honoured.
 **rationale:** the boolean silenced the dialog permanently, for every future model, with no way back from inside the app - and it lives in the webview's localStorage under the app identifier, so reinstalling did not clear it. a tester who clicked "Not now" once would never be offered anything again and would reasonably report that the app never asked; that is exactly what happened during v1.0.0 validation. recording the model name means a later, different suggestion is still asked about, and the sidebar entry makes the decision reversible. the legacy flag is dropped because it carries no record of *what* was declined, so honouring it would mean silencing every future model on the strength of one click that was probably the bug.
 **status:** accepted.
+
+## 2026-08-05: models are a registry the user owns, not a hardcoded table
+
+**Context.** The catalog was a frozen tuple of two specs and routing was a
+dict of hardcoded filenames read at import. A researcher who already had
+suitable weights — via Ollama, LM Studio, or a previous download — had no way
+to tell ThinkStack to use them, and no way to see why a job had chosen one
+model over another.
+
+**Decision.** A writable registry (`domain/model_manager/registry.py`) records
+every model available to the install and which jobs each may do, persisted
+through `atomic_io`. A router (`router.py`) answers which model serves a task,
+with every dependency passed in rather than imported.
+
+**Consequences.**
+- Routing is testable against fabricated hardware with no llama.cpp present.
+  It was previously reachable only by constructing a real client.
+- Two invariants carry the safety: `managed` (did ThinkStack create this file?)
+  gates deletion, and `user_assigned` (did a human choose these tasks?) stops
+  an update silently undoing someone's routing.
+- An empty registry reproduces the previous routing exactly, which is what made
+  the extraction safe to land mid-beta.
+
+## 2026-08-05: imported models are referenced, never copied
+
+**Context.** Model weights run to several gigabytes, and ThinkStack targets
+machines already chosen for being memory-constrained.
+
+**Decision.** Importing records an absolute path. The file is never copied into
+ThinkStack's own directory.
+
+**Consequences.** A 7 GB import costs no additional disk. The cost accepted is
+that the app depends on a path it does not own: the file can move or vanish,
+so entries are validated on read and shown as `missing` rather than failing at
+generation time. Nothing outside ThinkStack's own directory is ever deleted.
+
+## 2026-08-05: suggestions consider compute, not only memory
+
+**Context.** A machine with 20 GB free and no usable GPU was told to download a
+3B model. It would have loaded and then taken minutes per summary.
+
+**Decision.** `runs_well_on(gpu_gb)` gates suggestions on whether the model can
+be offloaded to a GPU the *engine* can use. Without that, size is capped at
+`CPU_COMFORTABLE_GB` (1.2 GB) regardless of available memory.
+
+**Consequences.** The same catalog produces different advice on different
+machines. Large models are still listed and still downloadable, marked "will be
+slow without acceleration" — shown rather than hidden, because a user with a
+reason to want one should be able to have it, and should not discover the cost
+after the download.
+
+## 2026-08-05: never bundle a reasoning model
+
+**Context.** Qwen3 0.6B was selected as a lighter, newer baseline. Every
+structural check passed — verified URL, correct size, valid GGUF, parseable
+output — and it returned `{}` for gap finding.
+
+**Decision.** Reasoning families (Qwen3, DeepSeek-R1, QwQ, Marco-o1) are
+rejected as the bundled model, enforced by tests over both `catalog.py` and
+`release.config.json`.
+
+**Consequences.** `generate_json` constrains output with a GBNF grammar that
+permits only JSON from the first token, leaving a reasoning model's `<think>`
+block nowhere to go. It emits the shortest legal document instead: `{}`.
+`json.loads` succeeds, so nothing downstream notices. The baseline is now
+chosen by measured behaviour on the two flagship jobs, not by size or recency.
+
+## 2026-08-07: graphics acceleration is offered, not shipped
+
+**Context.** ThinkStack ships a processor-only build of llama.cpp. A tester with
+an RTX 4050 was told, correctly, that "the installed inference engine is a
+CPU-only build and cannot use it" -- and offered nothing. The detection was
+right; the dead end was the defect.
+
+**Decision.** The engine is downloaded on request, verified, and switched on by
+pointing `LLAMA_CPP_LIB_PATH` at the user's writable data directory.
+
+**Consequences.** The installer does not grow by a byte. Nothing inside the
+installation is written to, which matters because on Linux that is a read-only
+AppImage mount and on macOS a signed bundle. `llama_cpp` is imported only inside
+functions, so `main.py` can set the variable at startup -- no Rust change, no
+restart choreography. Everything downstream already keys off
+`llama_supports_gpu_offload()`, so flipping that one fact makes the advice, the
+model suggestions and the routing GPU-aware with no further change.
+
+## 2026-08-07: Vulkan, not CUDA
+
+**Context.** CUDA had prebuilt wheels, so it looked cheapest. It reaches NVIDIA
+cards only, through NVIDIA's proprietary stack, and needs ~557 MB of maths
+libraries on any machine without the CUDA toolkit -- ~1 GB in total.
+
+**Decision.** Build llama.cpp with its Vulkan backend and publish that instead.
+
+**Consequences.** ~90 MB rather than ~1 GB, and it reaches NVIDIA, AMD, Intel
+and integrated graphics through the loader that ships WITH the graphics driver.
+The evidence that settled it: the development laptop has no NVIDIA packages
+installed at all, and Vulkan already reports both its Intel iGPU and its RTX
+3050 Ti through Mesa's open-source NVK driver. CUDA would have reached neither.
+The cost is real -- Vulkan is slower than CUDA on an NVIDIA card -- but the
+comparison that matters is against the processor, not against the fastest
+possible backend. Nobody publishes a Vulkan build of llama-cpp-python, so
+`.github/workflows/build-accel.yml` exists to make one.
+
+## 2026-08-07: a software rasteriser is not a graphics device
+
+**Context.** Vulkan reports `llvmpipe` as a device on most Linux machines. It is
+the processor pretending to be a graphics card.
+
+**Decision.** Usability is decided by device TYPE. Software and virtual devices
+are excluded, discrete is preferred over integrated, and reported memory decides
+nothing.
+
+**Consequences.** Offloading to llvmpipe would route work through a translation
+layer to reach the CPU already doing it, while reporting success -- a thing that
+passes every check and does the wrong thing. Memory is excluded from the
+decision because it lies: on the development laptop an Intel iGPU and an RTX
+3050 Ti both report 12.4 GB, which is system RAM, and llvmpipe reports the most
+of all. Ranking by memory would therefore have selected precisely the device
+that must never be selected.
+
+## 2026-08-07: nothing unverified is switched on
+
+**Context.** Libraries can download perfectly and still fail to load -- a driver
+too old, a missing dependency, a CPU without the instructions the build assumes.
+Discovering that inside the running backend means the backend is already
+damaged, on a machine where this app is the only thing that can read the user's
+papers.
+
+**Decision.** A separate process loads the libraries and reports back. The
+override is committed only if that process survives, and `active_lib_dir()`
+requires a `verified` flag that only a surviving probe writes.
+
+**Consequences.** A failed activation costs a download and changes nothing else.
+The checksum is verified before extraction, because a truncated download fails
+to load in a way indistinguishable from an incompatible driver -- and the user
+would then be told something untrue about their own machine.
+
+## 2026-08-07: a paper is a directory, and the file tree is the way into it
+
+**Context.** A project has been a directory since the first version --
+`main.tex` and `meta.json` in `data/papers_workspace/<id>/` -- but `main.tex`
+was the only file anything could reach. A user's paper failed with "Unable to
+load picture or PDF file 'newplot-6.png'", then "Division by 0".
+
+**Decision.** `domain/paper_writer/files.py` exposes the directory: list, read,
+write, upload, mkdir, move, copy, delete. The UI is one tree with papers as its
+top level, replacing the row of project chips.
+
+**Consequences.** `\includegraphics{chart.png}` works, and always would have:
+the compiler already ran with the project directory as its working directory, so
+the relative path resolved and the file simply was not there. The second error
+was the first one's consequence -- graphics dividing by a width read from a file
+it never opened. Papers can now be split across section files and keep a `.bib`
+beside them. Build artefacts are hidden from the tree; they are regenerated and
+mean nothing to an author.
+
+## 2026-08-07: filenames arriving from the webview are untrusted
+
+**Context.** The file API is reachable from the webview, which Tauri treats as
+remote content. `../../../.ssh/id_rsa` is a filename.
+
+**Decision.** Every operation resolves its argument against the project
+directory and refuses anything landing outside. Resolution happens BEFORE the
+check, never a string test for "..".
+
+**Consequences.** Traversal, absolute paths, NUL bytes and symlinks pointing out
+of the project are refused. Resolving first is what catches the symlink: nothing
+about the name `notes.tex` says it points at `/etc`. Disabling the containment
+check fails the tests, which is how we know they test it.
+
+## 2026-08-07: the index is generated, not delegated to makeindex
+
+**Context.** `\index{term}` writes `main.idx`; something must turn it into
+`main.ind` before `\printindex` can read it. Tectonic runs BibTeX by itself but
+not makeindex, so a paper with an index failed with `Undefined control sequence
+\indexentry` -- `imakeidx` giving up and `\input`-ing the raw `.idx`.
+
+**Decision.** `domain/paper_writer/indexing.py` builds the `.ind` in Python, and
+the compiler runs a second pass when it changes.
+
+**Consequences.** No second binary in the installer. Shelling out to makeindex
+would have worked on this machine and on no user's -- the same mistake as
+assuming a system LaTeX, which is what the bundled engine exists to avoid.
+Sub-entries, `sort@printed` keys, `|hyperpage` encapsulators and `|(`...`|)`
+page ranges are supported because real papers use them.
+
+## 2026-08-07: no browser dialogs, because there is no browser
+
+**Context.** "New file", "New folder" and "New paper" were built on
+`window.prompt`, deletes on `window.confirm`. The Tauri webview implements
+neither: `prompt` returns null, so every menu item silently did nothing.
+
+**Decision.** Naming happens in an inline row in the tree, where the file will
+appear. Destructive actions go through a shared `ConfirmDialog`.
+
+**Consequences.** They work. A second defect hid behind the first: the context
+menu closed on a capture-phase `pointerdown`, unmounting the button before its
+own `click` landed, so even a working `prompt` would not have been reached. The
+dialog is shared because this was about to be the third in the codebase -- and
+`if (!confirm(...)) return` is worse than useless when `confirm` returns
+undefined: the guard either blocks forever or deletes without asking.
+
+## 2026-08-07: the page subtitle became an "i"
+
+**Context.** Every screen carried a title and a sentence explaining the feature.
+The sentence is worth reading once and then holds a strip of the window forever
+-- and Scribe wants that strip so the editor and the PDF have half the height
+each.
+
+**Decision.** The title and its brush-slash stay. The sentence moves behind an
+"i" in the bottom-left corner, on the brand accent, declared once per feature in
+`frontend/src/features.js`.
+
+**Consequences.** LitGraph already did this for its canvas controls, so this
+generalises something that worked rather than inventing it; its private copy is
+gone. The guide floats rather than pushes, so opening it never reflows an editor
+mid-sentence and it costs no height closed.
+
+## 2026-08-06: the shell watches for use; features do not report it
+
+**Context.** Opening a paper, a node or a project wants the width the sidebar is
+occupying. The first build of this hooked the handler for each of those, in each
+feature.
+
+**Decision.** The shell listens for a pointer or key press anywhere inside its
+own content area and collapses the sidebar itself. Features call nothing and
+import nothing.
+
+**Consequences.** Every control on every screen counts, including ones nobody
+enumerated and ones not written yet. The per-feature version was green in tests
+and still felt broken, because everything absent from the list did nothing --
+"any action" is not a list that can be kept complete across four screens of
+buttons, fields, canvas drags and keystrokes. The listener is on the content
+element only, so the nav and theme toggle are not "use". It is a capture-phase
+`pointerdown`: several rows stop propagation on their own buttons, and the
+canvas lasso is a drag that may never produce a click.
+
+## 2026-08-06: an automatic collapse is not a saved preference
+
+**Context.** The sidebar's collapsed state is persisted, like the theme. Once
+actions could also collapse it, both wrote to the same flag.
+
+**Decision.** Two flags. The one the logo sets persists; the one an action sets
+lives for the session only. The sidebar hides when either is set, and the logo
+clears both.
+
+**Consequences.** Opening one paper no longer teaches the app to launch
+collapsed forever -- a setting the user never chose, changed by something
+unrelated to settings, with nothing on screen explaining it. Clearing both from
+the logo is what stops it appearing dead: with one flag still held by a feature,
+clicking it moved nothing.
+
+## 2026-08-06: features are declared once, in a registry
+
+**Context.** Each feature was written out as a nav entry and again as a route,
+and the brand mark was inline SVG pasted in twice.
+
+**Decision.** `frontend/src/features.js` holds id, path, label, icon, mark and
+component. Nav, routes and the logo all render from it.
+
+**Consequences.** Adding a feature is one entry and the shell needs no edit. The
+mark follows the active feature, which is what makes the collapsed peek button
+say where you are when nothing else on screen can. The two logo copies could
+drift and no longer exist. The registry is data and knows nothing about a
+sidebar, so it survives the interface refactor that reads it.
+
+## 2026-08-05: Hugging Face download URLs are constructed, never accepted
+
+**Context.** The local API is reachable from the webview, which Tauri treats as
+remote content.
+
+**Decision.** `/api/hf/download` takes a repository id and a filename and builds
+the URL itself. It never accepts a URL.
+
+**Consequences.** Only huggingface.co can be fetched from. Traversal sequences
+and non-`.gguf` paths are refused before a socket opens. An endpoint that
+fetched whatever address it was handed would be a general-purpose downloader
+aimed by anything able to reach the local API.

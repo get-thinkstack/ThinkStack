@@ -17,9 +17,16 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 3000,
+    // Bind every loopback family. Vite picked [::1] only on this machine, so
+    // http://127.0.0.1:3000 refused the connection while http://localhost:3000
+    // worked, which looks exactly like "the UI is not running".
+    host: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        // 127.0.0.1, not localhost: the backend binds IPv4 only, and localhost
+        // resolves to ::1 first on current systems. The packaged app hit the
+        // same trap in its loading screen.
+        target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
     },

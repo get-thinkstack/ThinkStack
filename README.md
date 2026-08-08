@@ -1,246 +1,182 @@
-# thinkstack
+<div align="center">
 
-offline slm-based research assistant for students and independent researchers.
-it ingests papers, searches them, summarizes them, finds research gaps, answers
-questions grounded on your library, and helps you write latex, all on your own
-machine. it runs as a tauri desktop app, or as a local server you open in your
-own browser (bound to localhost, not hosted anywhere). either way nothing is
-served to the internet and no data leaves the device: language-model inference
-runs locally through `llama.cpp`, and embeddings run locally too.
+# ThinkStack
 
-## features
+**An offline research assistant that runs entirely on your machine.**
 
-- **ingest and index pdfs.** text extraction (pymupdf, pdfplumber) followed by
-  sentence-transformer embeddings, stored in a file-based vector store.
-- **search.** combined semantic and keyword search across your collection.
-- **analysis.** paper summaries, key-claim extraction, and thematic clustering.
-- **gap finder.** surfaces under-explored areas and suggests research directions.
-- **chat.** a retrieval-augmented assistant grounded on the papers you select.
-- **paper writer.** an ai-assisted latex editor with a live client-side preview
-  (katex for math, html for structure) and a compiled-pdf tab. the compiler adds
-  missing packages, wraps bare snippets into full documents, recovers from
-  errors, and still produces a pdf when a single figure or table is broken.
-- **fine-tuning data.** prompt-to-latex pairs are collected passively as jsonl
-  for a future qlora fine-tuning run.
-- **encryption vault.** papers can be encrypted locally with password-derived
-  keys (a kdf plus an authenticated cipher). nothing is uploaded.
+Ingest papers, search them, analyse them, map them, and write LaTeX.
+No account, no subscription, no network. Nothing you open ever leaves your computer.
 
-## documentation
+Three sections, in the order the work happens:
+**Library** (collect) → **LitGraph** (understand) → **Scribe** (write), with
+**Bench** for what your machine can run and what it runs it with.
 
-- **[docs/ABOUT.md](docs/ABOUT.md)** — what ThinkStack is, how to install it, and
-  how to use each feature (start here as a user).
-- **[docs/FEATURES.md](docs/FEATURES.md)** — the detailed feature reference and
-  roadmap.
-- **[scripts/README.md](scripts/README.md)** — the devops runbook: the branch
-  model, cutting a release, the local gate, and the git hooks.
-- **[docs/ADR.md](docs/ADR.md)** — every architecture decision and *why* it was
-  made, including the release pipeline.
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** — setup, the branch model, what blocks
-  your push, how to merge, how to release (and who may), what a **beta tester**
-  must check on each OS, and how to add tests or models.
-- **[CHANGELOG.md](CHANGELOG.md)** — what changed in each released version.
+[![Release](https://img.shields.io/github/v/release/get-thinkstack/ThinkStack?label=release&color=95ff00)](https://github.com/get-thinkstack/ThinkStack/releases/latest)
+[![CI](https://img.shields.io/github/actions/workflow/status/get-thinkstack/ThinkStack/ci.yml?branch=main&label=CI)](https://github.com/get-thinkstack/ThinkStack/actions)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](https://github.com/get-thinkstack/ThinkStack/releases/latest)
+[![Python](https://img.shields.io/badge/python-3.12-3776AB)](requirements.txt)
+[![Offline](https://img.shields.io/badge/inference-100%25%20local-success)](#privacy)
 
-Two genres, kept apart on purpose: `docs/ADR.md` records **why**, and
-`scripts/README.md` + `CONTRIBUTING.md` are the **how-to**.
+[Download](https://get-thinkstack.github.io/ThinkStack/) ·
+[User guide](docs/ABOUT.md) ·
+[Features](docs/FEATURES.md) ·
+[Contributing](CONTRIBUTING.md) ·
+[Architecture decisions](docs/ADR.md)
 
-## architecture
+</div>
 
-the python backend lives at the repository root and serves both the rest api and
-the built react ui. the tauri shell wraps that backend into a desktop window.
+---
 
-```text
-main.py            fastapi app: serves the react spa and /api, with spa-fallback routing
-config.py          pydantic-settings config (env prefix: THINKSTACK_)
-api/               rest endpoints (documents, search, analysis, gaps, chat,
-                   papers, encryption, system)
-domain/            core logic: ingestion, knowledge_base, search, analysis,
-                   gap_finder, chat, paper_writer, encryption, fine_tuning
-infrastructure/    llm client (llama.cpp wrapper), vector store, hardware profiler
-frontend/          react 19 + vite spa (built to frontend/dist, served by fastapi)
-src-tauri/         tauri 2 desktop shell (rust): starts and supervises the backend
-scripts/           setup / dev / validate / build helpers and tests
-data/              runtime state: uploaded papers, vector store, models
-                   (gitignored, recreated on demand)
-```
+## What it is
 
-inference is local through `llama.cpp` (`llama-cpp-python`, gguf models) on cpu
-or gpu. the installer bundles **one** model - a 0.5b used for chat, search, and
-the paper writer - so a fresh install works offline immediately with no download.
-the structured-json analysis tasks (summarize, claims, gap finder) do better on a
-larger model, so the app offers to fetch a 1.5b **only** when the machine can run
-it and no equivalent is already installed (it reuses models you already have via
-ollama or lm studio). without it, analysis degrades to the 0.5b rather than
-failing. only one model is resident at a time; the runtime swaps on demand to
-keep memory bounded, and falls back to cpu when no usable gpu is present.
+ThinkStack is a desktop application for students and independent researchers
+working with a personal library of research papers. It runs as a native desktop
+window, or as a local server you open in your own browser. Either way it is bound
+to `127.0.0.1` and hosted nowhere.
 
-## quick start
+Language model inference, text embedding, retrieval, encryption and PDF
+typesetting all happen locally. The installer carries everything needed: a frozen
+Python runtime, a quantised language model, embedding weights, and a TeX engine.
 
-### 1. clone and bootstrap
+**Install it on a computer with nothing else on it, disconnect the network, and
+every feature still works.**
+
+## Features
+
+| | |
+|---|---|
+| **Ingest** | PDF extraction with PyMuPDF and pdfplumber, sentence-transformer embeddings, file-based vector store |
+| **Search** | dense semantic retrieval across every chunk of every paper, with a small exact-token bonus so rare literal terms stay findable |
+| **LitGraph** | a map of your collection: papers placed by meaning (PCA over embedding centroids), linked by similarity, grouped into theme territory, with research gaps drawn as markers wired to the papers that evidence them. The map is also the selector — lasso a region and run summarize, claims, themes or gap-finding on exactly those papers |
+| **Analyse** | summaries, key-claim extraction, thematic clustering — precomputed at ingest, off the request path |
+| **Gap finder** | surfaces under-explored areas and suggests research directions |
+| **Scribe** | AI-assisted LaTeX. A paper is a folder — add figures, split it into sections, keep a `.bib` beside it. Select plain English, press `Ctrl+Enter`, and it becomes LaTeX at your cursor. Compiles locally with no account, no queue and no time limit |
+| **Vault** | password-based encryption with Argon2id and AES-256-GCM |
+| **Updates** | signed, and only when you ask for them |
+
+## Privacy
+
+This is the reason the project exists, so it is worth being exact about.
+
+- **No inference leaves the device.** Models run through `llama.cpp` on your CPU.
+- **No embeddings leave the device.** Sentence encoding is local.
+- **No telemetry.** None is collected or sent.
+- **No update check on launch.** The only outbound request the application ever
+  makes is an update check, and it happens only when you press the button. An
+  offline-first application that contacts a server on every start is not offline
+  in any sense a user would recognise.
+
+## Install
+
+Download from the [releases page](https://github.com/get-thinkstack/ThinkStack/releases/latest)
+or the [download page](https://get-thinkstack.github.io/ThinkStack/).
+
+| OS | File | Note |
+|---|---|---|
+| **Linux** | `.AppImage` or `.deb` | `chmod +x` the AppImage, then run it |
+| **macOS** | `.dmg` | unsigned build: **System Settings → Privacy & Security → Open Anyway** on first launch |
+| **Windows** | `.msi` | unsigned build: SmartScreen → **More info** → **Run anyway** |
+
+Builds are not code-signed yet, so both macOS and Windows warn once on first
+launch. See [docs/ABOUT.md](docs/ABOUT.md) for the full walkthrough.
+
+## What ships inside the installer
+
+| Component | Size | Purpose |
+|---|---|---|
+| Frozen Python backend | ~1.7 GB uncompressed | no Python needed on the machine |
+| Qwen2.5 0.5B Instruct (Q4_K_M) | 469 MB | general tasks, metadata, Scribe |
+| all-MiniLM-L6-v2 | 88 MB | embeddings for ingestion and search |
+| Tectonic + warmed package cache | 70 MB | LaTeX compilation with no TeX install |
+
+**Graphics acceleration is not bundled either.** The inference engine ships
+processor-only so the installer works on every machine. If yours has graphics
+hardware ThinkStack can use — NVIDIA, AMD, Intel or integrated, via Vulkan —
+Bench offers to add the ~90 MB graphics engine on request. Your graphics driver
+is already installed and is never downloaded.
+
+A larger model improves analysis quality. None of these are bundled:
+the application offers it once, only if your machine can run it, and reuses a
+copy you already have through Ollama or LM Studio rather than downloading again.
+
+## Build from source
 
 ```bash
-git clone <repo-url> && cd ThinkStack
-./scripts/setup.sh
-```
+git clone https://github.com/get-thinkstack/ThinkStack.git && cd ThinkStack
+./scripts/setup.sh          # system deps, rust, python venv, node
+./scripts/install-hooks.sh  # shared git hooks
+./scripts/fetch-tex.sh      # the TeX engine the installers bundle
 
-this installs system dependencies, rust, the python venv and packages, node
-modules, and a latex compiler. pass `--skip-system` or `--skip-rust` to skip
-steps you have already done.
-
-### 2. download a model
-
-```bash
 mkdir -p data/models
-pip install huggingface-hub
 huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct-GGUF \
   qwen2.5-0.5b-instruct-q4_k_m.gguf --local-dir data/models
+
+./scripts/dev.sh            # backend + vite with hot reload
+./scripts/dev.sh --tauri    # ... plus the desktop window
+./scripts/build.sh          # production installers, into local/
 ```
 
-the 0.5b model (about 400 mb) is light enough for low-ram machines, and is the
-one the installer ships. for the analysis features to produce their best output,
-also download the 1.5b model (the packaged app offers this at first run instead):
+**Requirements:** Python 3.11+, Node 18+, Rust (desktop build only).
 
-```bash
-huggingface-cli download Qwen/Qwen2.5-1.5B-Instruct-GGUF \
-  qwen2.5-1.5b-instruct-q4_k_m.gguf --local-dir data/models
+## Architecture
+
+```text
+main.py            fastapi app: serves the react spa and /api
+config.py          pydantic-settings config (env prefix: THINKSTACK_)
+api/               12 routers
+domain/            ingestion · knowledge_base · search · litgraph · analysis
+                   gap_finder · paper_writer · encryption · model_manager
+                   fine_tuning
+infrastructure/    llm client · vector store · hardware profiler · file manager
+                   background job queue
+frontend/          react 19 + vite spa
+src-tauri/         tauri 2 desktop shell (rust): diagnosis, supervision, updates
+scripts/           devops: setup, dev, preflight, build, promote, release
+tests/             839 tests across 41 modules
 ```
 
-any other gguf model can be dropped into `data/models/` and selected as the
-active model.
+The desktop shell diagnoses the machine, launches the backend as a supervised
+child process, and reports startup progress. Only one model is resident at a
+time; the runtime swaps on demand and sizes models against *available* memory,
+so analysis degrades gracefully rather than exhausting the machine.
 
-### 3. run
+## Quality gates
 
-web app (browser):
+Every build validates the **packaged installer**, not just the source, because
+users run an installer.
 
-```bash
-./scripts/dev.sh
-```
+| Tier | Runs on | Establishes |
+|---|---|---|
+| `preflight.sh` | your machine, every push | lint, 839 tests, shellcheck, actionlint, cargo |
+| CI | every push | the same on a clean machine |
+| `validate_bundle.py` | **Linux, macOS, Windows**, every build | the packaged app starts, resolves models, ingests a PDF, searches, infers, compiles a PDF, embeds a user-supplied figure, builds an index, and reports its graphics hardware coherently |
+| GUI smoke test | Linux, every build | the launched application is still alive 45 seconds later |
 
-this starts the backend at `http://localhost:8000/docs` and the vite dev server
-at `http://localhost:3000` with hot reload and an api proxy.
+## Documentation
 
-desktop app (tauri):
+| Document | For |
+|---|---|
+| [docs/ABOUT.md](docs/ABOUT.md) | users: install and use each feature |
+| [docs/FEATURES.md](docs/FEATURES.md) | the detailed feature reference |
+| [docs/FUTURE_WORK.md](docs/FUTURE_WORK.md) | what is planned, and how far off it is |
+| [docs/ADR.md](docs/ADR.md) | every architecture decision, and why |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | setup, branches, releasing, beta testing |
+| [scripts/README.md](scripts/README.md) | the devops runbook |
+| [CHANGELOG.md](CHANGELOG.md) | what changed in each release |
 
-```bash
-./scripts/dev.sh --tauri
-```
+## Tech stack
 
-or manually, in two terminals:
+`Tauri 2` · `Rust` · `React 19` · `Vite` · `Python` · `FastAPI` · `llama.cpp` ·
+`GGUF` · `sentence-transformers` · `PyMuPDF` · `NumPy` ·
+`Tectonic` · `Argon2id` · `AES-256-GCM` · `PyInstaller`
 
-```bash
-# terminal 1: backend + frontend
-./scripts/dev.sh
+## Contributing
 
-# terminal 2: desktop window
-source "$HOME/.cargo/env"   # if rust was installed this session
-npm run tauri dev
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md). Work happens on `dev`, is validated on
+`beta`, and is released from `main`. Branches never build installers; tags do.
 
-the desktop shell ([src-tauri/src/lib.rs](src-tauri/src/lib.rs)) starts the
-backend, shows a loading screen that polls until the backend is ready, opens the
-ui, and stops the backend it spawned when the window closes.
+## License
 
-set the `THINKSTACK_PYTHON`, `THINKSTACK_PROJECT_DIR`, or
-`THINKSTACK_LLM_MODEL_PATH` environment variables if auto-detection does not fit
-your setup.
-
-## scripts
-
-| script | purpose |
-|--------|---------|
-| `scripts/setup.sh` | one-time bootstrap (system deps, rust, python, node, latex) |
-| `scripts/install-hooks.sh` | activate the shared git hooks (run once per clone) |
-| `scripts/dev.sh` | start the backend and frontend dev servers (add `--tauri` for desktop) |
-| `scripts/preflight.sh` | run exactly what ci runs, before pushing |
-| `scripts/validate.sh` | the fuller local gate (python, frontend, rust) |
-| `scripts/build.sh` | production build (frontend, pyinstaller, tauri) |
-| `scripts/promote.sh` | move work dev -> beta -> main and ship that channel's installers |
-| `scripts/release.sh` | bump the version and tag a release |
-| `scripts/compose-updater-manifest.sh` | build the auto-updater manifest (`latest.json`) |
-| `scripts/set-repo.sh` | retarget the project at a different github owner/repo |
-
-see [scripts/README.md](scripts/README.md) for the branch model and the full runbook.
-
-## production build
-
-```bash
-./scripts/build.sh
-```
-
-the pipeline has four steps:
-
-1. build the react frontend into `frontend/dist/`.
-2. freeze the python backend with pyinstaller (`--onedir`) into
-   `dist/thinkstack-api/`.
-3. verify the frozen backend. tauri bundles that directory as the `api/`
-   resource, so no separate sidecar copy is needed.
-4. compile the tauri app into `src-tauri/target/release/bundle/`.
-
-the installers land in `src-tauri/target/release/bundle/` (`.deb`, `.rpm`, and
-`.AppImage` on linux, `.dmg` on macos, `.msi` and `.exe` on windows).
-
-releases are cut by pushing a tag, never by pushing a branch — see
-[scripts/README.md](scripts/README.md) for the branch model and the release
-runbook, and [docs/ADR.md](docs/ADR.md) for why the pipeline is shaped that way.
-
-## prerequisites
-
-- python 3.11 or newer
-- node.js 18 or newer
-- rust toolchain (`rustup`), for the desktop build only
-- at least one gguf model for llama.cpp (see quick start)
-- `pdflatex` on `PATH`, required by the paper writer:
-  ```bash
-  # fedora
-  sudo dnf install texlive-scheme-basic texlive-collection-latexrecommended
-  # ubuntu / debian
-  sudo apt install texlive-latex-recommended
-  # macos
-  brew install --cask mactex-no-gui
-  ```
-
-## configuration
-
-all settings use the `THINKSTACK_` environment-variable prefix (see
-[config.py](config.py)). the common ones:
-
-| variable | purpose | default |
-|----------|---------|---------|
-| `THINKSTACK_LLM_MODEL_PATH` | path to the gguf model or a models directory | `data/models/` |
-| `THINKSTACK_LLM_ANALYSIS_MODEL` | heavier gguf for summarize/claims/gaps | `qwen2.5-1.5b-instruct-q4_k_m.gguf` |
-| `THINKSTACK_LLM_GPU_LAYERS` | gpu layer offloading (-1 = auto, 0 = cpu only) | `-1` (auto, with cpu fallback) |
-| `THINKSTACK_LLM_CTX_SIZE` | context window size | `4096` |
-| `THINKSTACK_PYTHON` | override the python interpreter path | auto-detected |
-| `THINKSTACK_PROJECT_DIR` | override the project root path | auto-detected |
-
-the active model selection is persisted in `data/active_model.txt` and applied
-on start.
-
-## technology stack
-
-| component | technology |
-|-----------|------------|
-| desktop shell | tauri 2 (rust) with a system webview |
-| frontend | react 19 + vite, recharts, framer motion, katex |
-| backend | python, fastapi, uvicorn |
-| model runtime | llama.cpp (`llama-cpp-python`, gguf; cpu by default) |
-| embeddings | sentence-transformers |
-| vector store | file-based numpy cosine store (json) |
-| pdf processing | pymupdf and pdfplumber |
-| latex | system `pdflatex` with an auto-healing compiler |
-| live preview | katex (client-side math and structure rendering) |
-| encryption | password-based kdf plus an authenticated cipher |
-| updates | tauri updater with signed github releases, user-initiated only |
-
-## tests
-
-the paper-writer suite covers project management, latex compilation, graceful
-error recovery, and the api over http:
-
-```bash
-source .venv/bin/activate
-python tools/test_paper_writer.py
-```
-
-## license
-
-for academic and research purposes.
+[MIT](LICENSE). Third-party components redistributed inside the installer are
+listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

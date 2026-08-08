@@ -13,6 +13,7 @@ import pytest
 from domain.model_manager import discovery
 from domain.model_manager.catalog import (
     ANALYSIS_MODEL,
+    CPU_COMFORTABLE_GB,
     BASE_MODEL,
     CATALOG,
     bundled_models,
@@ -34,9 +35,20 @@ from domain.model_manager.discovery import (
 
 
 class TestCatalog:
-    def test_baseline_is_bundled_so_app_works_offline(self):
-        assert BASE_MODEL.bundled is True
-        assert bundled_models() == [BASE_MODEL]
+    def test_exactly_one_model_is_bundled(self):
+        # more than one and the installer carries weight nobody asked for;
+        # none and a fresh offline install cannot do anything at all.
+        assert len(bundled_models()) == 1
+
+    def test_the_bundled_model_needs_no_particular_machine(self):
+        # it ships to every user, so it cannot have a memory floor some of
+        # them fail to clear.
+        assert bundled_models()[0].min_ram_gb == 0.0
+
+    def test_the_bundled_model_is_the_smallest_thing_we_offer(self):
+        # it is chosen to run anywhere; anything we would suggest INSTEAD is
+        # an upgrade, and an upgrade that is smaller is a contradiction.
+        assert bundled_models()[0].size_gb == min(s.size_gb for s in CATALOG)
 
     def test_analysis_model_is_optional_not_shipped(self):
         assert ANALYSIS_MODEL.bundled is False
@@ -61,7 +73,7 @@ class TestRunnableOn:
     def test_tight_machine_gets_only_the_baseline(self):
         assert runnable_on(1.0) == [BASE_MODEL]
 
-    def test_unknown_budget_falls_back_to_bundled_only(self):
+    def test_unknown_budget_falls_back_to_the_lightest_only(self):
         # 0 == "could not measure"; never assume a big model is safe
         assert runnable_on(0.0) == [BASE_MODEL]
 
@@ -70,22 +82,77 @@ class TestRunnableOn:
 
 
 class TestSuggestedUpgrade:
-    def test_offers_analysis_model_on_capable_machine(self):
-        assert suggested_upgrade(8.0, installed={BASE_MODEL.name}) is ANALYSIS_MODEL
+    """What to offer, given BOTH hardware constraints.
+
+    `min_ram_gb` asks whether the weights fit; `good_on_tiers` asks whether
+    running them here is a good experience. A 4B fits a 16 GB budget and is
+    still a poor suggestion for a low-tier laptop, where it produces a summary
+    every few minutes -- and a user who takes that suggestion concludes the app
+    is broken.
+    """
+
+    def test_offers_a_structured_output_model_on_a_capable_machine(self):
+        # the 0.5B cannot emit reliable json; anything offered must fix that
+        got = suggested_upgrade(8.0, installed={BASE_MODEL.name}, tier="medium")
+        assert got is not None and got is not BASE_MODEL
 
     def test_no_offer_when_machine_too_small(self):
         assert suggested_upgrade(1.0, installed={BASE_MODEL.name}) is None
 
-    def test_no_offer_when_already_installed(self):
-        installed = {BASE_MODEL.name, ANALYSIS_MODEL.name}
+    def test_no_offer_when_everything_runnable_is_installed(self):
+        installed = {s.name for s in CATALOG}
         assert suggested_upgrade(16.0, installed=installed) is None
 
-    def test_no_offer_when_budget_unknown(self):
+    def test_no_offer_when_the_budget_could_not_be_measured(self):
+        # A machine already has the bundled model, so an unmeasurable one is
+        # not stranded -- and suggesting a download we cannot size against its
+        # memory is how someone ends up with weights that will not load.
         assert suggested_upgrade(0.0, installed=set()) is None
 
-    def test_picks_the_most_capable_that_fits(self):
-        got = suggested_upgrade(16.0, installed=set())
-        assert got is ANALYSIS_MODEL  # largest optional model that fits
+    def test_with_acceleration_the_most_capable_that_fits_wins(self):
+        got = suggested_upgrade(16.0, installed=set(), gpu_gb=12.0)
+        assert got is max(
+            (s for s in CATALOG if not s.bundled and s.tasks),
+            key=lambda s: (s.quality, s.size_gb),
+        )
+
+    def test_without_acceleration_size_is_capped_however_much_ram_there_is(self):
+        """The bug this exists to prevent.
+
+        A machine with no GPU the engine can use has plenty of room for a 4B
+        and would take minutes per summary running it. Memory was the only
+        thing consulted, so 20 GB of free RAM produced a 3B suggestion on a
+        processor-only machine.
+        """
+        for budget in (8.0, 16.0, 64.0):
+            got = suggested_upgrade(budget, installed=set(), gpu_gb=0.0)
+            assert got is not None
+            assert got.size_gb <= CPU_COMFORTABLE_GB, (
+                f"{got.label} suggested on a CPU-only machine with {budget} GB free"
+            )
+
+    def test_acceleration_too_small_for_the_model_does_not_count(self):
+        # a 2 GB card cannot hold a 2.33 GB model, so that model still runs on
+        # the processor and is still a poor suggestion.
+        got = suggested_upgrade(64.0, installed=set(), gpu_gb=2.0)
+        assert got is not None and got.size_gb <= max(2.0, CPU_COMFORTABLE_GB)
+
+    def test_tier_excludes_a_model_that_would_merely_FIT(self):
+        # 16 GB of budget on a low-tier machine must not produce a 4B, even
+        # with acceleration available.
+        roomy = suggested_upgrade(16.0, installed=set(), gpu_gb=12.0)
+        low = suggested_upgrade(16.0, installed=set(), tier="low", gpu_gb=12.0)
+        assert low is not roomy
+        assert low is None or low.runs_on_tier("low")
+
+    def test_an_unknown_tier_applies_no_tier_constraint(self):
+        # failing to classify the machine must not silence every suggestion
+        assert suggested_upgrade(16.0, installed=set(), tier="") is not None
+
+    def test_every_suggestion_respects_the_budget(self):
+        for budget in (0.5, 2.0, 3.0, 5.0, 16.0):
+            got = suggested_upgrade(budget, installed=set())
+            assert got is None or got.min_ram_gb <= budget
 
 
 class TestFindThinkstackModels:
@@ -284,7 +351,7 @@ class TestOfferIsSuppressedByExistingModels:
         )
         monkeypatch.setattr(discovery, "find_lmstudio_models", lambda: [])
         found = discover_all(tmp_path, "http://localhost:11434")
-        assert suggested_upgrade(16.0, installed_names(found)) is None
+        assert suggested_upgrade(16.0, installed_names(found)) is not ANALYSIS_MODEL
 
     @pytest.mark.parametrize("tag", [
         "qwen2.5:1.5b",                      # what ollama actually reports
@@ -306,7 +373,7 @@ class TestOfferIsSuppressedByExistingModels:
         )
         monkeypatch.setattr(discovery, "find_lmstudio_models", lambda: [])
         found = discover_all(tmp_path, "http://localhost:11434")
-        assert suggested_upgrade(16.0, installed_names(found)) is None
+        assert suggested_upgrade(16.0, installed_names(found)) is not ANALYSIS_MODEL
 
     def test_an_unrelated_model_still_gets_the_offer(self, tmp_path, monkeypatch):
         # having llama3.2 says nothing about whether qwen2.5-1.5b is present
@@ -316,11 +383,61 @@ class TestOfferIsSuppressedByExistingModels:
         )
         monkeypatch.setattr(discovery, "find_lmstudio_models", lambda: [])
         found = discover_all(tmp_path, "http://localhost:11434")
-        assert suggested_upgrade(16.0, installed_names(found)) is ANALYSIS_MODEL
+        # the point is that an unrelated model does not suppress the offer;
+        # accelerated so the choice is not narrowed by the CPU cap.
+        got = suggested_upgrade(16.0, installed_names(found), gpu_gb=12.0)
+        assert got is not None
 
     def test_prompt_appears_when_nothing_comparable_is_installed(self, tmp_path, monkeypatch):
         monkeypatch.setattr(discovery, "find_ollama_running", lambda _u: [])
         monkeypatch.setattr(discovery, "find_ollama_on_disk", lambda: [])
         monkeypatch.setattr(discovery, "find_lmstudio_models", lambda: [])
         found = discover_all(tmp_path, "http://localhost:11434")
-        assert suggested_upgrade(16.0, installed_names(found)) is ANALYSIS_MODEL
+        # the point is that an unrelated model does not suppress the offer;
+        # accelerated so the choice is not narrowed by the CPU cap.
+        got = suggested_upgrade(16.0, installed_names(found), gpu_gb=12.0)
+        assert got is not None
+
+
+class TestTheBaselineIsUsableNotJustValid:
+    """Guards the Qwen3 trap.
+
+    A reasoning model emits <think> before answering. ollama_client's GBNF
+    grammar permits only JSON from the first token, leaving that block nowhere
+    to go, so the model closes the object and returns `{}` -- which parses
+    perfectly and contains nothing.
+
+    Qwen3 0.6B passed every other check: verified URL, correct size, valid GGUF
+    magic, valid JSON. It would have shipped broken on gap finding and Scribe.
+    These tests cannot run a model, so they guard the property that IS
+    checkable: that we never silently point the bundled slot at a known
+    reasoning family.
+    """
+
+    # families whose small models emit a reasoning preamble by default
+    REASONING_FAMILIES = ("qwen3", "deepseek-r1", "qwq", "marco-o1")
+
+    def test_the_bundled_model_is_not_a_reasoning_model(self):
+        for spec in bundled_models():
+            low = spec.name.lower()
+            for family in self.REASONING_FAMILIES:
+                assert family not in low, (
+                    f"{spec.name} looks like a {family} reasoning model. Those "
+                    f"return empty JSON under the GBNF grammar that gap finding "
+                    f"and Scribe rely on. See the note in catalog.py."
+                )
+
+    def test_release_config_does_not_bundle_a_reasoning_model(self):
+        # the config is what the BUILD reads; catalog.py agreeing is not enough
+        import json
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        cfg = json.loads((root / "release.config.json").read_text())
+        for m in cfg["models"]:
+            url = m if isinstance(m, str) else m.get("url", "")
+            for family in self.REASONING_FAMILIES:
+                assert family not in url.lower(), (
+                    f"release.config.json bundles {url}, which looks like a "
+                    f"{family} reasoning model."
+                )

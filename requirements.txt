@@ -8,15 +8,22 @@ uvicorn[standard]==0.34.0
 python-multipart==0.0.20
 
 # ── pdf processing ───────────────────────────────────────
-pymupdf>=1.25.3
-pdfplumber>=0.11.4
+pymupdf==1.28.0
+pdfplumber==0.11.10
 
 # ── local embeddings (pulls in torch) ────────────────────
-sentence-transformers>=3.4.1
+sentence-transformers==5.6.1
 
-# ── keyword search / text ────────────────────────────────
-rank-bm25==0.2.2
-nltk>=3.9.1
+# ── text ─────────────────────────────────────────────────
+# rank-bm25 removed with the hybrid/RRF search path: search is now purely
+# semantic (see domain/search/semantic_search.py and docs/ADR.md).
+# nltk pinned, not floored. 3.10.1 added a security hook (nltk/inisec.py) that
+# refuses to import xml.etree when the working directory is importable,
+# which killed the frozen backend on all three platforms during startup --
+# from a release, with no change on our side. The build is now reproducible
+# for this package; see PYTHONSAFEPATH in src-tauri/src/lib.rs for the fix
+# that makes newer versions safe too.
+nltk==3.10.0
 
 # ── http client (ollama runtime) ─────────────────────────
 httpx==0.28.1
@@ -30,15 +37,15 @@ httpx==0.28.1
 # then copy cudart64_12.dll / cublas64_12.dll / cublasLt64_12.dll from the
 # installed nvidia/*/bin folders into site-packages/llama_cpp/lib/, and set
 # THINKSTACK_LLM_GPU_LAYERS=-1 (offload all layers; the config default).
-llama-cpp-python>=0.3.30  # cpu fallback; see GPU note above
+llama-cpp-python==0.3.34  # cpu fallback; see GPU note above
 
 # ── utilities ────────────────────────────────────────────
-numpy
-pydantic>=2.10.5
-pydantic-settings>=2.7.1
-psutil>=6.0.0
+numpy==2.5.1
+pydantic==2.13.4
+pydantic-settings==2.14.2
+psutil==7.2.2
 
 # ── encryption (aes-256-gcm + argon2id kdf) ──────────────
-cryptography>=44.0.0
-argon2-cffi>=23.1.0
+cryptography==50.0.0
+argon2-cffi==25.1.0
 
