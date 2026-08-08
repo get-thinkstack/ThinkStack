@@ -186,6 +186,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # --cleanup-tag stays. The rolling tag has to MOVE to this commit,
+          # and leaving it behind would keep beta pointing at an older one --
+          # a quieter bug than the draft it would have fixed. The draft is
+          # handled after publishing instead, where it can be checked rather
+          # than predicted.
           gh release delete "${{ steps.cfg.outputs.release_tag }}" \
             --repo "${{ github.repository }}" --yes --cleanup-tag 2>/dev/null \
             || echo "no existing ${{ steps.cfg.outputs.release_tag }} release to delete"
@@ -204,3 +209,36 @@ jobs:
           generate_release_notes: ${{ inputs.channel == 'stable' }}
           body: ${{ inputs.channel != 'stable' && format('Automated {0} build -- version {1}. Opt-in channel; not the stable release.', inputs.channel, inputs.version) || '' }}
           files: all-artifacts/*
+
+      # `draft: false` above is a request, not a guarantee: GitHub silently
+      # keeps a release as a draft when it cannot attach the tag. A draft is
+      # invisible and its assets 404, and the updater treats 404 as "up to
+      # date" -- so this fails silently in the one place nobody looks. Assert
+      # it, and assert the manifest the updater actually fetches.
+      - name: Verify the release is published and reachable
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.cfg.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 10); do
+            draft=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft -q .isDraft 2>/dev/null || echo unknown)
+            [ "$draft" = "false" ] && break
+            echo "release is still a draft (attempt $i); publishing it"
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false || true
+            sleep 5
+          done
+          [ "$draft" = "false" ] || { echo "::error::$TAG could not be published"; exit 1; }
+
+          # An unsigned build has no manifest at all (see the latest.json step
+          # above); that is a signing problem, not a draft one. Only assert
+          # reachability for a manifest that was actually uploaded.
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+               -q '[.assets[].name]|index("latest.json")' | grep -qv '^null$'; then
+            url="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/latest.json"
+            code=$(curl -sL -o /dev/null -w '%{http_code}' "$url")
+            echo "$url -> HTTP $code"
+            [ "$code" = "200" ] || { echo "::error::the updater manifest is not reachable"; exit 1; }
+          else
+            echo "::warning::no latest.json on $TAG -- the update button will find nothing"
+          fi
