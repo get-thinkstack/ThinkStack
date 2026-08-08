@@ -105,12 +105,31 @@ jobs:
       # Users need only the RUNTIME loader, which arrives with their graphics
       # driver. Building the backend needs the development package, which is
       # why this happens here and not on anyone's machine.
+      # LunarG's own repository, not Ubuntu's. There is no `glslc` package on
+      # jammy at all -- the first run of this workflow died on
+      # "E: Unable to locate package glslc" -- and glslc is not optional: it is
+      # the shader compiler llama.cpp's Vulkan backend calls to turn its
+      # compute shaders into SPIR-V. Without it there is nothing to build.
+      #
+      # Staying on 22.04 rather than moving to a newer runner that has the
+      # package is deliberate. The artifact is a shared library loaded by the
+      # user's Python, so it inherits the runner's glibc as a floor. Building
+      # on 24.04 would raise that floor to 2.39 and refuse to load on older
+      # distributions -- trading a build-time convenience for a runtime failure
+      # on exactly the machines least able to diagnose it.
       - name: Vulkan SDK (Linux)
         if: steps.want.outputs.build == 'yes' && runner.os == 'Linux'
         run: |
+          set -euo pipefail
+          wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc \
+            | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc >/dev/null
+          sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list \
+            https://packages.lunarg.com/vulkan/lunarg-vulkan-jammy.list
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libvulkan-dev glslc spirv-tools cmake ninja-build
+            vulkan-sdk cmake ninja-build
+          # Assert rather than hope. A missing shader compiler otherwise shows
+          # up much later as an opaque CMake failure.
           glslc --version
 
       - name: Vulkan SDK (Windows)
@@ -149,8 +168,20 @@ jobs:
           CMAKE_ARGS: '-DGGML_VULKAN=on -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF'
           FORCE_CMAKE: '1'
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip setuptools wheel scikit-build-core
-          python -m pip install --no-binary :all: --verbose \
+
+          # --no-binary takes a PACKAGE LIST, and `:all:` means every package
+          # in the dependency tree -- not just the one being asked for. The
+          # first Windows run therefore tried to compile numpy from source,
+          # which needs meson-python and Cython from source as well, and died
+          # with "Failed to build 'numpy'". Nothing was wrong with numpy: the
+          # wheel it should have used was never considered.
+          #
+          # Only llama-cpp-python has to be compiled here, because compiling it
+          # with -DGGML_VULKAN=on is the entire point. Everything else may
+          # arrive prebuilt.
+          python -m pip install --no-binary llama-cpp-python --verbose \
             "llama-cpp-python==${{ steps.ver.outputs.version }}"
 
       - name: Collect the shared libraries
