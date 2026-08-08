@@ -8,17 +8,25 @@
 
 import { locateQuote, bestSentence } from './highlight';
 
-const MIN_W = 280;      // narrower than this and the reader stops being one
+const MIN_W = 280;        // narrower than this and the reader stops being one
+const MIN_CANVAS = 360;   // narrower than this and the map stops being one
 
 /**
  * How wide the panel may actually be, given where the grip was dropped.
  *
- * The order matters: the ceiling is applied last, so on a window narrower
- * than twice MIN_W the panel gives way rather than overflowing the window
- * it sits in.
+ * The ceiling used to be half the window, on the reasoning that the map is the
+ * point of the page. That was right until the panel grew a PDF reader: reading
+ * a paper wants width, and a hard stop at 50% meant dragging further simply did
+ * nothing, which reads as a broken grip rather than a considered limit.
+ *
+ * So the ceiling is now "whatever leaves the map still a map". Both panes
+ * remain resizable in both directions; neither can erase the other.
+ *
+ * The order matters: the ceiling is applied last, so on a narrow window the
+ * panel gives way rather than overflowing the window it sits in.
  */
 export const clampPanel = (px, viewportW) =>
-  Math.round(Math.min(viewportW / 2, Math.max(MIN_W, px)));
+  Math.round(Math.min(Math.max(viewportW - MIN_CANVAS, MIN_W), Math.max(MIN_W, px)));
 
 /**
  * The papers this one is linked to, strongest first.
