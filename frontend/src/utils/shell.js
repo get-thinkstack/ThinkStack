@@ -65,6 +65,19 @@ let state = { userCollapsed: readPersisted(), focus: false, pinned: false };
 const listeners = new Set();
 const emit = () => listeners.forEach((l) => l());
 
+// An armed-but-not-yet-applied pointer collapse. At most one: a second press
+// before the first resolves is the same gesture as far as the sidebar cares.
+let pendingPointerFocus = null;
+
+function disarmPointerFocus() {
+  if (!pendingPointerFocus) return;
+  const { onUp, onCancel, timer } = pendingPointerFocus;
+  window.removeEventListener('pointerup', onUp, true);
+  window.removeEventListener('pointercancel', onCancel, true);
+  if (timer) clearTimeout(timer);
+  pendingPointerFocus = null;
+}
+
 function set(next) {
   // Reference equality is what useSyncExternalStore compares, so only publish a
   // new object when something actually changed. Emitting an equal-but-new object
@@ -121,12 +134,52 @@ export const shellStore = {
   },
 
   /**
+   * The same request, but from a POINTER, and therefore deferred to the end of
+   * the gesture.
+   *
+   * Collapsing during `pointerdown` ate the press that caused it. The sidebar
+   * is 220px wide and the page is offset by it, so collapsing slides everything
+   * 220px left over 180ms -- starting while the button is still held down. A
+   * click is not an event the page sends; it is a conclusion the browser draws
+   * when mousedown and mouseup land on the same element. Move the element
+   * between them and the conclusion is never drawn, so the sidebar closed and
+   * the button did nothing. The handler was never wrong; it was never called.
+   *
+   * `pointerdown` is still the right trigger -- LitGraph's lasso is a drag that
+   * may never produce a click, and children calling stopPropagation are why the
+   * listener is in the capture phase. Only the CONSEQUENCE moves.
+   *
+   * setTimeout and not queueMicrotask: microtasks drain after each callback,
+   * which is still ahead of mouseup and click. A macrotask is the first point
+   * that is reliably after the browser has finished the whole input sequence.
+   *
+   * A cancelled pointer collapses at once -- no click is coming, so there is
+   * nothing left to protect.
+   */
+  requestFocusFromPointer() {
+    if (state.pinned || state.focus || pendingPointerFocus) return;
+
+    const finish = () => {
+      disarmPointerFocus();
+      shellStore.requestFocus();
+    };
+    const onUp = () => {
+      // the gesture is over; let the click that follows it be delivered first
+      if (pendingPointerFocus) pendingPointerFocus.timer = setTimeout(finish, 0);
+    };
+    pendingPointerFocus = { onUp, onCancel: finish, timer: null };
+    window.addEventListener('pointerup', onUp, true);
+    window.addEventListener('pointercancel', finish, true);
+  },
+
+  /**
    * Give the room back. Called on navigation; harmless if focus is not set.
    *
    * Also ends the pin. Navigating is leaving the screen the nav was reopened
    * for, so the automatic behaviour resumes on the next one.
    */
   releaseFocus() {
+    disarmPointerFocus();  // a queued collapse must not outlive the screen
     set({ ...state, focus: false, pinned: false });
   },
 };
@@ -136,6 +189,7 @@ export function __resetShell() {
   try {
     localStorage.removeItem(SIDEBAR_KEY);
   } catch { /* nothing to clear */ }
+  disarmPointerFocus();
   state = { userCollapsed: false, focus: false, pinned: false };
   emit();
 }
