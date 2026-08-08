@@ -18,8 +18,27 @@ version: 2
 # dev, runs the full pipeline, and gets rejected there instead of at a beta
 # tester's desk.
 #
+# Review requests come from .github/CODEOWNERS, not from here. Dependabot's own
+# `reviewers:` key is deprecated by GitHub and was doing nothing that CODEOWNERS
+# (`* @Rithesh077`) was not already doing on every pull request.
+#
 # Targets `dev` on purpose. beta and main are promoted into, never developed on,
 # so an upgrade travels the same path as any other change.
+#
+# ── Why almost everything is grouped ──
+#
+# The first time this file reached the default branch it opened sixteen pull
+# requests in sixty seconds -- every ecosystem hitting its own limit at once.
+# That was a one-off backlog, not a per-merge behaviour, but sixteen PRs is a
+# review queue nobody works through, and an upgrade nobody reviews is worse
+# than no upgrade at all: it is the same unreviewed drift that broke the
+# nltk build, wearing a PR number.
+#
+# So minor and patch upgrades arrive as ONE pull request per ecosystem. They
+# are the ones that are boring in bulk and where the interesting signal is
+# simply "did CI stay green". Majors are deliberately left ungrouped: those
+# are the ones that need a human reading a changelog, and burying three of
+# them in a combined diff is how a breaking change gets merged by accident.
 
 updates:
   - package-ecosystem: pip
@@ -28,17 +47,14 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     commit-message:
       prefix: "fix(deps)"
     labels: [dependencies, python]
-    reviewers: [Rithesh077]
     groups:
-      # One PR for the things that only matter to CI keeps the review small;
-      # anything that ships in the installer is proposed on its own, because
-      # that is the code that reaches users.
-      dev-tooling:
-        patterns: ["ruff", "pytest*", "coverage*", "pyinstaller"]
+      python:
+        patterns: ["*"]
+        update-types: [minor, patch]
 
   - package-ecosystem: npm
     directory: "/frontend"
@@ -46,14 +62,14 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     commit-message:
       prefix: "fix(deps)"
     labels: [dependencies, frontend]
-    reviewers: [Rithesh077]
     groups:
-      build-tooling:
-        patterns: ["vite*", "@vitejs/*", "eslint*", "vitest", "jsdom"]
+      frontend:
+        patterns: ["*"]
+        update-types: [minor, patch]
 
   - package-ecosystem: cargo
     directory: "/src-tauri"
@@ -65,7 +81,10 @@ updates:
     commit-message:
       prefix: "fix(deps)"
     labels: [dependencies, rust]
-    reviewers: [Rithesh077]
+    groups:
+      rust:
+        patterns: ["*"]
+        update-types: [minor, patch]
 
   # Actions are pinned by tag and drift just as silently. A deprecated runner
   # image or a major-version bump breaks the build with no commit of ours.
@@ -79,4 +98,7 @@ updates:
     commit-message:
       prefix: "ci(deps)"
     labels: [dependencies, ci]
-    reviewers: [Rithesh077]
+    groups:
+      actions:
+        patterns: ["*"]
+        update-types: [minor, patch]
