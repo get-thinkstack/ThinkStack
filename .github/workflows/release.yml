@@ -155,12 +155,24 @@ jobs:
               # The cost is one extra step for the rarest event in the project.
               # The thing it buys is that nobody ships to production by
               # merging.
+              # A PUSH is not a request. Skipping quietly is the whole point of
+              # the rule, so it must not be a red X -- every merge to main
+              # painting the repo failed is indistinguishable from a broken
+              # pipeline, and trains everyone to ignore the one that matters.
+              # An explicit dispatch IS a request, so that still errors.
               if [ -n "$OVERRIDE" ]; then
                 V="$OVERRIDE"
               elif [ -z "${BUMP:-}" ] || [ "${BUMP:-none}" = "none" ]; then
+                if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+                  echo "::notice::no release requested -- merging into main does not publish, by design."
+                  echo "::notice::to publish: run this workflow with channel=stable and a bump or version."
+                  # channel is already emitted above; only these two are left
+                  echo "version=none" >> "$GITHUB_OUTPUT"
+                  echo "release=false" >> "$GITHUB_OUTPUT"
+                  exit 0
+                fi
                 echo "::error::a stable release must declare its bump."
                 echo "::error::run this workflow with channel=stable and bump=minor or major."
-                echo "::error::merging into main does not publish on its own, by design."
                 exit 1
               else
                 V="$(python3 scripts/next_version.py --bump "$BUMP")"
