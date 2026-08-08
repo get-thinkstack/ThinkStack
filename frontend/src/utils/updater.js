@@ -28,7 +28,22 @@ function mb(bytes) {
 }
 
 /**
- * default UX: a blocking confirm() with the new version number AND the size.
+ * Fallback prompt, for the browser dev build only.
+ *
+ * The desktop app injects its own dialog, because THIS DOES NOT WORK THERE and
+ * failed in the worst available way. Tauri's webview does not implement
+ * `confirm()`: it returns `undefined` rather than a boolean, so `if (!accepted)`
+ * read a missing feature as "the user said no" and the updater reported "Up to
+ * date" while an update sat there uninstalled. Silent, and indistinguishable
+ * from working.
+ *
+ * The codebase already knew -- ConfirmDialog exists for exactly this, and both
+ * FileTree and Scribe were fixed for it. This module was missed because it is
+ * the one prompt no test could reach: it only appears when a real release is
+ * newer than the running build.
+ *
+ * So `null` is returned for "could not ask", which is a different fact from
+ * "asked, told no", and the caller is no longer allowed to confuse them.
  *
  * The size is not a detail. ThinkStack ships the model weights inside the
  * bundle, so an update is ~900 MB, not the few MB people expect from an "update
@@ -38,12 +53,13 @@ function mb(bytes) {
  */
 function defaultConfirm({ version, size }) {
   const weight = size ? ` (about ${mb(size)})` : '';
-  return window.confirm(
+  const answer = typeof window.confirm === 'function' ? window.confirm(
     `ThinkStack ${version} is available${weight}.\n\n` +
     `The download includes the local model, so it is large and may take a few ` +
     `minutes. Your papers and data are kept.\n\n` +
     `Install it now and restart?`
-  );
+  ) : undefined;
+  return typeof answer === 'boolean' ? answer : null;
 }
 
 /**
@@ -62,11 +78,14 @@ export const APP_VERSION = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__
  * indistinguishable from a broken button, so 'current' is a result the caller
  * is expected to show, not a no-op.
  *
- * @returns {Promise<'updating' | 'current' | 'offline' | 'blocked'
+ * `confirm` is injected so the desktop build can ask with a real dialog. It may
+ * be async, and returning `null` means "could not ask" -- never "no".
+ *
+ * @returns {Promise<'updating' | 'current' | 'declined' | 'offline' | 'blocked'
  *                   | 'install-failed' | 'restart-needed' | 'unsupported'
  *                   | 'error'>}
  */
-export async function checkForUpdatesInteractive({ onProgress } = {}) {
+export async function checkForUpdatesInteractive({ onProgress, confirm = defaultConfirm } = {}) {
   if (!inTauri()) return 'unsupported';
 
   let update;
@@ -102,11 +121,22 @@ export async function checkForUpdatesInteractive({ onProgress } = {}) {
 
   if (!update) return 'current';
 
-  const accepted = await defaultConfirm({
+  const accepted = await confirm({
     version: update.version,
     size: update.contentLength,
   });
-  if (!accepted) return 'current';
+
+  // Three outcomes, not two. Collapsing them is the bug this whole path had:
+  // "could not ask" was reported as "up to date", so the update never happened
+  // and nothing ever said so.
+  if (accepted === null || accepted === undefined) {
+    console.warn('[updater] no way to ask the user; not installing');
+    return 'error';
+  }
+  // Declined is not "current" either -- there IS a newer version, and telling
+  // someone they are up to date right after they pressed Not now is a lie the
+  // next press cannot correct.
+  if (accepted === false) return 'declined';
 
   try {
     // The bundle's signature is verified against the public key in
