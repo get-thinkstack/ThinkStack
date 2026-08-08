@@ -108,6 +108,41 @@ function FeatureGuide() {
 }
 
 /**
+ * The page region, and the one place that decides how wide a page may be.
+ *
+ * A single `max-width: 1400px` used to apply to every screen, which is right
+ * for reading and wrong for working: on a 1920px window Scribe's three panes
+ * were squeezed into 1400 with dead space beside them, so the dividers looked
+ * broken when they were only running out of room. Whether a page is a document
+ * or a workspace is a fact about the page, so it is declared in features.js
+ * rather than matched on a path here.
+ *
+ * A component because it needs useLocation, which only works below the router.
+ */
+function MainRegion({ children }) {
+  const { pathname } = useLocation();
+  const feature = featureForPath(pathname);
+  return (
+    <main
+      className={feature?.fills ? 'main-content is-workspace' : 'main-content'}
+      /* ── the auto-collapse mechanism, in one place ──
+         Any interaction with the page itself gets the sidebar out of the way.
+         The press ARMS the collapse; the gesture ending applies it, because
+         collapsing on the press slid the page out from under the button being
+         held and the click had nowhere to land. See requestFocusFromPointer.
+
+         Capture phase: several children call stopPropagation, and a bubbling
+         listener would never hear those. Keyboard stays immediate -- activating
+         a focused control does not depend on where that control is. */
+      onPointerDownCapture={shellStore.requestFocusFromPointer}
+      onKeyDownCapture={shellStore.requestFocus}
+    >
+      {children}
+    </main>
+  );
+}
+
+/**
  * Hand the sidebar back when the user moves between features.
  *
  * Without this, a sidebar collapsed by opening a paper would stay collapsed
@@ -378,42 +413,12 @@ export default function App() {
             </div>
           </aside>
 
-          {/* ── the auto-collapse mechanism, in one place ──
-              Any interaction with the page itself gets the sidebar out of the
-              way. Watched here rather than wired into each feature: features
-              would each have to remember to call it, every new one would start
-              out not doing it, and "any action" is not a list anybody can keep
-              complete -- it is every button, field, canvas drag and keystroke
-              on four screens.
-
-              pointerdown, not click: LitGraph's lasso is a drag that may never
-              produce a click at all.
-
-              Capture phase: several children call stopPropagation (the delete
-              buttons on a paper row, the canvas handlers), and a bubbling
-              listener would simply never hear about those.
-
-              The press ARMS the collapse; the gesture ending applies it. This
-              used to collapse on the press itself, which slid the page 220px
-              out from under the button still being held and left the click with
-              nowhere to land -- the sidebar shut and the action never ran. See
-              requestFocusFromPointer.
-
-              Keyboard stays immediate: activating a focused control does not
-              depend on where that control is, so moving it cannot break it.
-
-              The sidebar is deliberately OUTSIDE this element, so using the nav
-              or the theme toggle does not count as "using the page". */}
-          <main
-            className="main-content"
-            onPointerDownCapture={shellStore.requestFocusFromPointer}
-            onKeyDownCapture={shellStore.requestFocus}
-          >
+          <MainRegion>
             {/* Shown once on a new install: a model is included and can be
                 changed. Inside the router because "Show me" navigates. */}
             <FirstRunBanner />
             <AnimatedRoutes />
-          </main>
+          </MainRegion>
 
           {/* Outside <main> on purpose: the shell collapses the sidebar on any
               interaction with the PAGE, and asking what a screen is for is not
