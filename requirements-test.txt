@@ -35,5 +35,5 @@ nltk
 # test tooling
 pytest>=8,<10
 pytest-asyncio
-pytest-cov>=5
+pytest-cov>=7.1.0
 ruff
