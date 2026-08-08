@@ -22,6 +22,11 @@
  *   mark      the brand glyph while this feature is open. Defaults to `icon`,
  *             so a new feature gets a changing logo for free without declaring
  *             anything extra.
+ *   fills     true when the page IS a workspace and should take the whole
+ *             window. A reading page keeps a measure because a line of prose
+ *             1900px wide is unreadable; a canvas or an editor gets narrower
+ *             for no reason at all. Declared here rather than in CSS so a page
+ *             carries its own layout intent through a redesign of the shell.
  *   guide     lines shown by the "i" in the bottom-left corner. This replaced
  *             the sentence that used to sit under every page title: worth
  *             reading once, not worth the vertical strip forever. Each line is
@@ -69,6 +74,7 @@ export const FEATURES = [
     label: 'LitGraph',
     icon: Waypoints,
     summary: 'Your papers as a map, placed by meaning and marked with the gaps between them.',
+    fills: true,
     guide: [
       ['drag', 'pan the map'],
       ['shift-drag', 'lasso a region to act on it'],
@@ -85,6 +91,7 @@ export const FEATURES = [
     label: 'Scribe',
     icon: PenLine,
     summary: 'Draft, generate and compile LaTeX papers, entirely offline.',
+    fills: true,
     guide: [
       ['the file tree', 'a project is a folder. Drop figures in beside main.tex and \\includegraphics finds them'],
       ['select and Ctrl+Enter', 'turn plain English into LaTeX at your cursor'],
