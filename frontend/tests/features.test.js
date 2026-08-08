@@ -118,3 +118,32 @@ describe('the brand mark follows the feature', () => {
     expect(new Set(marks).size).toBe(marks.length);
   });
 });
+
+describe('a page declares whether it is a document or a workspace', () => {
+  // One max-width: 1400px applied to every screen. Right for reading, wrong for
+  // working: on a 1920px window Scribe's three panes were squeezed into 1400
+  // with dead space beside them, so the dividers looked broken when they were
+  // only out of room. Two beta checks -- "the panes can be dragged" -- would
+  // have failed for every tester on a wide monitor.
+
+  it('the workspaces are the ones built out of panes', () => {
+    const fills = FEATURES.filter((f) => f.fills).map((f) => f.id);
+    expect(fills.sort()).toEqual(['litgraph', 'write']);
+  });
+
+  it('the reading pages keep a measure', () => {
+    // prose set 1900px wide is unreadable; this is not an oversight
+    for (const id of ['library', 'bench']) {
+      expect(FEATURES.find((f) => f.id === id).fills).toBeFalsy();
+    }
+  });
+
+  it('every feature resolves from its own path', () => {
+    // MainRegion looks the feature up by pathname, so a path that does not
+    // resolve silently loses the workspace width rather than erroring
+    for (const f of FEATURES) {
+      expect(featureForPath(f.path), `no feature for ${f.path}`).toBeTruthy();
+      expect(featureForPath(f.path).id).toBe(f.id);
+    }
+  });
+});

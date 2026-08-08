@@ -430,7 +430,18 @@ body::after {
   margin-left: var(--sidebar-w);
   transition: margin-left 180ms ease;
   padding: 3.5rem 4rem;
+  /* A measure, not a boundary. Prose set 1900px wide is unreadable, so a
+     reading page keeps a limit -- but a workspace declares `fills` in
+     features.js and takes the window it was given. */
   max-width: 1400px;
+}
+
+/* Scribe and LitGraph: the panes ARE the page, and every pixel withheld is a
+   pixel of editor or canvas. Padding drops too -- a 4rem gutter around a
+   three-column workspace is another 128px spent on nothing. */
+.main-content.is-workspace {
+  max-width: none;
+  padding: 2rem 2rem 1.5rem;
 }
 
 /* page header */
