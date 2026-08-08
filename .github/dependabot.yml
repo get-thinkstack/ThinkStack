@@ -18,6 +18,10 @@ version: 2
 # dev, runs the full pipeline, and gets rejected there instead of at a beta
 # tester's desk.
 #
+# Review requests come from .github/CODEOWNERS, not from here. Dependabot's own
+# `reviewers:` key is deprecated by GitHub and was doing nothing that CODEOWNERS
+# (`* @Rithesh077`) was not already doing on every pull request.
+#
 # Targets `dev` on purpose. beta and main are promoted into, never developed on,
 # so an upgrade travels the same path as any other change.
 #
@@ -47,7 +51,6 @@ updates:
     commit-message:
       prefix: "fix(deps)"
     labels: [dependencies, python]
-    reviewers: [Rithesh077]
     groups:
       python:
         patterns: ["*"]
@@ -63,7 +66,6 @@ updates:
     commit-message:
       prefix: "fix(deps)"
     labels: [dependencies, frontend]
-    reviewers: [Rithesh077]
     groups:
       frontend:
         patterns: ["*"]
@@ -79,7 +81,6 @@ updates:
     commit-message:
       prefix: "fix(deps)"
     labels: [dependencies, rust]
-    reviewers: [Rithesh077]
     groups:
       rust:
         patterns: ["*"]
@@ -97,7 +98,6 @@ updates:
     commit-message:
       prefix: "ci(deps)"
     labels: [dependencies, ci]
-    reviewers: [Rithesh077]
     groups:
       actions:
         patterns: ["*"]
