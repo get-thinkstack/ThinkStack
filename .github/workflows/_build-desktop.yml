@@ -236,7 +236,7 @@ jobs:
       # so the cache invalidates only when release.config.json changes.
       - name: Cache models
         if: ${{ !inputs.skip_models }}
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: data/models
           key: models-${{ hashFiles('release.config.json') }}
