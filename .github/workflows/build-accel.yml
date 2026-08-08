@@ -209,20 +209,54 @@ jobs:
           mkdir -p out/lib
           cp -a "$libdir"/. out/lib/
 
-      - name: Verify it reports GPU offload
+      - name: Verify the backend is a real Vulkan build
         if: steps.want.outputs.build == 'yes'
         shell: bash
         run: |
-          # The runner has no GPU, so this cannot test that inference works --
-          # only that the binary was COMPILED with the backend. That is exactly
-          # the fact the app keys its whole decision off, so it is the fact to
-          # assert here.
+          set -euo pipefail
+
+          # This step used to assert llama_supports_gpu_offload() and fail the
+          # build when it came back False. That was wrong, and it failed a build
+          # that had worked: libggml-vulkan.so was present and 49 MB.
+          #
+          # llama.cpp loads its backends DYNAMICALLY. That function reports
+          # whether a GPU backend successfully REGISTERED, not whether one was
+          # compiled in. A CI runner has the Vulkan SDK, because we install it
+          # to build with, but no ICD -- no actual driver -- so the backend
+          # cannot register a device and the answer is correctly False. The
+          # step was testing the runner, not the artifact.
+          #
+          # That distinction matters beyond this workflow: the same function is
+          # what Bench keys off, where "can I offload right now on THIS machine"
+          # is exactly the question worth asking. It is only useless as a
+          # build-time gate.
+          #
+          # So assert what a build can actually prove: the library exists and is
+          # linked against the Vulkan loader. A CPU-only build fails both.
           python - <<'PY'
-          from llama_cpp import llama_supports_gpu_offload
-          ok = llama_supports_gpu_offload()
-          print("llama_supports_gpu_offload():", ok)
-          raise SystemExit(0 if ok else 1)
+          import pathlib, subprocess, sys, llama_cpp
+          libdir = pathlib.Path(llama_cpp.__file__).parent / "lib"
+          libs = [p for p in libdir.iterdir() if "vulkan" in p.name.lower()]
+          if not libs:
+              sys.exit("no vulkan backend library was produced")
+
+          lib = max(libs, key=lambda p: p.stat().st_size)
+          print(f"{lib.name}: {lib.stat().st_size / 1048576:.1f} MB")
+
+          # A stub would be tiny; the real backend carries its compiled shaders.
+          if lib.stat().st_size < 1_000_000:
+              sys.exit(f"{lib.name} is too small to contain compiled shaders")
+
+          if sys.platform.startswith("linux"):
+              out = subprocess.run(["ldd", str(lib)], capture_output=True, text=True).stdout
+              if "libvulkan" not in out:
+                  sys.exit(f"{lib.name} is not linked against the Vulkan loader:\n{out}")
+              print("linked against the Vulkan loader")
           PY
+
+          # Reported, never asserted: informative on a machine with a driver,
+          # meaningless on a runner without one.
+          python -c "from llama_cpp import llama_supports_gpu_offload as f; print('llama_supports_gpu_offload() on this runner:', f())"
 
       - name: Package with a manifest
         if: steps.want.outputs.build == 'yes'
