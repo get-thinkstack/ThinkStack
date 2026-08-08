@@ -194,7 +194,7 @@ jobs:
       # stable -> versioned release, marked latest, not prerelease.
       # beta/nightly -> rolling tag, prerelease (kept out of the repo's "latest").
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.cfg.outputs.release_tag }}
           name: ${{ inputs.channel == 'stable' && format('v{0}', inputs.version) || format('{0} {1}', inputs.channel, inputs.version) }}
