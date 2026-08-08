@@ -8,19 +8,35 @@ describe('clampPanel', () => {
     expect(clampPanel(100, 1600)).toBe(280);
   });
 
-  // The map is the point of the page. Whatever you drag, it keeps half.
-  it('never lets the panel take more than half the window', () => {
-    expect(clampPanel(1400, 1600)).toBe(800);
+  // The ceiling was half the window, because the map was the point of the page.
+  // Then the panel grew a PDF reader, and reading wants width -- a hard stop at
+  // 50% meant dragging further did nothing, which reads as a broken grip.
+  it('lets the reader take most of the window', () => {
+    expect(clampPanel(1400, 1600)).toBe(1240);   // 1600 - 360 of canvas
+  });
+
+  it('but never erases the map', () => {
+    // whatever you drag, something recognisable as a map is left
+    expect(clampPanel(99999, 1600)).toBe(1240);
+  });
+
+  it('is resizable in BOTH directions between those limits', () => {
+    const wide = clampPanel(1100, 1600);
+    const narrow = clampPanel(400, 1600);
+    expect(wide).toBe(1100);
+    expect(narrow).toBe(400);
+    expect(wide).toBeGreaterThan(narrow);
   });
 
   it('passes a sane width through untouched', () => {
     expect(clampPanel(420, 1600)).toBe(420);
   });
 
-  // On a narrow window the floor and the ceiling cross. The ceiling has to
-  // win, or the panel is wider than the window it sits in.
-  it('gives the ceiling the last word when the window is smaller than the floor', () => {
-    expect(clampPanel(400, 500)).toBe(250);
+  // On a narrow window the floor and the ceiling cross. The reader's floor
+  // wins there: a 500px window cannot show both, and the pane you opened
+  // deliberately is the one to keep.
+  it('keeps the reader readable when the window is too small for both', () => {
+    expect(clampPanel(400, 500)).toBe(280);
   });
 });
 

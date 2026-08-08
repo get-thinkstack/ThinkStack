@@ -12,6 +12,7 @@ import { shellStore } from './utils/shell';
 // lazy chunk would let the page settle before the note appears.
 import FirstRunNote from './components/FirstRunNote';
 import PageGuide from './components/PageGuide';
+import ConfirmDialog from './components/ConfirmDialog';
 import './index.css';
 
 const THEME_KEY = 'ts-theme';
@@ -160,10 +161,28 @@ export default function App() {
   // takes minutes; with no progress the button looked frozen.
   const [updatePercent, setUpdatePercent] = useState(null);
 
+  // The update prompt, as a real dialog rather than window.confirm.
+  //
+  // Tauri's webview does not implement confirm(): it returns undefined, which
+  // the updater read as "no". Pressing Update app found the new version, was
+  // told nothing, declined on the user's behalf and reported "Up to date". The
+  // rest of the app had already learnt this -- see ConfirmDialog -- and this
+  // was the one prompt left calling it.
+  const [updatePrompt, setUpdatePrompt] = useState(null);
+
+  const askToUpdate = ({ version, size }) =>
+    new Promise((resolve) => setUpdatePrompt({ version, size, resolve }));
+
+  const answerUpdate = (accepted) => {
+    updatePrompt?.resolve(accepted);
+    setUpdatePrompt(null);
+  };
+
   const runUpdateCheck = async () => {
     setUpdateState('checking');
     setUpdatePercent(null);
     const result = await checkForUpdatesInteractive({
+      confirm: askToUpdate,
       onProgress: ({ phase, percent }) => {
         setUpdateState(phase);
         setUpdatePercent(percent);
@@ -346,6 +365,7 @@ export default function App() {
                       : updateState === 'restart-needed' ? 'Restart to finish'
                       : updateState === 'install-failed' ? 'Update failed, kept current'
                       : updateState === 'blocked' ? 'Update blocked'
+                      : updateState === 'declined' ? 'Update available'
                       : updateState === 'unsupported' ? 'Desktop app only'
                       : updateState === 'error' ? 'Check failed, retry'
                       : 'Update app'}
@@ -367,18 +387,26 @@ export default function App() {
               on four screens.
 
               pointerdown, not click: LitGraph's lasso is a drag that may never
-              produce a click, and a press should move the layout immediately
-              rather than on release.
+              produce a click at all.
 
               Capture phase: several children call stopPropagation (the delete
               buttons on a paper row, the canvas handlers), and a bubbling
               listener would simply never hear about those.
 
+              The press ARMS the collapse; the gesture ending applies it. This
+              used to collapse on the press itself, which slid the page 220px
+              out from under the button still being held and left the click with
+              nowhere to land -- the sidebar shut and the action never ran. See
+              requestFocusFromPointer.
+
+              Keyboard stays immediate: activating a focused control does not
+              depend on where that control is, so moving it cannot break it.
+
               The sidebar is deliberately OUTSIDE this element, so using the nav
               or the theme toggle does not count as "using the page". */}
           <main
             className="main-content"
-            onPointerDownCapture={shellStore.requestFocus}
+            onPointerDownCapture={shellStore.requestFocusFromPointer}
             onKeyDownCapture={shellStore.requestFocus}
           >
             {/* Shown once on a new install: a model is included and can be
@@ -391,6 +419,25 @@ export default function App() {
               interaction with the PAGE, and asking what a screen is for is not
               working on it. Fixed to the content's bottom-left corner. */}
           <FeatureGuide />
+
+          {/* Also outside <main>: answering the update prompt is not "using the
+              page", and collapsing the sidebar underneath an open dialog would
+              be movement nobody asked for. */}
+          {updatePrompt && (
+            <ConfirmDialog
+              title={`ThinkStack ${updatePrompt.version} is available`}
+              body={
+                `${updatePrompt.size ? `About ${Math.round(updatePrompt.size / 1024 / 1024)} MB. ` : ''}`
+                + 'The download includes the local model, so it is large and may take '
+                + 'a few minutes. Your papers and data are kept.'
+              }
+              confirmLabel="Install and restart"
+              cancelLabel="Not now"
+              danger={false}
+              onConfirm={() => answerUpdate(true)}
+              onCancel={() => answerUpdate(false)}
+            />
+          )}
         </div>
       </BrowserRouter>
     </>
