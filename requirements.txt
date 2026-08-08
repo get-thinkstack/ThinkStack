@@ -4,7 +4,7 @@
 
 # ── core framework ───────────────────────────────────────
 fastapi==0.115.6
-uvicorn[standard]==0.34.0
+uvicorn[standard]==0.52.1
 python-multipart==0.0.20
 
 # ── pdf processing ───────────────────────────────────────
