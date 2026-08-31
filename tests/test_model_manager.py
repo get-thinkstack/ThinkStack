@@ -35,20 +35,18 @@ from domain.model_manager.discovery import (
 
 
 class TestCatalog:
-    def test_exactly_one_model_is_bundled(self):
-        # more than one and the installer carries weight nobody asked for;
-        # none and a fresh offline install cannot do anything at all.
-        assert len(bundled_models()) == 1
+    def test_no_language_model_is_bundled(self):
+        # Bench is the explicit consent boundary. Reading, search, and Scribe's
+        # PDF compiler work without an LLM; generation begins after a user
+        # chooses a model or connects an existing local runtime.
+        assert bundled_models() == []
 
-    def test_the_bundled_model_needs_no_particular_machine(self):
-        # it ships to every user, so it cannot have a memory floor some of
-        # them fail to clear.
-        assert bundled_models()[0].min_ram_gb == 0.0
+    def test_the_baseline_is_optional_and_needs_no_particular_machine(self):
+        assert BASE_MODEL.bundled is False
+        assert BASE_MODEL.min_ram_gb == 0.0
 
-    def test_the_bundled_model_is_the_smallest_thing_we_offer(self):
-        # it is chosen to run anywhere; anything we would suggest INSTEAD is
-        # an upgrade, and an upgrade that is smaller is a contradiction.
-        assert bundled_models()[0].size_gb == min(s.size_gb for s in CATALOG)
+    def test_the_baseline_is_the_smallest_download_we_offer(self):
+        assert BASE_MODEL.size_gb == min(s.size_gb for s in CATALOG)
 
     def test_analysis_model_is_optional_not_shipped(self):
         assert ANALYSIS_MODEL.bundled is False

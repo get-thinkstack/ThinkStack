@@ -617,8 +617,13 @@ def _tectonic_env() -> dict:
     cache = settings.tex_cache_dir
     try:
         seed = settings.bundled_tex_dir / "cache"
-        if seed.is_dir() and not cache.exists():
-            shutil.copytree(seed, cache)
+        seed_marker = cache / ".thinkstack-bundled-cache-seeded"
+        if seed.is_dir() and not seed_marker.exists():
+            # The application or an installer may create the state directory
+            # before the first compile.  `cache.exists()` is therefore not a
+            # reliable indication that its bundled package data was copied.
+            shutil.copytree(seed, cache, dirs_exist_ok=True)
+            seed_marker.write_text("1\n", encoding="utf-8")
             logger.info("seeded bundled TeX cache into %s", cache)
         cache.mkdir(parents=True, exist_ok=True)
         env["TECTONIC_CACHE_DIR"] = str(cache)

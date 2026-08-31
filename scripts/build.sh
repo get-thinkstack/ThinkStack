@@ -185,11 +185,11 @@ else
     STAGE_DIR="dist/.models-stage"
     rm -rf "$STAGE_DIR"; mkdir -p "$STAGE_DIR"
 
-    WANTED=$($PY -c "
-import json
-for u in json.load(open('release.config.json')).get('models', []):
-    print(u.rsplit('/', 1)[-1])
-" 2>/dev/null || true)
+    # `make_bundled_manifest.py` owns the release-config compatibility layer.
+    # Keep local builds aligned with CI and the manifest when a model entry is
+    # a rich object ({url, label, tasks, ...}) rather than a legacy URL string.
+    WANTED=$($PY scripts/make_bundled_manifest.py --config release.config.json \
+        --print-files 2>/dev/null || true)
 
     MODEL_COUNT=0
     MISSING=""

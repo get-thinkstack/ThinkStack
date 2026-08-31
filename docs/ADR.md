@@ -1233,3 +1233,15 @@ the URL itself. It never accepts a URL.
 and non-`.gguf` paths are refused before a socket opens. An endpoint that
 fetched whatever address it was handed would be a general-purpose downloader
 aimed by anything able to reach the local API.
+## 2026-08-31: no bundled SLM weights
+**decision:** ship no GGUF/SLM weights in desktop installers. Bench is the
+explicit consent boundary for model downloads and can also reuse compatible
+Ollama or LM Studio models already on the machine.
+**rationale:** model weights made release artifacts unnecessarily large and
+confused a user-managed model workflow with a mandatory installer dependency.
+A fresh install must still support extraction, reading, embeddings/search, and
+PDF writing offline; therefore the embedding model and Tectonic remain bundled.
+**implementation:** `release.config.json` has an empty `models` array; the
+packaging validator asserts that no LLM is present while it still exercises all
+non-inference features on Linux, macOS, and Windows.
+**status:** accepted.

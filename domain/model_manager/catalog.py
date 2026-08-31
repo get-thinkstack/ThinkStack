@@ -115,9 +115,10 @@ class ModelSpec:
         return self.size_gb <= CPU_COMFORTABLE_GB
 
 
-# ── the bundled baseline ───────────────────────────────────────────────
-# Ships inside the installer so ThinkStack works the moment it opens, with no
-# download and no account.
+# ── the smallest optional baseline ─────────────────────────────────────
+# Models are deliberately never shipped in the installer. Bench is the consent
+# boundary: it offers this compact baseline for an explicit download after
+# install, or users can reuse an equivalent Ollama/LM Studio model.
 #
 # Chosen for the FLAGSHIP features rather than for summarisation. Gap finding
 # and Scribe produce structured output, and ollama_client constrains that with
@@ -136,15 +137,15 @@ BASE_MODEL = ModelSpec(
     label="Qwen2.5 0.5B",
     size_gb=0.46,
     url="https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
-    bundled=True,
+    bundled=False,
     # Claims the structured jobs it is good at, and `general`. NOT `analysis`:
     # summaries are where a bigger model earns its download, and claiming that
     # here would stop us ever suggesting one.
     tasks=("general", "gap_analysis", "latex_writer"),
     min_ram_gb=0.0,
     quality=15,
-    outcome="Included with ThinkStack",
-    description="Works the moment you open the app. Good at finding gaps and "
+    outcome="Smallest download offered",
+    description="The lightest model Bench offers. Good at finding gaps and "
                 "drafting LaTeX; summaries will be rough.",
 )
 
@@ -269,7 +270,9 @@ def runnable_on(budget_gb: float) -> list[ModelSpec]:
     measure with no options at all.
     """
     if budget_gb <= 0:
-        return bundled_models()
+        # A failed hardware measurement must not make Bench blank. Offer the
+        # smallest download, but leave the user to consent to it.
+        return [min(CATALOG, key=lambda s: s.size_gb)]
     return [s for s in CATALOG if s.min_ram_gb <= budget_gb]
 
 
@@ -299,6 +302,12 @@ def suggested_upgrade(
     machine. `gpu_gb` is what the ENGINE can offload to, which is zero both on
     a CPU-only build and on a GPU our llama.cpp cannot use.
     """
+    # A catalog is still visible in Bench, but an automatic recommendation
+    # needs a real memory measurement.  Do not turn an unknown machine into an
+    # implicit request to download even the smallest model.
+    if budget_gb <= 0:
+        return None
+
     candidates = [
         s for s in optional_models()
         if not _installed_key_match(s, installed)

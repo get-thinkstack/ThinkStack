@@ -312,11 +312,10 @@ class TestWhatTheBundledBaselineMayClaim:
                 f"is never suggested."
             )
 
-    def test_the_baseline_covers_general_so_nothing_is_unrouted(self):
+    def test_no_model_is_declared_bundled(self):
         from domain.model_manager.catalog import bundled_models
         bundled = bundled_models()
-        assert bundled, "something must be bundled, or a fresh install has no model"
-        assert any("general" in s.tasks for s in bundled)
+        assert bundled == []
 
     def test_catalog_and_release_config_agree_on_what_ships(self):
         """The two files that decide what is bundled must not drift.

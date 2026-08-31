@@ -175,6 +175,9 @@ def main() -> int:
                     help="seconds to wait for the backend to come up")
     ap.add_argument("--skip-inference", action="store_true",
                     help="skip chat/analysis (still checks ingest + embeddings)")
+    ap.add_argument("--no-bundled-llm", action="store_true",
+                    help="require an intentionally model-free bundle; validates "
+                         "reading/search/PDF features and skips inference")
     ap.add_argument("--expect-version", default="",
                     help="the version this bundle was built as; the UI it "
                          "serves must report exactly this")
@@ -277,7 +280,12 @@ def main() -> int:
     #    the working directory and resolved to the literal string "data/models".
     llm = health.get("llm") or {}
     path = str(llm.get("model_path", ""))
-    if llm.get("status") == "connected" and llm.get("target_available"):
+    if args.no_bundled_llm:
+        if llm.get("target_available"):
+            record(FAIL, "an LLM was unexpectedly bundled", path)
+        else:
+            record(PASS, "no LLM bundled; Bench must handle model setup")
+    elif llm.get("status") == "connected" and llm.get("target_available"):
         if path.startswith("/") or (len(path) > 2 and path[1] == ":"):
             record(PASS, "model resolved", path)
         else:
@@ -312,8 +320,9 @@ def main() -> int:
     #    for free text rather than grammar-constrained JSON. Keeping a plain-text
     #    check is the point: it and check 6b exercise the two different decoder
     #    paths, and a bundle can break one while the other still works.
-    if args.skip_inference:
-        record(WARN, "inference skipped (--skip-inference)")
+    if args.skip_inference or args.no_bundled_llm:
+        reason = "--no-bundled-llm" if args.no_bundled_llm else "--skip-inference"
+        record(PASS, f"inference intentionally unavailable ({reason})")
     else:
         try:
             proj = post(f"{base}/api/papers/projects", {"name": "bundle-inference"})
@@ -348,7 +357,7 @@ def main() -> int:
     # Failing softly is right for the product -- one bad paper must not abort a
     # multi-paper run -- but it means the ONLY way to detect the failure is to
     # read the returned text. So that is what this does.
-    if not args.skip_inference:
+    if not args.skip_inference and not args.no_bundled_llm:
         try:
             # The ingest check above does not keep the id, so ask for it the
             # same way the UI does.

@@ -603,7 +603,7 @@ after we shipped a build whose flagship feature needed a package no user had.
 
 | Asset | Purpose | Bundled |
 |---|---|---|
-| `qwen2.5-0.5b-instruct-q4_k_m.gguf` | general, search, Scribe | yes |
+| `qwen2.5-0.5b-instruct-q4_k_m.gguf` | general, search, Scribe | no — offered by Bench on consent |
 | `all-MiniLM-L6-v2` | embeddings (ingest + search) | yes |
 | `qwen2.5-1.5b-instruct-q4_k_m.gguf` | analysis, gap finder | no — offered on consent |
 

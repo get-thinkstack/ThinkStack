@@ -105,9 +105,14 @@ def _measure(models_dir: Path, filename: str) -> float | None:
         return None
 
 
-def build_manifest(config: dict, models_dir: Path) -> dict:
-    """the manifest this config describes."""
-    entries = []
+def model_entries(config: dict):
+    """Yield normalized bundled-model entries from either supported config shape.
+
+    The release config started as a list of URLs and later gained per-model
+    metadata.  Build scripts need the filename before a manifest exists, so
+    keep that normalization here instead of letting each caller guess the
+    config shape independently.
+    """
     for item in config.get("models", []):
         if isinstance(item, str):
             item = {"url": item}
@@ -116,9 +121,14 @@ def build_manifest(config: dict, models_dir: Path) -> dict:
 
         url = str(item.get("url") or "").strip()
         filename = str(item.get("file") or "").strip() or url.rsplit("/", 1)[-1]
-        if not filename:
-            continue
+        if filename:
+            yield item, filename
 
+
+def build_manifest(config: dict, models_dir: Path) -> dict:
+    """the manifest this config describes."""
+    entries = []
+    for item, filename in model_entries(config):
         defaults = _catalog_defaults(filename)
         measured = _measure(models_dir, filename)
 
@@ -146,6 +156,8 @@ def main() -> int:
                     help="directory to write bundled.json into")
     ap.add_argument("--check", action="store_true",
                     help="verify the existing manifest matches, do not write")
+    ap.add_argument("--print-files", action="store_true",
+                    help="print the model filenames this config selects, then exit")
     args = ap.parse_args()
 
     try:
@@ -153,6 +165,11 @@ def main() -> int:
     except (OSError, json.JSONDecodeError) as e:
         print(f"cannot read {args.config}: {e}", file=sys.stderr)
         return 1
+
+    if args.print_files:
+        for _, filename in model_entries(config):
+            print(filename)
+        return 0
 
     out_dir = Path(args.out)
     manifest = build_manifest(config, out_dir)

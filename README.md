@@ -86,9 +86,13 @@ launch. See [docs/ABOUT.md](docs/ABOUT.md) for the full walkthrough.
 | Component | Size | Purpose |
 |---|---|---|
 | Frozen Python backend | ~1.7 GB uncompressed | no Python needed on the machine |
-| Qwen2.5 0.5B Instruct (Q4_K_M) | 469 MB | general tasks, metadata, Scribe |
 | all-MiniLM-L6-v2 | 88 MB | embeddings for ingestion and search |
 | Tectonic + warmed package cache | 70 MB | LaTeX compilation with no TeX install |
+
+**No GGUF/SLM weights ship in the installer.** Bench is the model consent
+boundary: choose a model to download after install, or reuse an Ollama/LM
+Studio model already on your computer. Reading, extraction, offline search,
+and PDF writing work on a clean install without an LLM.
 
 **Graphics acceleration is not bundled either.** The inference engine ships
 processor-only so the installer works on every machine. If yours has graphics
@@ -110,16 +114,12 @@ git clone https://github.com/get-thinkstack/ThinkStack.git && cd ThinkStack
 ./scripts/install-hooks.sh  # shared git hooks
 ./scripts/fetch-tex.sh      # the TeX engine the installers bundle
 
-mkdir -p data/models
-huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct-GGUF \
-  qwen2.5-0.5b-instruct-q4_k_m.gguf --local-dir data/models
-
 ./scripts/dev.sh            # backend + vite with hot reload
 ./scripts/dev.sh --tauri    # ... plus the desktop window
 ./scripts/build.sh          # production installers, into local/
 ```
 
-**Requirements:** Python 3.11+, Node 18+, Rust (desktop build only).
+**Requirements:** Python 3.11+, Node 22+, Rust (desktop build only).
 
 ## Architecture
 
