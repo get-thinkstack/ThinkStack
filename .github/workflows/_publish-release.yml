@@ -170,7 +170,7 @@ jobs:
       - name: Attest build provenance
         if: steps.cfg.outputs.sc_prov == 'true'
         continue-on-error: true
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v3
         with:
           subject-path: |
             all-artifacts/*.AppImage
