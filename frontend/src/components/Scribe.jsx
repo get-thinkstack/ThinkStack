@@ -58,12 +58,9 @@ function insertLatexAt(src, gen, caret) {
 /**
  * AI LaTeX paper writer.
  *
- * The compiled PDF is the only preview, and it recompiles on its own a moment
- * after you stop typing -- you write, you watch the paper update, you save when
- * you are done. There used to be a second "live preview" that re-rendered the
- * source with KaTeX in the browser; it was removed because it was a second,
- * worse renderer that disagreed with the real PDF, so the thing you were
- * looking at was never the thing you would publish.
+ * The compiled PDF is the only preview, recompiled a moment after typing
+ * stops. Do not add a browser-side renderer: one existed (KaTeX) and was
+ * removed because it disagreed with the real PDF.
  *
  * Compiling writes the source first, so an autocompile is also an autosave.
  * Save stays as an explicit checkpoint.

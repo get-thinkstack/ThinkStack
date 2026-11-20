@@ -1,9 +1,4 @@
-"""
-knowledge base domain models.
-
-data classes for knowledge entries stored in the vector database,
-representing the indexed and searchable form of document chunks.
-"""
+"""Data classes for stored chunks and store statistics."""
 
 from dataclasses import dataclass, field
 
@@ -20,7 +15,7 @@ class KnowledgeEntry:
 
 @dataclass
 class CollectionStats:
-    """statistics about a chromadb collection."""
+    """Counts for the vector store."""
     name: str = ""
     count: int = 0
     document_count: int = 0

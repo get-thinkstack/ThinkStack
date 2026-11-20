@@ -1,10 +1,7 @@
-"""find GGUF models on Hugging Face.
+"""Find GGUF models on Hugging Face, for Bench.
 
-The ONE part of ThinkStack that reaches the internet on purpose. Everything
-else works offline and stays offline; this exists because a user who wants a
-model we do not ship should not have to go and find the file themselves.
-
-Three rules hold the offline-first promise while this exists:
+One of the few parts of ThinkStack that reach the internet (with model and
+graphics-engine downloads and the updater), and only on a click. Three rules:
 
   1. **Nothing here runs unless the user asked.** No prefetch, no background
      index, no "popular models" on page load. Every function below is the

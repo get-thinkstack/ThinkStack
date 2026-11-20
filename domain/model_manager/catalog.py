@@ -1,15 +1,15 @@
 """Models ThinkStack knows how to fetch, and which are worth offering here.
 
-The baseline is BUNDLED so a fresh install works offline with no download and
-no account. Everything else is fetched only when the hardware can run it AND
-the user agrees.
+Nothing is bundled (release.config.json has `"models": []`). Every model is
+fetched from Bench when the user asks, judged first against this machine.
+`BASE_MODEL` is the router's floor when it is present on disk.
 
 Three rules for anyone editing this file:
 
 **Check the URL.** A wrong one is a download that fails for every user who
 clicks it. Two of the first six written here were dead.
 
-**No reasoning model in the bundled slot.** Structured output is constrained by
+**No reasoning model as the base or a bundled model.** Structured output is constrained by
 a GBNF grammar permitting only JSON from the first token, so a model emitting a
 ``<think>`` block has nowhere to put it and closes the object immediately,
 returning ``{}``. This passes every structural check -- verified URL, right
@@ -182,7 +182,7 @@ GEMMA_1B = ModelSpec(
     good_on_tiers=("low", "medium"),
     quality=20,
     outcome="A different writing style",
-    description="A small alternative to the bundled model. Similar speed, "
+    description="A small alternative to the Qwen models. Similar speed, "
                 "different writing style.",
 )
 

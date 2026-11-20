@@ -425,6 +425,21 @@ class TestTheBaselineIsUsableNotJustValid:
                     f"and Scribe rely on. See the note in catalog.py."
                 )
 
+    def _reasoning(self, specs):
+        return [s.name for s in specs
+                if any(f in s.name.lower() for f in self.REASONING_FAMILIES)]
+
+    def test_the_check_recognises_a_reasoning_model(self):
+        """Without this the checks here could pass by checking nothing, which
+        is what the bundled-only one did once nothing shipped."""
+        from types import SimpleNamespace
+        assert self._reasoning([SimpleNamespace(name="Qwen3-0.6B-Q4_K_M.gguf")])
+
+    def test_the_base_model_is_not_a_reasoning_model(self):
+        """The router's floor for every task, bundled or not."""
+        from domain.model_manager.catalog import BASE_MODEL
+        assert not self._reasoning([BASE_MODEL])
+
     def test_release_config_does_not_bundle_a_reasoning_model(self):
         # the config is what the BUILD reads; catalog.py agreeing is not enough
         import json
@@ -439,3 +454,22 @@ class TestTheBaselineIsUsableNotJustValid:
                     f"release.config.json bundles {url}, which looks like a "
                     f"{family} reasoning model."
                 )
+
+
+def test_no_catalog_copy_mentions_a_bundled_model_while_none_ships():
+    """Bench shows these strings; none ships since 2026-08-31."""
+    from domain.model_manager.catalog import CATALOG, bundled_models
+    if bundled_models():
+        return
+    for spec in CATALOG:
+        for text in (spec.description, spec.outcome):
+            assert "bundled" not in (text or "").lower(), f"{spec.name}: {text!r}"
+
+
+def test_a_fake_model_costs_almost_no_disk(gguf_dir):
+    """A 1 GB fake must be sparse, or a full run fills the disk (NTFS)."""
+    from tests.conftest import allocated_bytes
+    _, make = gguf_dir
+    p = make("big.gguf", 1024)
+    assert p.stat().st_size == 1024 * 1024 * 1024
+    assert allocated_bytes(p) < 16 * 1024 * 1024

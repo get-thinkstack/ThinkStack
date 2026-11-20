@@ -1,12 +1,9 @@
 """the files inside a paper project, and the boundary around them.
 
-A project has always been a directory -- `main.tex` and `meta.json` sat in one
-from the first version -- but nothing could reach anything except `main.tex`.
-That is the whole reason `\\includegraphics{chart.png}` failed: the compiler
-already runs with the project directory as its working directory, so a relative
-path resolves correctly; there was simply no way to put a second file there.
-
-This module is that way in, and the boundary that makes it safe.
+A project is a directory (`main.tex`, `meta.json`, figures, sections, a
+`.bib`), and the compiler runs inside it, so relative paths in the document
+resolve. This module lists, reads, writes, uploads, moves, copies and deletes
+files there, behind one boundary. Files outside the project are links.py.
 
 ── The boundary ──
 

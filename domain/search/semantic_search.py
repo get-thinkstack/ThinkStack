@@ -12,6 +12,7 @@ import re
 from infrastructure.local_vector_store import get_vector_store
 from domain.knowledge_base.author_codec import authors_display
 from domain.knowledge_base.embedding_service import generate_embedding
+from domain.knowledge_base.repository import is_encrypted
 from domain.search.models import SearchQuery, SearchResult
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,9 @@ def semantic_search(query: SearchQuery) -> list[SearchResult]:
         for i, chunk_id in enumerate(results["ids"]):
             distance = results["distances"][i] if results["distances"] else 1.0
             text = results["documents"][i]
+            if is_encrypted(results["metadatas"][i]):
+                # Found by meaning, never shown (and no literal-match bonus).
+                text = ""
             score = (1.0 - distance) + _exact_bonus(query_tokens, text)
 
             if score < query.min_score:

@@ -233,10 +233,13 @@ else
 
     # The TeX engine. The product's premise is that the user has nothing
     # installed, so the paper writer cannot depend on a system LaTeX.
-    if [ ! -x "data/tex/tectonic" ] && [ ! -x "data/tex/tectonic.exe" ]; then
-        bash scripts/fetch-tex.sh data/tex || \
-            echo -e "  ${YELLOW}TeX fetch failed - the PDF tab will need a system LaTeX${NC}"
-    fi
+    # Always ask fetch-tex.sh: it reuses a cache only when its stamp proves the
+    # cache was warmed, and re-warms a partial one. A failure stops the build;
+    # an installer with an unwarmed cache cannot compile offline.
+    bash scripts/fetch-tex.sh data/tex || {
+        echo -e "  ${RED}TeX engine or cache could not be prepared - refusing to build${NC}"
+        exit 1
+    }
     if [ -d "data/tex" ]; then
         echo -e "  ${GREEN}bundling${NC} tectonic + warm package cache ($(du -sh data/tex | cut -f1))"
     fi
@@ -481,7 +484,7 @@ if [ -d "$TARGET_DIR/release/bundle" ]; then
     echo ""
     echo -e "${CYAN}[5/5] publishing installers to ${LOCAL_DIR}/...${NC}"
     mkdir -p "$LOCAL_DIR"
-    # clear old installers first -- same reason release.sh refuses a dirty tree
+    # clear old installers first, so local/ holds exactly this build
     find "$LOCAL_DIR" -maxdepth 1 -type f \
         \( -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \
            -o -name '*.dmg' -o -name '*.msi' -o -name '*.exe' \) -delete 2>/dev/null || true

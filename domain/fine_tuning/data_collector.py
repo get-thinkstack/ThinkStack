@@ -1,12 +1,8 @@
-"""
-training data collector for fine-tuning.
+"""Training pairs for a future task-specific model, kept on this machine.
 
-captures prompt → latex pairs from the paper writer's generate endpoint
-so they can later be used to fine-tune a local slm (qlora) for better
-latex generation and research gap analysis.
-
-data is stored as jsonl files in data/training/ and can be exported
-for cloud fine-tuning or used locally.
+Scribe's generate route appends each prompt -> LaTeX pair, in chat format, to
+`<data dir>/training/<task>.jsonl`. `save_gap_analysis_pair` exists but nothing
+calls it yet. `tools/finetune.py` reads these files.
 """
 
 import json
@@ -35,19 +31,7 @@ def save_latex_pair(
     grounding_context: str = "",
     task_type: str = "latex_generation",
 ) -> Path:
-    """persist a single training example (prompt → completion) to disk.
-
-    args:
-        prompt: the user's natural language request.
-        system: the system prompt used.
-        generated_latex: the ai-generated latex output.
-        current_source: the document source at the time of generation.
-        grounding_context: any rag context that was injected.
-        task_type: one of 'latex_generation' or 'gap_analysis'.
-
-    returns:
-        path to the jsonl file the example was appended to.
-    """
+    """Append one example to `<task_type>.jsonl`; returns the file path."""
     _ensure_dir()
     filepath = TRAINING_DIR / f"{task_type}.jsonl"
 
@@ -81,16 +65,7 @@ def save_gap_analysis_pair(
     system: str,
     analysis_result: str,
 ) -> Path:
-    """persist a gap analysis training example.
-
-    args:
-        paper_content: the combined paper summaries / claims text.
-        system: the system prompt used for analysis.
-        analysis_result: the ai's gap analysis output (json string).
-
-    returns:
-        path to the jsonl file the example was appended to.
-    """
+    """Append one gap-analysis example. Not called anywhere yet."""
     return save_latex_pair(
         prompt=paper_content,
         system=system,
@@ -100,14 +75,7 @@ def save_gap_analysis_pair(
 
 
 def export_training_data(task_type: str = "latex_generation") -> list[dict]:
-    """load all saved training examples for a given task type.
-
-    args:
-        task_type: which dataset to export.
-
-    returns:
-        list of training example dictionaries.
-    """
+    """Every saved example for `task_type`."""
     filepath = TRAINING_DIR / f"{task_type}.jsonl"
     if not filepath.exists():
         return []

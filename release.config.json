@@ -1,5 +1,5 @@
 {
-  "$comment": "single source of truth for the desktop release pipeline. the reusable ci workflows and scripts/*.sh all read this file, so adding a platform, a channel, or pointing at a new repo/org is a config edit here \u2014 not a workflow rewrite. see docs/RELEASE_GUIDE.md.",
+  "$comment": "single source of truth for the desktop release pipeline. the reusable ci workflows and scripts/*.sh all read this file, so adding a platform, a channel, or pointing at a new repo/org is a config edit here \u2014 not a workflow rewrite. see CONTRIBUTING.md#releasing.",
   "product": "ThinkStack",
   "identifier": "com.thinkstack.app",
   "repo": "get-thinkstack/ThinkStack",

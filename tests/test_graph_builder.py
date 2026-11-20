@@ -288,3 +288,13 @@ class TestBuildGraph:
         first = [(n["doc_id"], n["x"], n["y"]) for n in build_graph()["nodes"]]
         second = [(n["doc_id"], n["x"], n["y"]) for n in build_graph()["nodes"]]
         assert first == second
+
+
+def test_a_paper_with_no_title_is_named_by_its_file_not_its_id(wire, monkeypatch):
+    """A hex id on the map is a label nobody can read."""
+    wire.seed("d1", [[1, 0, 0], [0.9, 0.1, 0]], chunks_meta={"title": ""})
+    monkeypatch.setattr(gb, "list_stored_pdfs", lambda: [
+        {"doc_id": "d1", "filename": "attention_is_all_you_need.pdf"},
+    ], raising=False)
+    node = build_graph()["nodes"][0]
+    assert node["title"] == "attention_is_all_you_need"

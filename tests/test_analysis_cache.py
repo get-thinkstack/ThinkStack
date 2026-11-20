@@ -1,4 +1,5 @@
-"""tests for the per-document analysis cache."""
+"""DocAnalysisCache: round-trips, `merge` keeps the half it was not given
+(claims must not erase a summary), persistence, and a corrupt file read as empty."""
 
 from infrastructure.analysis_cache import DocAnalysisCache
 

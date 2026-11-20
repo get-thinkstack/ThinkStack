@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
-"""write data/models/bundled.json, describing what THIS build ships.
+"""Write data/models/bundled.json, describing what THIS build ships.
 
-Swapping the bundled model used to mean editing four places -- release.config
-.json, catalog.BASE_MODEL, settings.llm_analysis_model and TASK_MODEL_MAP --
-and missing one left routing pointing at a file that is not there. That friction
-is exactly what would make shipping our own fine-tuned SLM painful.
-
-Now the build emits a manifest beside the weights and the app reads that, so
-changing the bundled model is ONE edit to release.config.json.
+Run by the build. The app (domain/model_manager/manifest.py) reads the result,
+so changing what ships is ONE edit to release.config.json's `models`, which is
+empty today: no language model is bundled.
 
 release.config.json accepts two shapes, and both work:
 
@@ -29,11 +25,9 @@ release pipeline is a bad place to require a migration. Missing fields are
 filled from catalog.py where the model is one we already know, so the common
 case needs no metadata at all.
 
-`replaces` is the field that makes an UPDATE work rather than just an install:
-it names the previously-bundled ids this model supersedes, so first run after an
-upgrade deletes the old weights instead of leaving both. Without it retirement
-would have to infer intent from absence -- which is how the beta-latest installs
-got stranded.
+`replaces` names previously-bundled ids this model supersedes, so the first
+run after an upgrade retires the old weights. Retirement is never inferred from
+absence: the release states it.
 
 usage:
     scripts/make_bundled_manifest.py [--config release.config.json]

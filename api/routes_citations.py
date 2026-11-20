@@ -148,12 +148,9 @@ async def api_add_citation(project_id: str, req: CiteRequest):
 async def api_bibliography(project_id: str):
     """What this document cites, and whether each citation will resolve.
 
-    Three states, and the two unhappy ones are the point. `references.bib` says
-    what COULD be cited and the source says what IS; they drift in both
-    directions and neither drift is visible today. A key cited but missing from
-    the bib renders as [?] in the PDF -- which is how the question-mark bug was
-    reported in the first place -- and an entry nothing cites is carried
-    forever.
+    `references.bib` says what COULD be cited; the source says what IS. They
+    drift both ways: a key cited but missing from the bib renders as [?], and
+    an entry nothing cites is carried forever. Both are reported.
     """
     d = _project(project_id)
     tex = d / "main.tex"

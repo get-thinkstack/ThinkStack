@@ -4,25 +4,22 @@
 
 **An offline research assistant that runs entirely on your machine.**
 
-Ingest papers, search them, analyse them, map them, and write LaTeX.
-No account, no subscription, no network. Nothing you open ever leaves your computer.
+Collect papers, map what they say, and write LaTeX.
+No account, no subscription, no cloud. Nothing you open leaves your computer.
 
-Three sections, in the order the work happens:
-**Library** (collect) → **LitGraph** (understand) → **Scribe** (write), with
-**Bench** for what your machine can run and what it runs it with.
+**Library** (collect) → **LitGraph** (understand) → **Scribe** (write), plus
+**Bench** for what your machine can run and which models it runs.
 
 [![Release](https://img.shields.io/github/v/release/get-thinkstack/ThinkStack?label=release&color=95ff00)](https://github.com/get-thinkstack/ThinkStack/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/get-thinkstack/ThinkStack/ci.yml?branch=main&label=CI)](https://github.com/get-thinkstack/ThinkStack/actions)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](https://github.com/get-thinkstack/ThinkStack/releases/latest)
-[![Python](https://img.shields.io/badge/python-3.12-3776AB)](requirements.txt)
 [![Offline](https://img.shields.io/badge/inference-100%25%20local-success)](#privacy)
 
 [Download](https://get-thinkstack.github.io/ThinkStack/) ·
-[User guide](docs/ABOUT.md) ·
 [Features](docs/FEATURES.md) ·
 [Contributing](CONTRIBUTING.md) ·
-[Architecture decisions](docs/ADR.md)
+[Decisions](docs/ADR.md)
 
 </div>
 
@@ -30,81 +27,83 @@ Three sections, in the order the work happens:
 
 ## What it is
 
-ThinkStack is a desktop application for students and independent researchers
-working with a personal library of research papers. It runs as a native desktop
-window, or as a local server you open in your own browser. Either way it is bound
-to `127.0.0.1` and hosted nowhere.
+A desktop application for students and independent researchers with a personal
+library of papers. It runs as a native window, or as a local server you open in
+your own browser. Either way it binds to `127.0.0.1` and is hosted nowhere.
 
-Language model inference, text embedding, retrieval, encryption and PDF
-typesetting all happen locally. The installer carries everything needed: a frozen
-Python runtime, a quantised language model, embedding weights, and a TeX engine.
+Embedding, search, language-model inference, encryption and PDF typesetting all
+happen on the machine. The installer carries a frozen Python backend, the
+embedding model and a TeX engine, so a fresh install with no network can ingest,
+search, read and compile. **Language models are not bundled**: you choose one in
+Bench after install, or point ThinkStack at one you already have (Ollama, LM
+Studio, or any `.gguf` file). Summaries, claims, theme names, gap finding,
+Scribe's "write at the cursor" and the metadata fallback need one; ingesting,
+search, the map's layout, reading and compiling do not.
 
-**Install it on a computer with nothing else on it, disconnect the network, and
-every feature still works.**
+## Privacy
+
+This is why the project exists.
+
+- **Inference and embeddings run locally**, through `llama.cpp` and
+  `sentence-transformers`.
+- **No telemetry.**
+- **The internet is used only when you ask:** pressing *Update app*, searching
+  or downloading a model in Bench, or adding the optional graphics engine. There
+  is no check on launch. An offline app that phones home on every start is not
+  offline.
 
 ## Features
 
 | | |
 |---|---|
-| **Ingest** | PDF extraction with PyMuPDF and pdfplumber, sentence-transformer embeddings, file-based vector store |
-| **Search** | dense semantic retrieval across every chunk of every paper, with a small exact-token bonus so rare literal terms stay findable |
-| **LitGraph** | a map of your collection: papers placed by meaning (PCA over embedding centroids), linked by similarity, grouped into theme territory, with research gaps drawn as markers wired to the papers that evidence them. The map is also the selector — lasso a region and run summarize, claims, themes or gap-finding on exactly those papers |
-| **Analyse** | summaries, key-claim extraction, thematic clustering — precomputed at ingest, off the request path |
-| **Gap finder** | surfaces under-explored areas and suggests research directions |
-| **Scribe** | AI-assisted LaTeX. A paper is a folder — add figures, split it into sections, keep a `.bib` beside it. Select plain English, press `Ctrl+Enter`, and it becomes LaTeX at your cursor. Compiles locally with no account, no queue and no time limit |
-| **Vault** | password-based encryption with Argon2id and AES-256-GCM |
-| **Updates** | signed, and only when you ask for them |
+| **Library** | Import PDFs. Title, authors and year are read from the page layout and can be corrected by hand. |
+| **Search** | Meaning-based retrieval over every chunk of every paper. |
+| **LitGraph** | A map of the collection: papers placed by meaning, linked by similarity, grouped into themes, with research gaps wired to the papers that evidence them. Draw a loop around papers to summarize, extract claims, cluster or find gaps in exactly that set. |
+| **Scribe** | A LaTeX editor that compiles offline. A paper is a folder. Select plain English, press `Ctrl+Enter`, and it becomes LaTeX at the cursor. Type `cite` to cite from the library. |
+| **Bench** | What this machine can run, which model does which job, and where to get more. |
+| **Vault** | Encrypt a paper's text and PDF at rest with a password (Argon2id + AES-256-GCM). It stays on the map; its contents need the password. |
+| **Updates** | Signed, and only when you press the button. |
 
-## Privacy
-
-This is the reason the project exists, so it is worth being exact about.
-
-- **No inference leaves the device.** Models run through `llama.cpp` on your CPU.
-- **No embeddings leave the device.** Sentence encoding is local.
-- **No telemetry.** None is collected or sent.
-- **No update check on launch.** The only outbound request the application ever
-  makes is an update check, and it happens only when you press the button. An
-  offline-first application that contacts a server on every start is not offline
-  in any sense a user would recognise.
+Details: [docs/FEATURES.md](docs/FEATURES.md).
 
 ## Install
 
-Download from the [releases page](https://github.com/get-thinkstack/ThinkStack/releases/latest)
-or the [download page](https://get-thinkstack.github.io/ThinkStack/).
+Download from the [download page](https://get-thinkstack.github.io/ThinkStack/)
+(it detects your OS) or the [releases page](https://github.com/get-thinkstack/ThinkStack/releases/latest).
 
-| OS | File | Note |
+| OS | File | First launch |
 |---|---|---|
-| **Linux** | `.AppImage` or `.deb` | `chmod +x` the AppImage, then run it |
-| **macOS** | `.dmg` | unsigned build: **System Settings → Privacy & Security → Open Anyway** on first launch |
-| **Windows** | `.msi` | unsigned build: SmartScreen → **More info** → **Run anyway** |
+| Linux | `.AppImage` or `.deb` | `chmod +x` the AppImage, then run it |
+| macOS | `.dmg` (universal) | drag to Applications, then see below |
+| Windows | `.msi` | SmartScreen: **More info → Run anyway** |
 
-Builds are not code-signed yet, so both macOS and Windows warn once on first
-launch. See [docs/ABOUT.md](docs/ABOUT.md) for the full walkthrough.
+Builds are not code-signed yet (that needs paid Apple and Windows certificates),
+so macOS and Windows warn once. The app is unmodified; the OS has no signature
+to check.
 
-## What ships inside the installer
+**macOS 15 (Sequoia) and newer:** open the app and let macOS refuse, then
+**System Settings → Privacy & Security → Open Anyway**. On macOS 14 and earlier,
+right-click the app → **Open** → **Open**. Or, from a terminal:
 
-| Component | Size | Purpose |
-|---|---|---|
-| Frozen Python backend | ~1.7 GB uncompressed | no Python needed on the machine |
-| all-MiniLM-L6-v2 | 88 MB | embeddings for ingestion and search |
-| Tectonic + warmed package cache | 70 MB | LaTeX compilation with no TeX install |
+```bash
+xattr -d com.apple.quarantine /Applications/ThinkStack.app
+```
 
-**No GGUF/SLM weights ship in the installer.** Bench is the model consent
-boundary: choose a model to download after install, or reuse an Ollama/LM
-Studio model already on your computer. Reading, extraction, offline search,
-and PDF writing work on a clean install without an LLM.
+### First run
 
-**Graphics acceleration is not bundled either.** The inference engine ships
-processor-only so the installer works on every machine. If yours has graphics
-hardware ThinkStack can use — NVIDIA, AMD, Intel or integrated, via Vulkan —
-Bench offers to add the ~90 MB graphics engine on request, and downloads it from
-a published build. Your graphics *driver* is already installed and is never
-downloaded: what arrives is llama.cpp's own Vulkan kernels, which exist on no
-machine anywhere.
+1. The desktop shell reads your hardware (memory, processor, graphics) and shows
+   each startup step on the loading screen.
+2. A one-time note points you at Bench. Pick a model there, or reuse one you
+   already have. You can skip this; ingesting, searching, reading and compiling
+   work without a model.
+3. Add papers in Library, or open Scribe and start writing. Scribe needs no
+   library.
 
-A larger model improves analysis quality. None of these are bundled:
-the application offers it once, only if your machine can run it, and reuses a
-copy you already have through Ollama or LM Studio rather than downloading again.
+### Where your data lives
+
+Imported PDFs, the vector index, paper projects, Bench settings and collected
+training pairs stay on your device. A packaged build keeps them in the OS
+application-data directory; a source checkout keeps them in `data/`.
 
 ## Build from source
 
@@ -119,66 +118,56 @@ git clone https://github.com/get-thinkstack/ThinkStack.git && cd ThinkStack
 ./scripts/build.sh          # production installers, into local/
 ```
 
-**Requirements:** Python 3.11+, Node 22+, Rust (desktop build only).
+Python 3.12 (what CI freezes with), Node, and Rust for the desktop build. Full
+setup, branches and releasing: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Architecture
 
+Three processes. The **Tauri shell** (Rust) diagnoses the hardware, starts the
+**backend** (Python, FastAPI, frozen by PyInstaller) as a supervised child, and
+hosts the **interface** (React + Vite) in a webview. The interface talks to the
+backend over HTTP on `127.0.0.1`.
+
 ```text
-main.py            fastapi app: serves the react spa and /api
-config.py          pydantic-settings config (env prefix: THINKSTACK_)
-api/               12 routers
-domain/            ingestion · knowledge_base · search · litgraph · analysis
-                   gap_finder · paper_writer · encryption · model_manager
-                   fine_tuning
-infrastructure/    llm client · vector store · hardware profiler · file manager
-                   background job queue
-frontend/          react 19 + vite spa (the Paper and Ink interface)
-src-tauri/         tauri 2 desktop shell (rust): diagnosis, supervision, updates
-scripts/           devops: setup, dev, preflight, build, promote, release
-tests/             848 tests across 43 modules (plus 175 frontend)
+src-tauri/        desktop shell: diagnosis, backend supervision, updater
+main.py           FastAPI app: serves the built interface and mounts /api
+config.py         settings (env prefix THINKSTACK_)
+api/              HTTP routes, one router per feature; logic lives in domain/
+domain/           the logic, one package per capability
+  ingestion/        PDF -> text, layout, metadata, chunks
+  knowledge_base/   embeddings and the chunk repository
+  search/           semantic search and grounding
+  litgraph/         the map: positions, edges, themes, gaps
+  analysis/         summaries, claims, themes, precompute at ingest
+  gap_finder/       gaps and suggested directions
+  paper_writer/     Scribe: project folders, links, compiler, bibliography
+  encryption/       Argon2id KDF, AES-GCM, the TSENC1 envelope
+  model_manager/    registry, router, catalog, discovery, downloads
+  fine_tuning/      passive collection of prompt -> output pairs
+infrastructure/   things the domain stands on: LLM client, vector store,
+                  hardware facts, Vulkan, acceleration, jobs, atomic I/O
+frontend/         the Paper and Ink interface
+scripts/          devops: setup, dev, preflight, build, release
+tools/            developer utilities (GPU checks, fine-tuning, manual checks)
+tests/            pytest suite
 ```
 
-The desktop shell diagnoses the machine, launches the backend as a supervised
-child process, and reports startup progress. Only one model is resident at a
-time; the runtime swaps on demand and sizes models against *available* memory,
-so analysis degrades gracefully rather than exhausting the machine.
-
-## Quality gates
-
-Every build validates the **packaged installer**, not just the source, because
-users run an installer.
-
-| Tier | Runs on | Establishes |
-|---|---|---|
-| `preflight.sh` | your machine, every push | lint, 848 python + 175 frontend tests, shellcheck, actionlint, cargo |
-| CI | every push | the same on a clean machine |
-| `validate_bundle.py` | **Linux, macOS, Windows**, every build | the packaged app starts, resolves models, ingests a PDF, searches, infers, compiles a PDF, embeds a user-supplied figure, builds an index, and reports its graphics hardware coherently |
-| GUI smoke test | Linux, every build | the launched application is still alive 45 seconds later |
+Only one language model is resident at a time; the runtime swaps on demand and
+sizes models against *available* memory, so a big job degrades to a smaller
+model instead of exhausting the machine.
 
 ## Documentation
 
-| Document | For |
+| Document | Answers |
 |---|---|
-| [docs/ABOUT.md](docs/ABOUT.md) | users: install and use each feature |
-| [docs/FEATURES.md](docs/FEATURES.md) | the detailed feature reference |
-| [docs/FUTURE_WORK.md](docs/FUTURE_WORK.md) | what is planned, and how far off it is |
-| [docs/ADR.md](docs/ADR.md) | every architecture decision, and why |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | setup, branches, releasing, beta testing |
-| [scripts/README.md](scripts/README.md) | the devops runbook |
+| [docs/FEATURES.md](docs/FEATURES.md) | what each feature does, and how |
+| [docs/ADR.md](docs/ADR.md) | why it is built this way: every decision, dated |
+| [ISSUES.md](ISSUES.md) | what is broken or unfinished, and what past failures taught |
+| [docs/FUTURE_WORK.md](docs/FUTURE_WORK.md) | what is planned |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | setup, branches, tests, releasing, beta testing |
 | [CHANGELOG.md](CHANGELOG.md) | what changed in each release |
-
-## Tech stack
-
-`Tauri 2` · `Rust` · `React 19` · `Vite` · `Python` · `FastAPI` · `llama.cpp` ·
-`GGUF` · `sentence-transformers` · `PyMuPDF` · `NumPy` ·
-`Tectonic` · `Argon2id` · `AES-256-GCM` · `PyInstaller`
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md). Work happens on `dev`, is validated on
-`beta`, and is released from `main`. Branches never build installers; tags do.
 
 ## License
 
-[MIT](LICENSE). Third-party components redistributed inside the installer are
-listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+[MIT](LICENSE). Third-party components redistributed in the installer are listed
+in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

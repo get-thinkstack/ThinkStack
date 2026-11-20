@@ -1,32 +1,18 @@
-"""
-vector store module.
+"""The vector store: chunks persisted in SQLite, searched exactly in NumPy.
 
-Vectors live in SQLite; similarity search stays in numpy. Those are two
-separate decisions and it is worth keeping them apart.
+Persistence and search are separate on purpose (ADR 2026-08-22):
 
-WHY NOT CHROMADB OR FAISS: both depend on compiled C++ extensions (hnswlib and
-friends), which are the most fragile thing that can go into a PyInstaller
-bundle built on three operating systems -- the component that works on two and
-fails on the third, at a user's launch rather than at our build.
+    persistence   SQLite (`vectors.db`, WAL): text, metadata as JSON, embedding
+                  as a float32 blob. A write touches only its rows.
+    search        every embedding held in one NumPy matrix; a query is
+                  compared against all of them. Exact, no ANN index.
 
-WHY SQLITE IS NOT THAT: it is compiled into CPython and reached through the
-standard library. No wheel, no toolchain, no --hidden-import, nothing new for
-the bundler to miss. The objection that rules out the alternatives does not
-apply to it.
+SQLite is in the standard library, so it adds nothing for PyInstaller to miss;
+do not replace it with ChromaDB or FAISS (compiled extensions). An old
+`vectors.json` is imported once on first open and renamed, never deleted.
 
-WHY NOT JSON, WHICH THIS USED TO BE: one file holding every chunk had to be
-rewritten in full on every write and parsed in full at every start. Measured on
-a real store, 464 chunks across 21 papers was 5.6MB, 54ms to parse and 70ms to
-rewrite; the same shape at 500 papers is 133MB, 1.3s and 1.7s, and ingesting
-the five-hundredth paper rewrote the previous four hundred and ninety-nine.
-Building a library was quadratic in the number of papers. Here a write touches
-only the rows it changes.
-
-WHAT DID NOT CHANGE: the search. SQLite has no vector index and none is wanted.
-Every embedding is held in one numpy matrix and a query is compared against all
-of them, exactly as before -- deliberately exact rather than approximate, which
-is affordable for a personal library and is the reason no ANN index appears
-here.
+Writes go through domain/knowledge_base/repository.py; semantic_search,
+grounding and graph_builder read directly.
 """
 
 import json
@@ -45,7 +31,11 @@ _store_instance = None
 
 
 class VectorStore:
-    """file-backed vector store with numpy cosine similarity search."""
+    """SQLite-backed chunks, an in-memory embedding matrix, exact cosine search.
+
+    The interface (`upsert`, `query`, `get`, `where` filters with equality and
+    `$in`) mirrors a Chroma collection's, so the repository reads like one.
+    """
 
     def __init__(self, persist_dir: str = None):
         self.persist_dir = Path(persist_dir or str(settings.chroma_dir))
@@ -251,7 +241,7 @@ class VectorStore:
         logger.info("loaded %d vectors from sqlite", len(self._entries))
 
     def _rebuild_matrix(self):
-        """rebuild the numpy embedding matrix from entries."""
+        """Rebuild the in-memory embedding matrix from the entries."""
         if self._entries:
             self._embeddings = np.array(
                 [e["embedding"] for e in self._entries],
@@ -267,17 +257,7 @@ class VectorStore:
         embeddings: list[list[float]],
         metadatas: list[dict],
     ) -> int:
-        """insert or update entries in the vector store.
-
-        args:
-            ids: unique identifiers for each entry.
-            documents: text content for each entry.
-            embeddings: embedding vectors for each entry.
-            metadatas: metadata dictionaries for each entry.
-
-        returns:
-            number of entries upserted.
-        """
+        """Insert or replace entries (parallel lists). Returns how many."""
         existing_ids = {e["id"]: i for i, e in enumerate(self._entries)}
         touched = []
 
@@ -295,8 +275,8 @@ class VectorStore:
             touched.append(entry)
 
         self._rebuild_matrix()
-        # only the rows in this call are written. the cost of ingesting a paper
-        # no longer depends on how many papers came before it.
+        # Only these rows are written, so an ingest costs the same however large
+        # the library is.
         self._write_rows(touched)
         return len(ids)
 
@@ -305,15 +285,8 @@ class VectorStore:
         ids: list[str],
         metadatas: Optional[list[dict]] = None,
     ) -> int:
-        """update metadata for existing entries without changing documents/embeddings.
-
-        args:
-            ids: list of entry ids to update.
-            metadatas: list of metadata dicts corresponding to the ids.
-
-        returns:
-            number of entries updated.
-        """
+        """Replace metadata of existing entries; text and vectors untouched.
+        Returns how many were updated."""
         existing_ids = {e["id"]: i for i, e in enumerate(self._entries)}
         updated = 0
 
@@ -340,23 +313,26 @@ class VectorStore:
 
         return updated
 
+    def set_documents(self, texts_by_id: dict[str, str]) -> int:
+        """Replace the text of existing entries; metadata and vectors untouched.
+        Returns how many were updated."""
+        index = {e["id"]: i for i, e in enumerate(self._entries)}
+        rows = [(text, cid) for cid, text in texts_by_id.items() if cid in index]
+        for text, cid in rows:
+            self._entries[index[cid]]["document"] = text
+        if rows:
+            self._con.executemany("UPDATE chunks SET document = ? WHERE id = ?", rows)
+            self._con.commit()
+        return len(rows)
+
     def query(
         self,
         query_embedding: list[float],
         n_results: int = 10,
         where: Optional[dict] = None,
     ) -> dict:
-        """find the most similar entries using cosine similarity.
-
-        args:
-            query_embedding: the query vector to compare against.
-            n_results: maximum number of results to return.
-            where: optional metadata filter dict (supports simple equality
-                   and $in operator).
-
-        returns:
-            dict with ids, documents, metadatas, and distances lists.
-        """
+        """The `n_results` nearest entries by cosine, optionally filtered by
+        `where`. Returns `{ids, documents, metadatas, distances}`."""
         if not self._entries or self._embeddings is None:
             return {"ids": [], "documents": [], "metadatas": [], "distances": []}
 
@@ -411,15 +387,8 @@ class VectorStore:
         where: Optional[dict] = None,
         ids: Optional[list[str]] = None,
     ) -> dict:
-        """retrieve entries by filter or ids.
-
-        args:
-            where: optional metadata filter.
-            ids: optional list of specific ids to retrieve.
-
-        returns:
-            dict with ids, documents, and metadatas lists.
-        """
+        """Entries by `where` filter or `ids`, without embeddings.
+        Returns `{ids, documents, metadatas}`."""
         indices = list(range(len(self._entries)))
 
         if ids:
@@ -446,19 +415,10 @@ class VectorStore:
         }
 
     def get_embeddings(self, where: Optional[dict] = None) -> dict:
-        """retrieve stored vectors themselves, not just their documents.
+        """The stored vectors themselves, for centroids (LitGraph, themes).
 
-        ``get`` deliberately omits embeddings because callers there want text.
-        the graph builder needs the vectors to compute per-document centroids,
-        and reading them back through ``query`` would be a similarity search
-        against an arbitrary probe -- the wrong operation entirely.
-
-        args:
-            where: optional metadata filter, same semantics as ``get``.
-
-        returns:
-            dict with ids, embeddings (numpy array, shape (n, d)), and
-            metadatas. embeddings is None when nothing matches.
+        Returns `{ids, embeddings (n, d) array or None, metadatas}`. `get`
+        omits embeddings on purpose: its callers want text.
         """
         indices = list(range(len(self._entries)))
 
@@ -475,14 +435,7 @@ class VectorStore:
         }
 
     def delete(self, ids: list[str]) -> int:
-        """delete entries by their ids.
-
-        args:
-            ids: list of entry ids to remove.
-
-        returns:
-            number of entries deleted.
-        """
+        """Delete entries by id. Returns how many were removed."""
         id_set = set(ids)
         original_count = len(self._entries)
         self._entries = [e for e in self._entries if e["id"] not in id_set]
@@ -498,22 +451,11 @@ class VectorStore:
         return deleted
 
     def count(self) -> int:
-        """return the total number of entries in the store."""
+        """Total entries."""
         return len(self._entries)
 
     def _apply_filter(self, indices: list[int], where: dict) -> list[int]:
-        """apply metadata filters to a list of indices.
-
-        supports simple equality checks and the $in operator for
-        matching against a list of values.
-
-        args:
-            indices: list of entry indices to filter.
-            where: filter dictionary.
-
-        returns:
-            filtered list of indices.
-        """
+        """The indices whose metadata match `where` (equality, or `$in`)."""
         result = []
         for idx in indices:
             meta = self._entries[idx]["metadata"]
@@ -533,11 +475,7 @@ class VectorStore:
 
 
 def get_vector_store() -> VectorStore:
-    """return the singleton vector store instance.
-
-    returns:
-        the shared VectorStore instance.
-    """
+    """The process-wide VectorStore, created on first use."""
     global _store_instance
     if _store_instance is None:
         _store_instance = VectorStore()

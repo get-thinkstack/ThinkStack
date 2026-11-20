@@ -1,8 +1,12 @@
-"""
-paper writer api routes.
+"""Scribe routes: projects, templates, write-at-the-cursor, compile, export.
 
-provides endpoints for creating, editing, ai-generating, compiling,
-and managing latex paper projects.
+Files inside a project are api/routes_paper_files.py; citations are
+api/routes_citations.py. The work is in domain/paper_writer/ (files,
+templates, compiler).
+
+`POST /generate` is the only route here that calls a model. Its output is not
+trusted: `_strip_echoed_context` and `_clean_latex` remove what a small model
+adds beyond the fragment it was asked for, before it reaches the document.
 """
 
 import logging
@@ -40,18 +44,12 @@ _CONTEXT_BUDGET = 6000
 
 
 def _build_edit_prompt(source: str, request: str, cursor: int | None) -> str:
-    """Show the model the document it is editing, centred on where the author is.
+    """Show the model the document centred on the cursor.
 
-    The document is presented as: its preamble (so the model knows which
-    packages are already loaded and does not redeclare them), then the text
-    immediately before the cursor, an explicit insertion marker, and the text
-    immediately after. The model is asked for the fragment that belongs at the
-    marker and nothing else.
-
-    This replaces sending the first 6000 characters of the file, which on a real
-    paper is the preamble and introduction. The model never saw the section
-    being worked on, so it wrote as if beginning a new document and repeated
-    structure that already existed.
+    Preamble (so it knows what is loaded), the text before the cursor, an
+    insertion marker, the text after. The model is asked only for the fragment
+    at the marker. Sending the start of the file instead shows the model the
+    introduction, never the place being edited, and it repeats sections.
     """
     marker = "%%% WRITE THE NEW CONTENT HERE %%%"
 
@@ -94,21 +92,12 @@ def _build_edit_prompt(source: str, request: str, cursor: int | None) -> str:
 
 
 def _strip_echoed_context(generated: str, before: str, after: str) -> str:
-    """Remove document text the model copied back instead of only writing new content.
+    """Remove document text the model copied back around its new content.
 
-    Asked to write a table into an existing paper, a 1.5B model reproduces the
-    surrounding section headings and prose and then appends the table. Inserting
-    that verbatim duplicates whole sections, which is what made the feature feel
-    like it appends rather than edits.
-
-    Instructing the model not to do this is unreliable, so the overlap is
-    removed deterministically: the longest tail of the preceding text that the
-    output starts with is dropped, and likewise the longest head of the
-    following text that it ends with. What remains is what the model actually
-    added.
-
-    A fine-tuned writer model is the real answer; this makes the feature
-    dependable in the meantime.
+    Asked for a table, a small model often repeats the surrounding headings and
+    prose first, and instructions do not stop it. So: drop the longest tail of
+    the text before the cursor that the output starts with, and the longest
+    head of the text after that it ends with. What remains is what it added.
     """
     out = (generated or "").strip()
     if not out:
@@ -163,14 +152,11 @@ def _strip_echoed_context(generated: str, before: str, after: str) -> str:
 
 
 def _clean_latex(text: str) -> str:
-    """Reduce the model's reply to body content that can be dropped into a document.
+    """Reduce the model's reply to body content that can go into a document.
 
-    The system prompt tells the model to emit body content only, with no
-    preamble. A small model does not always comply, and when it does not the
-    result is a second \\documentclass and a second preamble injected into the
-    middle of the user's paper, which breaks the template it was supposed to be
-    writing into. Stripping here rather than trusting the instruction is the
-    difference between an edit and a mess.
+    A small model sometimes emits a whole document despite the prompt; pasted
+    in, that is a second \\documentclass and preamble mid-paper. Strip it
+    here rather than trust the instruction.
     """
     t = (text or "").strip()
 
@@ -214,10 +200,7 @@ class GenerateLatexRequest(BaseModel):
     project_id: str
     prompt: str
     current_source: str = ""
-    # Where the author is working. Without it the model was shown the first
-    # 6000 characters of the document, which on any real paper is the preamble
-    # and introduction, never the place being edited. It then wrote as though
-    # starting a fresh document and repeated sections that already existed.
+    # The caret offset in current_source; see _build_edit_prompt.
     cursor: int | None = None
     doc_ids: list[str] = []          # papers to ground the writing on (rag)
     analysis_context: str = ""       # optional analysis findings to incorporate
@@ -229,12 +212,8 @@ class CompileRequest(BaseModel):
 
 @router.get("/templates")
 async def api_templates():
-    """What a new document can start as.
-
-    Served rather than hardcoded in the interface so the two cannot drift: a
-    template added here appears in the picker without a second edit, and one
-    removed cannot be offered for a shape that no longer exists.
-    """
+    """The starter documents. Served, not hardcoded in the interface, so the
+    picker can never offer a template that does not exist."""
     from domain.paper_writer import templates as T
 
     return {
@@ -264,12 +243,7 @@ async def api_list_projects():
 
 @router.get("/projects/{project_id}")
 async def api_get_project(project_id: str):
-    """The LaTeX source for a project, and the name it goes by.
-
-    The name is carried because the caller needs it for anything user-facing --
-    a save dialog's suggested filename, a window title -- and asking a second
-    endpoint for one string it already has here is a round trip for nothing.
-    """
+    """The project's LaTeX source and display name (for save dialogs and titles)."""
     try:
         source = get_source(project_id)
         return {
@@ -311,12 +285,8 @@ async def api_save_source(req: SaveSourceRequest):
 
 @router.post("/generate")
 async def api_generate_latex(req: GenerateLatexRequest):
-    """use the local llm to convert a prompt into latex code.
-
-    the prompt can be pseudocode, natural language instructions, or
-    partial latex that needs completion. the ai returns compilable
-    latex that can be inserted into the document.
-    """
+    """Turn plain language (or pseudocode, or partial LaTeX) into LaTeX for the
+    cursor. Routed as task `latex_writer`; optionally grounded in papers."""
     system = (
         "you are a latex expert. the user will give you a prompt describing "
         "what they want written in their academic paper. respond ONLY with "
@@ -451,22 +421,13 @@ class ExportRequest(BaseModel):
 
 @router.post("/projects/{project_id}/export-pdf")
 async def api_export_pdf(project_id: str, req: ExportRequest):
-    """Write the compiled PDF to a path the author chose.
+    """Copy the compiled PDF to a path the author chose in a save dialog.
 
-    The destination is an absolute path, which is normally the shape of a
-    traversal. Three things make it acceptable, and they are the same three that
-    made linking a file acceptable:
-
-      * the API answers same-origin requests and the dev server, so a page the
-        user happens to visit cannot reach it;
-      * the path comes from a native save dialog the user drove, not from
-        anything the interface invented;
-      * the CONTENT is not chosen by the caller. This copies one file -- the
-        project's own compiled PDF -- and nothing else. It is not a write
-        endpoint that happens to be pointed at a PDF.
-
-    It must still end in .pdf, so a mis-typed or crafted destination cannot be
-    used to drop a file the system would treat as executable.
+    An absolute destination is normally the shape of a traversal. Acceptable
+    here because the body is JSON (another web page cannot send it without a
+    refused preflight), and the caller does not choose the CONTENT: only the
+    project's own compiled PDF is copied. The destination must end in .pdf, so
+    it cannot drop a file the system would treat as executable.
     """
     from domain.paper_writer.compiler import ProjectIdError, _get_project_dir
 
@@ -508,9 +469,7 @@ async def api_download_pdf(project_id: str, download: bool = False):
             raise HTTPException(status_code=404, detail="project not found") from None
         if not pdf_file.exists():
             raise HTTPException(status_code=404, detail="pdf not found. compile first.")
-        # The paper's name, not its id. `0040e3568858.pdf` in a downloads
-        # folder is a file nobody can identify a week later, and the id is an
-        # implementation detail the author never chose.
+        # Named after the paper, not its id, so it is recognisable later.
         return FileResponse(
             path=str(pdf_file),
             media_type="application/pdf",

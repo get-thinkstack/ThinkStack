@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Promote CHANGELOG.md's [Unreleased] section to a released version.
 
-Called by scripts/release.sh during a stable release. Keeping this in the release
-script means the changelog is written while a change is fresh in its PR, rather
+Called by scripts/_ship_changelog.sh when ship.sh publishes. Keeping this in the
+release means the changelog is written while a change is fresh in its PR, rather
 than reconstructed from `git log` weeks later when nobody remembers which commits
 were user-visible.
 

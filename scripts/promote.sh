@@ -1,24 +1,17 @@
 #!/bin/bash
-# thinkstack: move work between branches and ship the binaries for it.
+# thinkstack: merge work between branches (--no-ff). It does not tag or publish.
 #
-# Encodes the two release paths so nobody has to remember the branch/tag dance:
-#
-#   feature -> beta first, main later, because a feature should be tested on real
-#              installers before users get it.
-#   fix     -> beta AND main together, because a bug fix is worth nothing sitting
-#              in beta while users still hit the bug.
-#
-# usage:
-#   scripts/promote.sh feature <version>   # dev  -> beta   , tag vX.Y.Z-beta.N
-#   scripts/promote.sh release <version>   # beta -> main   , tag vX.Y.Z  (stable)
-#   scripts/promote.sh fix     <version>   # dev  -> beta AND main, tags both
+#   scripts/promote.sh feature [version]   # dev  -> beta
+#   scripts/promote.sh major   [version]   # dev  -> beta (a breaking change)
+#   scripts/promote.sh fix     [version]   # dev  -> beta (a patch)
+#   scripts/promote.sh release [version]   # beta -> main (publishes nothing)
 #
 #   --dry-run   show every step, change nothing
 #   --yes       skip the confirmation prompt
 #
-# Each tag triggers the matching channel workflow, which rebuilds and republishes
-# the installers for that channel. Installed apps then auto-update to it, so
-# "swap the binaries" is the automatic consequence of promoting.
+# What publishes is .github/workflows/release.yml: a push to beta publishes a
+# beta; a push to main publishes NOTHING. Stable is scripts/ship.sh (merge +
+# dispatch + verify), which also does the beta -> main merge itself.
 set -uo pipefail
 
 cd "$(dirname "$0")/.." || exit 1
@@ -166,17 +159,9 @@ merge_into() {
     run git push origin "refs/heads/${dst}:refs/heads/${dst}"
 }
 
-# cut the tag that rebuilds + republishes that channel's installers
-# Merging is the release. .github/workflows/release.yml watches beta and main:
-# it works out the version, records the tag and builds the installers.
-#
-# This script must NOT tag. It is a race it always loses, and it loses it
-# loudly: release.sh refuses to tag a commit whose CI is not green, and CI on
-# the commit just pushed has not finished, so it exits "no CI results found".
-# Wait for CI instead and the workflow has meanwhile created the tag, so it
-# exits "tag already exists". Either way promote.sh printed
-#   "the tag was refused, so nothing was released"
-# over a release that was building and publishing perfectly well.
+# This script must NOT tag. release.yml derives the version and creates the
+# tag itself; a tag cut here races it, and the loser reports "nothing was
+# released" over a beta that is building perfectly well.
 released_by_ci() {
     local branch="$1" channel="$2"
     echo ""
@@ -191,23 +176,14 @@ echo -e "${CYAN}─────────────────────�
 echo -e "${CYAN}  promote: ${GREEN}${KIND}${NC} ${VERSION}"
 echo -e "${CYAN}────────────────────────────────────────────${NC}"
 case "$KIND" in
-    feature)
-        echo -e "  ${DEV_BRANCH} -> ${BETA_BRANCH}, then tag a beta."
-        echo -e "  main is untouched: promote it with"
-        echo -e "    ${CYAN}scripts/promote.sh release ${VERSION}${NC}  once the beta checks out."
+    feature|fix|major)
+        echo -e "  ${DEV_BRANCH} -> ${BETA_BRANCH}; release.yml then builds and publishes a beta."
+        echo -e "  ${YELLOW}users get it only when you run ${CYAN}scripts/ship.sh${YELLOW}.${NC}"
         ;;
     release)
-        echo -e "  ${BETA_BRANCH} -> ${MAIN_BRANCH}, then tag the stable release."
-        echo -e "  ${YELLOW}this is what real users receive.${NC}"
-        ;;
-    fix)
-        echo -e "  ${DEV_BRANCH} -> ${BETA_BRANCH} and ${DEV_BRANCH} -> ${MAIN_BRANCH}, tagging both."
-        echo -e "  ${YELLOW}a fix ships to users immediately - no beta soak.${NC}"
-        ;;
-    major)
-        echo -e "  ${DEV_BRANCH} -> ${BETA_BRANCH}, then tag a beta."
-        echo -e "  ${YELLOW}a breaking change soaks on beta like a feature does,${NC}"
-        echo -e "  ${YELLOW}and needs a deliberate 'release' to reach users.${NC}"
+        echo -e "  ${BETA_BRANCH} -> ${MAIN_BRANCH}. ${YELLOW}This publishes NOTHING${NC}: a push to main"
+        echo -e "  builds nothing. To release, run ${CYAN}scripts/ship.sh${NC} instead (it merges,"
+        echo -e "  dispatches and verifies)."
         ;;
 esac
 $DRY_RUN && echo -e "  ${YELLOW}(dry run - nothing will change)${NC}"
@@ -227,7 +203,8 @@ case "$KIND" in
         ;;
     release)
         merge_into "$BETA_BRANCH" "$MAIN_BRANCH"
-        released_by_ci "$MAIN_BRANCH" stable
+        echo ""
+        echo -e "${YELLOW}[release]${NC} main updated; nothing was published. Run scripts/ship.sh."
         ;;
     fix)
         merge_into "$DEV_BRANCH" "$BETA_BRANCH"
@@ -241,7 +218,11 @@ esac
 
 echo ""
 echo -e "${CYAN}────────────────────────────────────────────${NC}"
-echo -e "${GREEN}  promoted.${NC} CI is rebuilding the installers for the tagged"
-echo -e "  channel(s); installed apps auto-update once it publishes."
+if [ "$KIND" = "release" ]; then
+    echo -e "${GREEN}  merged.${NC} Nothing is building: stable is published by scripts/ship.sh."
+else
+    echo -e "${GREEN}  promoted.${NC} CI is building the beta; beta testers can update once it"
+    echo -e "  publishes. Stable users get nothing until scripts/ship.sh."
+fi
 echo -e "  watch: ${CYAN}gh run list --limit 3${NC}"
 echo -e "${CYAN}────────────────────────────────────────────${NC}"

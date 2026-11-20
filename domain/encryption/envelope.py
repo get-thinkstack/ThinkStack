@@ -1,7 +1,4 @@
-"""
-envelope module.
-
-defines the textual on-disk/on-record format for an encrypted paper:
+"""The text format of an encrypted paper:
 
     TSENC1.<time_cost>.<memory_cost_kib>.<parallelism>.<salt_b64>.<nonce_b64>.<ciphertext_b64>
 

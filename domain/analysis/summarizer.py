@@ -1,9 +1,8 @@
-"""
-summarizer module.
+"""Summaries: one paper, or a comparison across several.
 
-generates single-paper and multi-paper comparative summaries using
-the local slm via ollama. designed for academic literature review
-with structured output including key points.
+Input is sized to THIS machine's context window
+(`ollama_client.input_char_budget`), not a fixed slice. A paper that does not fit is summarised in pieces, then the pieces are
+summarised (`_map_reduce`), and the result says so.
 """
 
 import json
@@ -107,31 +106,16 @@ async def _map_reduce(
 
 
 async def summarize_single(doc_id: str, text: str) -> Summary:
-    """generate a structured summary of a single research paper.
-
-    sends the paper text to the slm with a structured prompt requesting
-    summary, key points, methodology, and limitations.
-
-    args:
-        doc_id: the document identifier.
-        text: the paper text (or concatenated chunks) to summarize.
-
-    returns:
-        populated Summary instance with extracted information.
-    """
+    """Summary, key points, methodology and limitations for one paper."""
     system = (
         "you are an academic research assistant specializing in "
         "literature review and paper summarization. respond only with "
         "valid json."
     )
 
-    # How much paper actually fits, on THIS machine.
-    #
-    # The old code took a flat text[:6000] -- roughly 1500 tokens -- and asked
-    # for 1024 tokens of output. That needs ~2650 tokens of context. A low-tier
-    # machine gets 2048 (an 8 GB M1, the commonest Mac sold), so the request
-    # could not fit in its own window and failed before model quality mattered.
-    # The reader was told the response "could not be read", which was not true.
+    # How much paper fits on THIS machine. Never a fixed slice: a low-tier
+    # machine's window (2048) cannot hold a 6000-character slice plus 1024
+    # output tokens, and the request fails before model quality matters.
     out_tokens = ollama_client.output_token_budget("analysis")
     budget = ollama_client.input_char_budget(max_tokens=out_tokens, task_type="analysis")
     overhead = len(SINGLE_PAPER_PROMPT.replace("{text}", ""))
@@ -156,10 +140,8 @@ async def summarize_single(doc_id: str, text: str) -> Summary:
         # a roomy machine uses more of the paper and a cramped one does not
         # overflow.
         prompt = SINGLE_PAPER_PROMPT.format(text=text[:room or 6000])
-        # 1024, not 640. The prompt asks for a summary, key points, methodology
-        # AND limitations; 640 tokens could not hold all four for a real paper,
-        # so generation stopped mid-string and the JSON never closed. That
-        # surfaced to users as "Unterminated string starting at: line 9".
+        # At least 1024: four fields do not fit in less, and a cut-off reply is
+        # unterminated JSON.
         response = await ollama_client.generate_json(
             prompt, system=system, max_tokens=out_tokens, task_type="analysis"
         )
@@ -171,9 +153,8 @@ async def summarize_single(doc_id: str, text: str) -> Summary:
             summary_type="single",
         )
     except Exception as e:
-        # The exception text is for the log, not the reader. Putting str(e) in
-        # summary_text meant a parser error was rendered in the UI as though it
-        # were the summary of the paper.
+        # The exception goes to the log, never into summary_text (the UI would
+        # show it as the summary).
         logger.error("summarization failed for %s: %s", doc_id, e, exc_info=True)
         return Summary(
             doc_ids=[doc_id],
@@ -187,24 +168,9 @@ async def summarize_single(doc_id: str, text: str) -> Summary:
 
 
 async def summarize_multiple(doc_ids: list[str], texts: dict[str, str]) -> Summary:
-    """generate a comparative summary across multiple papers.
-
-    creates a combined prompt with excerpts from each paper and asks
-    the slm for a comparative analysis identifying themes, agreements,
-    and disagreements.
-
-    args:
-        doc_ids: list of document identifiers being compared.
-        texts: mapping of doc_id to paper text content.
-
-    returns:
-        populated Summary instance with comparative analysis.
-    """
-    # Share the window between the papers instead of taking a flat 2000
-    # characters from each. The old form grew with the number of papers and had
-    # no relationship to the context at all: five papers is ~2500 tokens of
-    # input against a 2048-token window on a low-tier machine, so adding papers
-    # made the request progressively more impossible.
+    """Themes, agreements and disagreements across several papers."""
+    # Share the window between the papers. A fixed amount per paper grows
+    # with the selection and overflows a small window.
     out_tokens = ollama_client.output_token_budget("analysis")
     budget = ollama_client.input_char_budget(max_tokens=out_tokens, task_type="analysis")
     overhead = len(MULTI_PAPER_PROMPT.replace("{papers}", ""))

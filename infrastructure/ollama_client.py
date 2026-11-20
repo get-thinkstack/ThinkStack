@@ -1,8 +1,19 @@
-"""
-llm client module.
+"""The LLM client: every generation in the app goes through `ollama_client`.
 
-provides a unified async client for local language model inference,
-supporting both ollama and llama.cpp runtimes.
+    generate(prompt, task_type=...)        plain text (Scribe)
+    generate_json(prompt, task_type=...)   JSON forced by a GBNF grammar
+                                           (analysis, gaps, metadata fallback)
+
+Per call: `_route` asks domain/model_manager/router.py which GGUF serves the
+task on this machine now; `_get_llama` loads it (EXACTLY ONE model resident,
+swapped on demand, under one lock because llama.cpp is not safe for
+concurrent use); context and GPU layers come from infrastructure/capability.py.
+If the task's model exists only in Ollama, Ollama serves it over HTTP instead.
+
+Small models break JSON in two ways the grammar cannot prevent (cut off
+mid-string, raw newlines); `_extract_json_text` and `_repair_json` recover
+what they can. ALWAYS pass `task_type`: it defaults to "general" and a call
+without it ignores the model the user assigned to that job.
 """
 
 import asyncio
@@ -48,20 +59,36 @@ ws ::= ([ \t\n] ws)?
 """
 
 
-def _extract_json_text(raw: str) -> str:
-    """pull the json payload out of a raw model response.
+_THINK_BLOCK = re.compile(r"^\s*<think>.*?</think>\s*", re.S)
 
-    even with the gbnf grammar, ollama or a grammar-load fallback can return
-    json wrapped in markdown fences or with a short preamble, which breaks
-    ``json.loads``. this strips ```...``` fences and narrows the string to the
-    outermost json object or array so downstream parsing succeeds.
 
-    args:
-        raw: the raw text returned by the model.
+def _strip_think(text: str) -> str:
+    """Drop a leading <think>...</think> a reasoning model wrote anyway."""
+    return _THINK_BLOCK.sub("", text, count=1)
 
-    returns:
-        the best-effort json substring (unchanged if nothing to strip).
+
+def _thinks(llama) -> bool:
+    """A ChatML model whose own template has a think block (Qwen3).
+
+    Under the JSON grammar such a model cannot open <think> and closes the
+    object at once, returning `{}`; see _chatml_without_thinking.
     """
+    template = (getattr(llama, "metadata", None) or {}).get("tokenizer.chat_template", "")
+    return "<think>" in template and "<|im_start|>" in template
+
+
+def _chatml_without_thinking(messages: list[dict]) -> str:
+    """The ChatML prompt with an EMPTY think block pre-filled, which is what the
+    model's own template does with enable_thinking=False. The grammar then
+    applies to the answer, not to the reasoning it would otherwise start."""
+    turns = "".join(f"<|im_start|>{m['role']}\n{m['content']}<|im_end|>\n" for m in messages)
+    return turns + "<|im_start|>assistant\n<think>\n\n</think>\n\n"
+
+
+def _extract_json_text(raw: str) -> str:
+    """The JSON inside a raw reply: fences stripped, narrowed to the outermost
+    object or array. Needed because Ollama, or a failed grammar load, can wrap
+    or preface it."""
     s = (raw or "").strip()
 
     # Strip a fenced code block: ```json ... ``` or ``` ... ```
@@ -304,25 +331,14 @@ class OllamaClient:
                 return candidates[0]
         raise FileNotFoundError(f"llama.cpp model not found at {path}")
 
-    # ── task-specific model registry ──────────────────────────────────
-    # maps task types to dedicated gguf filenames, tried in order. if a
-    # task-specific model exists in data/models/, it's used; otherwise the
-    # task falls back to the base model. structured-json analysis tasks
-    # (summarize/claims/themes/gaps) route to the heavier analysis model
-    # (settings.llm_analysis_model) because the lightweight base model
-    # produces unparseable / truncated json on them. only one model is
-    # resident at a time - _get_llama swaps on demand to cap memory use.
+    # ── legacy task map (deprecated) ──────────────────────────────────
+    # Task -> GGUF filenames, tried in order, then the base model. Superseded
+    # by the registry and router (ADR 2026-08-05); still the router's fourth
+    # fallback (see router.py), so changes here still change routing.
     TASK_MODEL_MAP = {
-        # The heavier model FIRST. Writing LaTeX is a structured-output task --
-        # it has to emit compilable markup and honour instructions like "use
-        # pgfplots for charts, not \\includegraphics". Measured on the 0.5B:
-        # charts came back as \\includegraphics of a file that does not exist,
-        # and "state the equation for mean squared error" came back as prose
-        # with no math at all. The dedicated fine-tuned writer models below are
-        # aspirational -- neither is built or shipped -- so listing only those
-        # meant this task silently fell through to the base model while
-        # `analysis` got the better one. Falls back to base when the 1.5B is
-        # absent or does not fit the memory budget.
+        # The 1.5B FIRST for LaTeX: the 0.5B wrote \\includegraphics of files
+        # that do not exist and prose instead of math. The fine-tuned writer
+        # names below do not exist yet.
         "latex_writer": [
             settings.llm_analysis_model,
             "latex-writer.gguf",
@@ -391,16 +407,10 @@ class OllamaClient:
         return None
 
     def _ollama_served_model(self, task_type: str = "general") -> Optional[str]:
-        """an Ollama tag serving the weights this task wants, if Ollama has them.
+        """The Ollama tag serving the weights this task wants, or None.
 
-        Ollama stores models as content-addressed blobs rather than loadable
-        .gguf files, so llama.cpp cannot open them -- but Ollama itself can serve
-        them over HTTP. Without this, a user who already had the analysis model
-        in Ollama got the worst of both: no download prompt (we correctly saw the
-        model as present) and no benefit (the loader could not use it), so
-        analysis silently ran on the base model.
-
-        Returns the tag to generate with, or None when Ollama does not have it.
+        Ollama's blobs cannot be opened by llama.cpp, but Ollama can serve them
+        over HTTP, so a model the user has only in Ollama is still used.
         Only consulted when the task's model is missing from disk, and the probe
         result is cached, so this costs nothing on the common path.
         """
@@ -439,23 +449,9 @@ class OllamaClient:
         return self._ollama_served_model(task_type)
 
     def _resolve_task_model_path(self, task_type: str = "general") -> Path:
-        """resolve the model path for a task, tuned to the hardware.
-
-        specification-based SLM selection: a task-specific gguf (e.g. the heavier
-        1.5b analysis model) is used only when it actually fits the machine's
-        current memory budget. on a constrained machine — or one with other apps
-        running — a too-large task model is skipped and the lighter base model is
-        used instead, so analysis degrades gracefully rather than oom-crashing.
-        the base model resolution honors any model the user selected previously
-        (see _apply_persisted_model), which is how "change the model later" takes
-        effect.
-
-        args:
-            task_type: one of 'latex_writer', 'analysis', 'gap_analysis', 'general'.
-
-        returns:
-            path to the gguf file to use.
-        """
+        """The GGUF for `task_type` (latex_writer, analysis, gap_analysis,
+        general), via `_route`. A task model too large for free memory right
+        now is skipped for a smaller one, so a big job degrades, not crashes."""
         base = self._resolve_llama_model_path()
         resolution = self._route(task_type, base)
 
@@ -579,13 +575,8 @@ class OllamaClient:
         return self._capability().output_tokens(self._effective_ctx)
 
     def input_char_budget(self, max_tokens: int, task_type: str = "general") -> int:
-        """Prompt characters that fit alongside `max_tokens` of reply.
-
-        The context window holds BOTH. Summarization asked for 6000 characters
-        of paper plus 1024 tokens of output inside a 2048-token window -- it
-        could not fit, and the reader was told the model's response "could not
-        be read".
-        """
+        """Prompt characters that fit alongside `max_tokens` of reply: the
+        context window holds both, so size prompts with this, never a constant."""
         return self._capability().input_chars(self._effective_ctx, max_tokens)
 
     def _get_llama(self, task_type: str = "general"):
@@ -755,6 +746,16 @@ class OllamaClient:
 
         async with self._get_gen_lock():
             llama = self._get_llama(task_type=task_type)
+            if _thinks(llama):
+                messages = kwargs.pop("messages")
+                result = await asyncio.to_thread(
+                    llama.create_completion,
+                    _chatml_without_thinking(messages),
+                    stop=["<|im_end|>"],
+                    **kwargs,
+                )
+                choices = result.get("choices", [])
+                return _strip_think(choices[0].get("text", "")) if choices else ""
             result = await asyncio.to_thread(
                 llama.create_chat_completion,
                 **kwargs,
@@ -764,7 +765,7 @@ class OllamaClient:
         if not choices:
             return ""
         message = choices[0].get("message", {})
-        return message.get("content", "")
+        return _strip_think(message.get("content", ""))
 
     async def generate(
         self,
@@ -910,11 +911,7 @@ class OllamaClient:
             }
 
     async def list_models(self) -> list[dict]:
-        """retrieve available model metadata for the active runtime.
-
-        returns:
-            list of model metadata dictionaries.
-        """
+        """Models the active runtime can see, as metadata dicts."""
         if self.provider == "llama_cpp":
             models = [
                 {"name": p.name, "path": str(p)}
@@ -931,11 +928,7 @@ class OllamaClient:
             return response.json().get("models", [])
 
     async def check_health(self) -> dict:
-        """check whether configured llm runtime is available.
-
-        returns:
-            dictionary with status and available model information.
-        """
+        """Whether the configured runtime is available, and what it has."""
         if self.provider == "llama_cpp":
             try:
                 model_path = self._resolve_llama_model_path()

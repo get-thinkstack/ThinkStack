@@ -1,14 +1,21 @@
-"""the model registry, over http.
+"""Bench's model routes: what this install has, what each model does, add and
+remove.
 
-Powers the Bench screen: what models this install has, what each is used for,
-and how to add or remove one. Kept separate from ``routes_models.py``, which
-owns the first-run setup flow and catalog downloads -- these are two different
-jobs and merging them produced a module nobody could describe in one sentence.
+`GET` returns one snapshot (`_snapshot`) with every model, what each task
+resolves to right now, models found on the machine but not registered, and the
+catalog judged against this machine. It is one call because a card's status
+depends on the other entries.
 
-Reads are cheap and safe. Every WRITE here is something the user asked for by
-clicking, and each one states its consequence rather than assuming: removing a
-model reports what will stop working, and importing one validates the file
-before it can be registered.
+Two rules this module keeps:
+- Bench must resolve routing exactly as generation does: the same router, the
+  same budget (infrastructure/capability.py), the same fallback. A Bench that
+  disagrees with the runtime is the failure this module exists to prevent.
+- Writes state their consequence: removing a model reports what stops working;
+  importing validates the file first; only files ThinkStack created can be
+  deleted from disk.
+
+Storage and routing logic: domain/model_manager/registry.py and router.py.
+Catalog downloads are api/routes_models.py.
 """
 
 from __future__ import annotations
@@ -49,15 +56,11 @@ class AssignRequest(BaseModel):
 
 
 def _capability():
-    """this machine's capability, or None when it cannot be measured.
+    """This machine's capability, or None when it cannot be measured.
 
-    Deliberately NOT ``hardware.max_safe_model_size_gb``. There were two
-    disagreeing budget models in the codebase -- that function computes
-    ``available - 3.0 + vram`` while ``capability.plan_for_size`` asks whether
-    ``size + 1.0 <= available`` -- and they differ by well over a gigabyte on
-    the same machine. capability.py is the module that exists to own this
-    ("ONE place that turns hardware facts into decisions"), so the registry
-    asks it and the Diagnose screen keeps agreeing with Bench.
+    Not `hardware.max_safe_model_size_gb`: that is a second, different budget
+    (`available - 3.0 + vram` against capability's `size + 1.0 <= available`),
+    and only capability.py may decide, so Bench and Diagnose agree.
     """
     try:
         from infrastructure.capability import for_this_machine
@@ -68,12 +71,8 @@ def _capability():
 
 
 def _runs_slowly(size_gb: float, gpu_gb: float) -> bool:
-    """whether a model of this size will crawl on this machine.
-
-    True when it cannot be offloaded to a GPU the engine can use AND is larger
-    than what a processor answers with in a tolerable time. A size of zero
-    means unmeasured, which is not a reason to warn.
-    """
+    """True when the model cannot go on a GPU the engine can use AND is too
+    big for a processor to answer in tolerable time. Size 0 = unmeasured."""
     if size_gb <= 0:
         return False
     from domain.model_manager.catalog import CPU_COMFORTABLE_GB
@@ -83,16 +82,10 @@ def _runs_slowly(size_gb: float, gpu_gb: float) -> bool:
 
 
 def _base_model():
-    """the floor the RUNTIME would fall back to, or None.
+    """The model the runtime falls back to, or None.
 
-    Bench must resolve routing the same way generation does. Without this the
-    snapshot reported "nothing available" for a job that would in fact have run
-    perfectly well on whatever gguf is present -- the report and the behaviour
-    disagreeing, which is the exact failure this whole refactor exists to stop.
-
-    Asks the client rather than re-deriving it: `_resolve_llama_model_path`
-    already honours a model the user selected previously, and a second
-    implementation here would drift from it.
+    Asked of the client (`_resolve_llama_model_path`), never re-derived, so
+    Bench's answer cannot drift from what generation actually does.
     """
     try:
         from infrastructure.ollama_client import ollama_client
@@ -112,13 +105,7 @@ def _legacy_defaults(task: str) -> list[str]:
 
 
 def _snapshot() -> dict:
-    """everything Bench needs about models, in one call.
-
-    Deliberately one endpoint rather than four. The card for a model shows its
-    status, its tasks, and whether removing it would break something -- all of
-    which depend on the OTHER entries, so fetching them separately would let
-    the UI render a self-inconsistent view mid-update.
-    """
+    """Everything Bench needs about models, in one consistent payload."""
     registry = Registry.load(settings.models_dir)
     manifest = BundledManifest.load(settings.bundled_models_dir)
     cap = _capability()
@@ -162,11 +149,8 @@ def _snapshot() -> dict:
 
     models = []
     for e in registry.models:
-        # Jobs this model is assigned to but is NOT actually doing. A model can
-        # be assigned and still skipped -- too large for the memory free right
-        # now, or outranked. That gap used to be visible only in a separate
-        # routing table; saying it on the card puts the explanation where the
-        # user is already looking.
+        # Jobs this model is assigned but NOT doing (too large for free memory
+        # right now, or outranked), said on its own card.
         not_in_use = [
             task for task in e.tasks
             if (r := _resolutions.get(task)) is not None
@@ -194,35 +178,20 @@ def _snapshot() -> dict:
         "routing": routing,
         "tasks": list(KNOWN_TASKS),
         "budget_gb": round(budget, 1),
-        # models already ON this machine that are not yet configured. Without
-        # this, a user with LM Studio had to find the file and paste its path
-        # into a text box to use weights the app had already located -- and
-        # discovery.py existed purely to suppress a download prompt.
+        # Models already on this machine that are not configured yet.
         "discovered": discovered,
-        # The catalog offer, in the SAME payload. It used to live only behind
-        # the first-run modal, which meant Bench showed a "Download a better
-        # model" button that opened a separate dialog listing a model Bench
-        # already knew about -- two screens telling one story. One snapshot,
-        # one card.
+        # The one recommended download, in the same payload.
         "upgrade": _upgrade_offer(registry, budget, cap.tier if cap else "", plan_for_size, gpu_gb),
-        # The WHOLE catalog, each entry annotated with how it stands against
-        # this machine. `upgrade` above is a recommendation and is often None
-        # -- correctly, when nothing beats what you already have. Letting the
-        # download button vanish with it was wrong: "we do not recommend this"
-        # and "you may not have this" are different statements, and a model
-        # that claims no tasks is still a model someone may want.
+        # The whole catalog, even when `upgrade` is None: "not recommended"
+        # and "not allowed" are different statements.
         "catalog": _catalog_for(registry, budget, cap.tier if cap else "", plan_for_size, gpu_gb),
         "download": downloader.progress or {"status": "idle"},
     }
 
 
 def _describe(resolution, registry: Registry) -> dict:
-    """a human name and size for whatever the router picked.
-
-    Looks in the registry first (it holds the user's own label), then the
-    catalog (which knows the published name of anything we ship or fetch), and
-    only falls back to the filename when the model is genuinely unknown to us.
-    """
+    """A display name and size for the router's pick: the user's label, then
+    the catalog's name, then the filename."""
     if resolution.ollama_tag:
         return {"label": f"{resolution.ollama_tag} (via Ollama)", "size_gb": 0.0}
     if not resolution.path:
@@ -251,12 +220,8 @@ def _describe(resolution, registry: Registry) -> dict:
 
 def _catalog_for(registry: Registry, budget_gb: float, tier: str,
                  plan_for_size=None, gpu_gb: float = 0.0) -> list[dict]:
-    """every model we can fetch, judged against this machine.
-
-    Nothing is hidden. `fits` and `recommended_here` carry the judgement, so
-    the UI can grey a row out or add a warning without the backend deciding on
-    the user's behalf that they may not have it.
-    """
+    """Every catalog model, judged against this machine. Nothing is hidden;
+    `fits` and `recommended_here` let the UI warn without refusing."""
     try:
         from domain.model_manager import catalog
         from domain.model_manager.discovery import discover_all, installed_names
@@ -283,12 +248,9 @@ def _catalog_for(registry: Registry, budget_gb: float, tier: str,
                 "description": s.description,
                 "tasks": list(s.tasks),
                 "installed": already,
-                # Asked of capability, not of the budget NUMBER.
-                # `max_safe_model_size_gb` is `available - 3.0`, which floors at
-                # zero on a constrained machine -- and zero means "unmeasured,
-                # no constraint" everywhere else. So the machine least able to
-                # run anything was told it could run everything. capability
-                # compares against real free memory and is right at both ends.
+                # Asked of capability, not the budget number: that floors at 0 on a
+                # constrained machine, and 0 means "unmeasured, no limit" elsewhere,
+                # so the weakest machine would be told it can run everything.
                 "fits": (
                     bool(getattr(plan_for_size(s.size_gb), "fits", True))
                     if plan_for_size is not None
@@ -312,15 +274,10 @@ def _catalog_for(registry: Registry, budget_gb: float, tier: str,
 
 def _upgrade_offer(registry: Registry, budget_gb: float, tier: str = "",
                    plan_for_size=None, gpu_gb: float = 0.0) -> dict | None:
-    """the best catalog model worth downloading, or None.
+    """The best catalog model worth downloading, or None.
 
-    Reuses ``catalog.suggested_upgrade`` and ``discovery`` rather than
-    re-deriving "what is already here": those already understand that a model
-    pulled through Ollama under a different name is the same weights, which is
-    what stops us offering a gigabyte the user is already storing.
-
-    Anything in the registry counts as installed too -- a model the user
-    imported by hand must suppress the offer exactly as a downloaded one does.
+    "Already have it" comes from discovery (which knows an Ollama model under
+    another name is the same weights) plus the registry (imports count too).
     """
     try:
         from domain.model_manager import catalog
@@ -352,18 +309,10 @@ def _upgrade_offer(registry: Registry, budget_gb: float, tier: str = "",
 
 
 def _discovered_not_yet_configured(registry: Registry) -> list[dict]:
-    """models found on this machine that are not in the registry yet.
+    """Models found on this machine but not in the registry yet.
 
-    ``discovery.discover_all`` already knew about these -- it was used only to
-    decide whether to OFFER a download. Surfacing the same list in Bench turns
-    it from a suppression check into something the user can act on: assign a
-    model you already have to a job, without hunting for its path.
-
-    Only entries with a real file are offered for assignment. Ollama stores its
-    weights as content-addressed blobs that llama.cpp cannot open, so an Ollama
-    model cannot be registered as a file entry -- it is listed as informational,
-    with ``assignable`` false, because claiming otherwise would produce an entry
-    that fails at load time.
+    Only real files are `assignable`. Ollama keeps weights as blobs llama.cpp
+    cannot open, so Ollama models are listed for information only.
     """
     try:
         from domain.model_manager.discovery import discover_all
@@ -412,13 +361,8 @@ async def get_registry():
 
 @router.post("/registry/import")
 async def import_model(request: ImportRequest):
-    """register a gguf the user already has on disk.
-
-    The file is REFERENCED, never copied: these are multi-gigabyte weights and
-    duplicating them would be a poor trade on a machine we already know is
-    constrained. It therefore stays the user's file, and ``managed`` is false
-    so nothing here will ever delete it.
-    """
+    """Register a GGUF the user has on disk. Referenced, never copied, and
+    `managed` is false, so ThinkStack never deletes it."""
     registry = Registry.load(settings.models_dir)
 
     try:
@@ -471,23 +415,14 @@ async def update_model(model_id: str, request: AssignRequest):
 
 @router.delete("/registry/{model_id}")
 async def remove_model(model_id: str, delete_file: bool = False):
-    """remove a model, and optionally delete its weights.
+    """Remove a model, and optionally delete its file.
 
-    Two different actions behind one word, deliberately separated:
+        delete_file=False  forget the model; the .gguf stays (the default,
+                           because the wrong guess should be the harmless one)
+        delete_file=True   forget it AND delete the file; refused for any
+                           file ThinkStack did not create (`managed` false)
 
-        delete_file=False  forget the model; the .gguf stays on disk
-        delete_file=True   forget it AND delete the file (frees the space)
-
-    False is the default because deleting several gigabytes is not recoverable
-    and "remove" is ambiguous enough that a wrong guess should be the harmless
-    one. The UI asks explicitly.
-
-    Deleting is refused outright for a model we did not create: an imported
-    file lives wherever the user keeps their models, and removing it from
-    ThinkStack must never reach outside ThinkStack.
-
-    Removal itself is never blocked -- the user knows their machine better than
-    our heuristics do -- but the consequence is reported so the UI can show it.
+    Removal is never blocked, but what stops working is reported.
     """
     registry = Registry.load(settings.models_dir)
     entry = registry.get(model_id)

@@ -197,7 +197,7 @@ The signing key stays out of the repo (the private key lives at `~/.tauri` and a
 a CI secret; only the public key is committed). The supporting scripts are
 `scripts/compose-updater-manifest.sh`, which builds the manifest, and
 `scripts/release.sh`, which bumps the version and tags the release. See
-[../ADR.md](../ADR.md) for the decisions and [../../scripts/README.md](../../scripts/README.md)
+[../ADR.md](../ADR.md) for the decisions and [../../CONTRIBUTING.md](../../CONTRIBUTING.md#releasing)
 for the runbook.
 
 ## Model discovery and reuse
@@ -237,7 +237,7 @@ the `max_tokens` caps, and the onedir packaging) rather than taking it as-is.
 ## Scripts, tests, and docs
 
 - `scripts/` holds the devops scripts only (bootstrap, run, build, validate,
-  release); non-devops utilities moved to `tools/`. See `scripts/README.md`.
+  release); non-devops utilities moved to `tools/`. See `CONTRIBUTING.md`.
 - `tests/` is the automated `pytest` suite (run `pytest`), gated in CI by
   `.github/workflows/ci.yml`. `tools/check_paper_writer.py` remains as a manual
   end-to-end paper-writer integration check (real pdflatex compile). It is
@@ -245,7 +245,7 @@ the `max_tokens` caps, and the onedir packaging) rather than taking it as-is.
   automated suite: `pytest.ini` sets `testpaths = tests`, so a `test_*.py`
   living in `tools/` is never collected and would imply coverage that does
   not run.
-- `scripts/README.md` is the runbook for cutting a release and for how
+- `scripts/README.md` (since merged into `CONTRIBUTING.md`) is the runbook for cutting a release and for how
   downloads and updates work. I also maintain the landing page (`landing.html`)
   and the ADR entries for the decisions above.
 

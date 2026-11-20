@@ -1,4 +1,10 @@
-"""Storing and retrieving document chunks in the vector store."""
+"""Every write to the vector store goes through here: store, update, delete.
+
+Ingest calls `store_chunks` (which embeds); LitGraph reads `get_doc_centroids`
+and `get_document_metadata`; corrections call `update_document_metadata`.
+Search (semantic_search, grounding) and graph_builder read the store
+directly; nothing else should touch it.
+"""
 
 import logging
 from typing import TYPE_CHECKING
@@ -91,14 +97,9 @@ def get_document_metadata() -> dict[str, dict]:
     """`{doc_id: metadata}`, taking each document's lowest-numbered chunk.
 
     Every chunk of a document carries the same document-level fields, so any
-    of them would do -- except that "any" is not stable. Chroma returns rows
-    in no guaranteed order, and a document ingested before a field existed has
-    it on none of its chunks, so picking by chunk index keeps two calls in a
-    row from disagreeing.
-
-    One store read for the whole library. The alternative -- a `where` query
-    per document -- is what the documents list does, and it costs a round trip
-    per paper for information that arrives in the first one.
+    of them would do, but "any" is not stable across calls, so the lowest
+    chunk index decides. One store read for the whole library, not a query per
+    paper.
     """
     store = get_vector_store()
     results = store.get()
@@ -207,3 +208,14 @@ def update_chunk_metadata_field(chunk_id: str, field: str, value) -> None:
     meta[field] = value
 
     store.update(ids=[chunk_id], metadatas=[meta])
+
+
+def set_chunk_texts(texts_by_id: dict[str, str]) -> int:
+    """Replace chunk text, leaving metadata and embeddings alone. Encryption
+    blanks text at rest with this and restores it on removal."""
+    return get_vector_store().set_documents(texts_by_id)
+
+
+def is_encrypted(meta: dict | None) -> bool:
+    """The flag as stored: the string "true", or a legacy boolean."""
+    return (meta or {}).get("is_encrypted") in ("true", True)

@@ -1,10 +1,11 @@
-"""merged gap analysis + research-direction suggestions.
+"""Gap finding: gaps and research directions in ONE model call.
 
-identifies research gaps AND proposes directions to address them in a single
-llm call, instead of two serialized generations. the model links each
-suggestion to the gaps it addresses by 1-based index; those indexes are
-remapped here to the gap ids we assign, so the api response keeps the same
-``gaps`` / ``suggestions`` shape (with ``related_gaps`` populated) as before.
+Input is each paper's cached summary and claims (bounded by a character cap),
+never the full texts. The model links each suggestion to gaps by 1-based
+index; those are remapped to the ids assigned here (`related_gaps`).
+
+Model output is not trusted: unknown categories are coerced, invented doc_ids
+dropped, out-of-range indexes ignored, and repeated findings merged.
 """
 
 import json
@@ -96,14 +97,9 @@ def _finding_key(description: str) -> str:
 def _parse_gaps(gaps_data: list, doc_ids: list[str]) -> list[ResearchGap]:
     """Parse the model's gaps, treating the reply as findings rather than rows.
 
-    D-17: the same gap was listed more than once. Every entry was given a fresh
-    uuid, so two identical descriptions became two distinct gaps -- each with
-    its own id, each drawn on the map, each counted. Small models repeat
-    themselves, and this one is handed a list format and asked to fill it.
-
-    A repeat is merged rather than dropped: the second copy often carries
-    evidence or a document the first did not, and discarding it would lose a
-    finding to fix a duplicate.
+    Small models repeat themselves, and each entry gets a fresh id, so a
+    repeat would be a second gap on the map (defect D-17). A repeat is merged,
+    not dropped: it often carries evidence the first copy lacked.
     """
     gaps: list[ResearchGap] = []
     seen: dict[str, ResearchGap] = {}
@@ -181,17 +177,9 @@ async def analyze_gaps_and_suggestions(
     claims: list[dict],
     doc_ids: list[str],
 ) -> tuple[list[ResearchGap], list[Suggestion]]:
-    """identify gaps and propose research directions in one model call.
+    """`(gaps, suggestions)`, both empty if the call or parsing fails.
 
-    args:
-        summaries: per-paper summary dicts ``{doc_id, text}``.
-        claims: claim dicts ``{doc_id, text, type}`` from all papers.
-        doc_ids: the documents under analysis (used as the default
-            ``related_doc_ids`` when the model omits them).
-
-    returns:
-        ``(gaps, suggestions)`` -- both empty if the call fails or its output
-        cannot be parsed.
+    `doc_ids` is the default evidence when the model names none.
     """
     prompt = COMBINED_PROMPT.format(content=_build_content(summaries, claims))
 
@@ -200,12 +188,8 @@ async def analyze_gaps_and_suggestions(
             prompt,
             system=_SYSTEM,
             max_tokens=1100,
-            # naming the task is what makes the user's choice count: the router
-            # looks up whatever model is assigned to THIS task in Bench. Omit it
-            # and the argument defaults to "general", so the lookup happens
-            # against the wrong task, finds nothing, and quietly falls back to
-            # the base model -- while Bench still shows the model the user
-            # picked for gap finding.
+            # Must name the task: without it the call routes as "general" and
+            # ignores the model the user assigned to gap finding in Bench.
             task_type="gap_analysis",
         )
         data = json.loads(response)

@@ -17,11 +17,8 @@ import PdfReader from './PdfReader';
  * All of About comes out of the single /graph payload the canvas already
  * holds. None of it is a new request; it was simply never shown.
  *
- * About used to be eight sections in a flat stack, every one of them wearing
- * the same uppercase rule, in a 360px column. Everything is still here; what
- * changed is that the answer to "why is this paper where it is" is one
- * sentence at the top with a picture under it, and the lists below it can be
- * shut.
+ * "Why is this paper where it is" comes first, as one sentence and a picture;
+ * the lists below it can be collapsed.
  */
 
 // Whether the original pdf exists for a doc, probed once with a HEAD request.

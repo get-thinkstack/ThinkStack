@@ -1,9 +1,9 @@
-"""model setup api.
+"""Catalog model downloads, used by Bench.
 
-powers the first-run flow: report what the machine can run, what models it
-already has (including via Ollama / LM Studio), and whether a better model is
-worth offering. downloading only ever happens through an explicit POST, so the
-app never reaches out to the network on its own.
+Bench calls `/download`, `/download/status` and `/download/cancel`. `/setup`
+and `/catalog` served the first-run model dialog, which was replaced by a
+one-time note; nothing in the interface calls them now. Downloading only
+happens through an explicit POST.
 """
 
 import asyncio
@@ -29,13 +29,8 @@ class DownloadRequest(BaseModel):
 
 @router.get("/setup")
 async def model_setup():
-    """everything the first-run screen needs, in one call.
-
-    reports the hardware budget, models already on this machine and where they
-    came from, and at most one suggested upgrade. `needs_permission` is the
-    signal for the UI to show a consent prompt -- when it is false there is
-    nothing to ask about and the app should start straight away.
-    """
+    """Hardware budget, models already on this machine, and at most one
+    suggested upgrade. `needs_permission` is true only when there is one."""
     hw = profile_system()
     budget = max_safe_model_size_gb()
 
@@ -85,7 +80,7 @@ async def model_setup():
 
 @router.get("/catalog")
 async def list_catalog():
-    """every model ThinkStack knows about, and whether it ships with the app."""
+    """Every catalog model, and whether this build bundles it."""
     return {
         "models": [
             {
@@ -104,10 +99,9 @@ async def list_catalog():
 
 @router.post("/download")
 async def start_download(request: DownloadRequest):
-    """download a catalog model. this IS the consent step.
+    """Download a catalog model. This is the consent step.
 
-    refuses anything not in the catalog, so a caller cannot point the app at an
-    arbitrary URL.
+    Only catalog names are accepted, so a caller cannot aim it at a URL.
     """
     spec = catalog.by_name(request.name)
     if spec is None:

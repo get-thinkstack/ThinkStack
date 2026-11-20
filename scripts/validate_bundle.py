@@ -315,11 +315,8 @@ def main() -> int:
 
     # 6. real inference through the bundled llama.cpp, on the PLAIN-TEXT path.
     #
-    #    This used to call /api/chat. Chat was scrapped, so it now goes through
-    #    Scribe's generate, which is the remaining feature that asks the model
-    #    for free text rather than grammar-constrained JSON. Keeping a plain-text
-    #    check is the point: it and check 6b exercise the two different decoder
-    #    paths, and a bundle can break one while the other still works.
+    #    Through Scribe's generate (free text). This and check 6b (grammar JSON)
+    #    exercise the two decoder paths; a bundle can break one and not the other.
     if args.skip_inference or args.no_bundled_llm:
         reason = "--no-bundled-llm" if args.no_bundled_llm else "--skip-inference"
         record(PASS, f"inference intentionally unavailable ({reason})")
@@ -566,10 +563,8 @@ def main() -> int:
     except Exception as e:  # noqa: BLE001
         record(FAIL, "model setup endpoint failed", repr(e))
 
-    # Remove what this run created. Every validation used to leave two or
-    # three projects behind permanently, so a user who had validated a few
-    # builds opened Scribe to a list that was mostly scaffolding -- twelve
-    # "bundle-validation" entries among their real papers.
+    # Remove the projects this run created, or each validation leaves
+    # "bundle-validation" entries among the user's real papers.
     for pid in scratch:
         if pid:
             delete(f"{base}/api/papers/projects/{pid}")

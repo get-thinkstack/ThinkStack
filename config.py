@@ -1,9 +1,9 @@
-"""
-thinkstack configuration module.
+"""Every setting, in one `settings` object (pydantic-settings).
 
-centralizes all application settings including paths, model names,
-chunking parameters, and server configuration. uses pydantic-settings
-for environment variable overrides with the THINKSTACK_ prefix.
+Any field can be overridden by an environment variable `THINKSTACK_<FIELD>`
+or a `.env` (see the bottom of this file for which `.env` wins). Paths are
+split into BUNDLE_DIR (read-only payload) and STATE_DIR (writable user data),
+which differ in a frozen build and coincide in a source checkout.
 """
 
 import os
@@ -43,22 +43,15 @@ class Settings(BaseSettings):
     papers_dir: Path = STATE_DIR / "papers"
     chroma_dir: Path = STATE_DIR / "vectorstore"
     models_dir: Path = STATE_DIR / "models"
-    # gguf models we ship inside the frozen bundle (via pyinstaller --add-data
-    # data/models). on first run these are copied into the writable models_dir
-    # so the installed app has a working model offline. empty/absent in a source
-    # checkout (BUNDLE_DIR == project root, so this equals models_dir).
+    # GGUFs shipped in the bundle, copied into models_dir on first run. None ship
+    # today; in a source checkout this equals models_dir.
     bundled_models_dir: Path = BUNDLE_DIR / "data" / "models"
 
     # llm runtime
     llm_provider: str = "llama_cpp"
     llm_model_path: Path = STATE_DIR / "models"
-    # heavier model used only for structured-json analysis tasks (summarize,
-    # claims, themes, gap analysis). the lightweight 0.5b base model rambles
-    # past the token limit and produces unparseable json on these tasks; a
-    # slightly larger model is far more reliable. this is a filename resolved
-    # inside the models dir. if the file is absent, these tasks gracefully fall
-    # back to the base model. only one model is resident at a time (the runtime
-    # swaps between base and analysis models on demand to cap memory use).
+    # Legacy default for the analysis tasks (feeds the deprecated task map; the
+    # registry decides first). A filename inside models_dir; absent -> base.
     llm_analysis_model: str = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
     llm_ctx_size: int = 4096
     # -1 = auto-detect (hardware profiler picks the safe offload count).
@@ -70,11 +63,8 @@ class Settings(BaseSettings):
     # value above.
     llm_auto_ctx: bool = True
 
-    # retrieval grounding: how much of the user's library to show a model
-    # before it writes. bounded because the local context window is small --
-    # an unbounded block pushes out the instructions and the room to answer.
-    # (named chat_* until the chat feature was scrapped; the retrieval it used
-    # is now shared, and lives in domain/search/grounding.py)
+    # Grounding budget (domain/search/grounding.py): bounded because the local
+    # context window is small.
     grounding_context_chunks: int = 5
     grounding_char_budget: int = 3000
 
@@ -86,26 +76,14 @@ class Settings(BaseSettings):
     # embeddings
     embedding_model: str = "all-MiniLM-L6-v2"
     embedding_dimension: int = 384
-    # the copy of the embedding model shipped inside the bundle. present only
-    # in packaged builds; from source we fall back to the hub/hf cache.
-    #
-    # This must sit under data/models, beside the gguf weights -- that is where
-    # the PyInstaller spec puts bundled model data. It previously pointed at
-    # BUNDLE_DIR/models (no `data` segment), a directory that is never built, so
-    # `is_dir()` was always False and a packaged, offline build silently fell
-    # through to a HuggingFace download it could never complete.
+    # The bundled embedding model. MUST be under data/models: that is where the
+    # build stages it, and a wrong path silently falls back to a download that
+    # cannot succeed offline. From source, the HF cache is used instead.
     bundled_embedding_dir: Path = BUNDLE_DIR / "data" / "models" / "all-MiniLM-L6-v2"
 
-    # TeX engine. We ship Tectonic (a single self-contained binary) plus a
-    # pre-warmed package cache, so the paper writer compiles on a machine with
-    # no LaTeX installed -- which is every machine that is not a developer's.
-    # A system pdflatex/tectonic is still used when the bundled one is absent
-    # (source checkouts).
-    # Under data/ so the one path works in both modes, exactly like the models
-    # above: in a source checkout BUNDLE_DIR is the repo root (data/tex), and in
-    # a frozen build PyInstaller stages it to _internal/data/tex. Getting this
-    # wrong is how the embedding model ended up looking in a directory that is
-    # never built.
+    # Bundled Tectonic + warmed cache (scripts/fetch-tex.sh). Under data/ so one
+    # path works in both modes: repo-root/data/tex from source,
+    # _internal/data/tex frozen. A system engine is used only if this is absent.
     bundled_tex_dir: Path = BUNDLE_DIR / "data" / "tex"
     # Tectonic needs its cache writable, and the bundle is read-only, so the
     # shipped cache is seeded into here on first use -- same pattern as models.
@@ -121,19 +99,9 @@ class Settings(BaseSettings):
 
     # server
     #
-    # Loopback, not 0.0.0.0. This used to default to every interface, which
-    # every launcher then overrode with --host 127.0.0.1 -- the desktop shell,
-    # dev.sh and the bundle validator all pass it. So the safe behaviour held
-    # only because three separate callers remembered, and anything that starts
-    # the binary without the flag (a user double-clicking it, a future script,
-    # a debugging session) published an unauthenticated API to the whole
-    # network. On shared wifi that is the entire library readable by anyone who
-    # scans port 8000.
-    #
-    # An application whose premise is that documents never leave the machine
-    # should not be one forgotten argument away from serving them to a
-    # subnet. Binding wider is still possible, deliberately, through
-    # THINKSTACK_HOST.
+    # Loopback by DEFAULT, not 0.0.0.0, so no launcher has to remember the flag.
+    # The API is unauthenticated: bound wider, anyone on the network can read the
+    # library. Widen deliberately with THINKSTACK_HOST.
     host: str = "127.0.0.1"
     port: int = 8000
     debug: bool = True

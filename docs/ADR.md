@@ -1,4 +1,137 @@
-# architecture decision records (adr)
+# Architecture decision records
+
+Why ThinkStack is built the way it is. What it does is in [FEATURES.md](FEATURES.md).
+
+## Index by topic
+
+Entries below are in date order. A later entry can supersede an earlier one;
+each superseded entry says so in a dated **Status** line, and its original
+text is kept as the record of what was decided at the time.
+
+**Foundations**
+
+- [2026-06-16: project renaming](#2026-06-16-project-renaming)
+- [2026-06-17: backend infrastructure audit & fixes](#2026-06-17-backend-infrastructure-audit--fixes)
+- [2026-06-19: migration to tauri desktop architecture](#2026-06-19-migration-to-tauri-desktop-architecture)
+- [2026-07-01: cross-platform tauri shell](#2026-07-01-cross-platform-tauri-shell)
+- [2026-07-01: dead scaffold cleanup](#2026-07-01-dead-scaffold-cleanup)
+- [2026-07-08: sidecar-first backend launch](#2026-07-08-sidecar-first-backend-launch)
+- [2026-07-08: devops script overhaul](#2026-07-08-devops-script-overhaul)
+
+**Packaging: what ships and how it is checked**
+
+- [2026-07-08: cross-platform ci/cd + desktop binary distribution](#2026-07-08-cross-platform-cicd--desktop-binary-distribution)
+- [2026-07-22: single lightweight base model bundled](#2026-07-22-single-lightweight-base-model-bundled)
+- [2026-07-23: bundle both models again + seed them on first run](#2026-07-23-bundle-both-models-again--seed-them-on-first-run)
+- [2026-07-23: PyInstaller collect-all for llama_cpp + sentence_transformers](#2026-07-23-pyinstaller-collect-all-for-llama_cpp--sentence_transformers)
+- [2026-07-24: cpu-only torch + per-OS bundle formats to fix bloated, failing builds](#2026-07-24-cpu-only-torch--per-os-bundle-formats-to-fix-bloated-failing-builds)
+- [2026-07-25: smoke-test the frozen bundle before it can be published](#2026-07-25-smoke-test-the-frozen-bundle-before-it-can-be-published)
+- [2026-07-25: bundle only the baseline model; reuse what the user already has](#2026-07-25-bundle-only-the-baseline-model-reuse-what-the-user-already-has)
+- [2026-08-22: a lazily-imported module is asserted over HTTP, not assumed](#2026-08-22-a-lazily-imported-module-is-asserted-over-http-not-assumed)
+- [2026-08-31: no bundled SLM weights](#2026-08-31-no-bundled-slm-weights)
+
+**Releases, versions and updates**
+
+- [2026-07-10: download landing page](#2026-07-10-download-landing-page)
+- [2026-07-22: `landing.html` (repo root) is the page of record](#2026-07-22-landinghtml-repo-root-is-the-page-of-record)
+- [2026-07-22: in-app auto-updates via tauri updater + github releases](#2026-07-22-in-app-auto-updates-via-tauri-updater--github-releases)
+- [2026-07-25: release pipeline is config-driven, tag-triggered, and gated locally](#2026-07-25-release-pipeline-is-config-driven-tag-triggered-and-gated-locally)
+- [2026-07-25: release guardrails that block unrecoverable mistakes](#2026-07-25-release-guardrails-that-block-unrecoverable-mistakes)
+- [2026-07-25: release guide folded into this log](#2026-07-25-release-guide-folded-into-this-log)
+- [2026-07-29: branch protection guards production, releases guard themselves](#2026-07-29-branch-protection-guards-production-releases-guard-themselves)
+- [2026-07-30: two channel pages on one GitHub Pages site](#2026-07-30-two-channel-pages-on-one-github-pages-site)
+- [2026-07-30: updates are user-initiated; nothing is checked on launch](#2026-07-30-updates-are-user-initiated-nothing-is-checked-on-launch)
+- [2026-07-31: rolling tags are named after their channel, and beta has no -beta.N](#2026-07-31-rolling-tags-are-named-after-their-channel-and-beta-has-no--betan)
+- [2026-08-01: pin every dependency](#2026-08-01-pin-every-dependency)
+- [2026-08-06: a stable release is declared, never implied by a merge](#2026-08-06-a-stable-release-is-declared-never-implied-by-a-merge)
+- [2026-08-08: a release asserts that it published](#2026-08-08-a-release-asserts-that-it-published)
+- [2026-08-09: Y carries into X at twenty](#2026-08-09-y-carries-into-x-at-twenty)
+- [2026-08-09: merging and publishing are one intention](#2026-08-09-merging-and-publishing-are-one-intention)
+- [2026-08-09: a version may never go backwards, checked where the decision lands](#2026-08-09-a-version-may-never-go-backwards-checked-where-the-decision-lands)
+- [2026-08-09: rollback is two problems, because you cannot un-ship](#2026-08-09-rollback-is-two-problems-because-you-cannot-un-ship)
+- [2026-08-18: Y carries into X at ten (supersedes 2026-08-09)](#2026-08-18-y-carries-into-x-at-ten-supersedes-2026-08-09)
+- [2026-08-22: the branch name says which column moves](#2026-08-22-the-branch-name-says-which-column-moves)
+- [2026-11-20: ship.sh promotes the changelog, in CHANGELOG.md itself](#2026-11-20-shipsh-promotes-the-changelog-in-changelogmd-itself)
+
+**Models, routing and hardware**
+
+- [2026-07-01: cpu-only inference defaults](#2026-07-01-cpu-only-inference-defaults)
+- [2026-07-22: heavier model for structured-json analysis tasks](#2026-07-22-heavier-model-for-structured-json-analysis-tasks)
+- [2026-07-22: reconcile `ollama_client.py` after demo merge - GPU-when-available, safe CPU fallback](#2026-07-22-reconcile-ollama_clientpy-after-demo-merge---gpu-when-available-safe-cpu-fallback)
+- [2026-07-25: hardware diagnosis stays conservative about GPUs](#2026-07-25-hardware-diagnosis-stays-conservative-about-gpus)
+- [2026-07-30: the model prompt records what was answered, not that it was answered](#2026-07-30-the-model-prompt-records-what-was-answered-not-that-it-was-answered)
+- [2026-08-05: models are a registry the user owns, not a hardcoded table](#2026-08-05-models-are-a-registry-the-user-owns-not-a-hardcoded-table)
+- [2026-08-05: imported models are referenced, never copied](#2026-08-05-imported-models-are-referenced-never-copied)
+- [2026-08-05: suggestions consider compute, not only memory](#2026-08-05-suggestions-consider-compute-not-only-memory)
+- [2026-08-05: never bundle a reasoning model](#2026-08-05-never-bundle-a-reasoning-model)
+- [2026-11-20: a thinking model's think block is pre-filled, empty](#2026-11-20-a-thinking-models-think-block-is-pre-filled-empty)
+- [2026-08-05: Hugging Face download URLs are constructed, never accepted](#2026-08-05-hugging-face-download-urls-are-constructed-never-accepted)
+- [2026-08-07: graphics acceleration is offered, not shipped](#2026-08-07-graphics-acceleration-is-offered-not-shipped)
+- [2026-08-07: Vulkan, not CUDA](#2026-08-07-vulkan-not-cuda)
+- [2026-08-07: a software rasteriser is not a graphics device](#2026-08-07-a-software-rasteriser-is-not-a-graphics-device)
+- [2026-08-07: nothing unverified is switched on](#2026-08-07-nothing-unverified-is-switched-on)
+- [2026-08-09: the advice asks Vulkan, not nvidia-smi](#2026-08-09-the-advice-asks-vulkan-not-nvidia-smi)
+
+**Ingestion and metadata**
+
+- [2026-08-12: a title is the biggest text on page 1, not the first line](#2026-08-12-a-title-is-the-biggest-text-on-page-1-not-the-first-line)
+- [2026-08-12: geometry is a separate module from bibliography](#2026-08-12-geometry-is-a-separate-module-from-bibliography)
+- [2026-08-12: affiliations are removed by structure, never by naming employers](#2026-08-12-affiliations-are-removed-by-structure-never-by-naming-employers)
+- [2026-08-12: a plausibility check, because the failure mode is not silence](#2026-08-12-a-plausibility-check-because-the-failure-mode-is-not-silence)
+- [2026-08-12: the extractor is scored on papers nobody here chose](#2026-08-12-the-extractor-is-scored-on-papers-nobody-here-chose)
+
+**Search, LitGraph and analysis**
+
+- [2026-08-01: litgraph replaces search, analysis and gap finder](#2026-08-01-litgraph-replaces-search-analysis-and-gap-finder)
+- [2026-08-01: search is purely semantic; bm25 and rrf removed](#2026-08-01-search-is-purely-semantic-bm25-and-rrf-removed)
+- [2026-08-22: vectors live in SQLite; search stays exact, in NumPy](#2026-08-22-vectors-live-in-sqlite-search-stays-exact-in-numpy)
+- [2026-08-01: theme membership comes from embeddings, not the model](#2026-08-01-theme-membership-comes-from-embeddings-not-the-model)
+
+**Scribe**
+
+- [2026-06-23: AI-assisted paper writer implementation](#2026-06-23-ai-assisted-paper-writer-implementation)
+- [2026-07-01: real-time latex preview (client-side)](#2026-07-01-real-time-latex-preview-client-side)
+- [2026-08-07: a paper is a directory, and the file tree is the way into it](#2026-08-07-a-paper-is-a-directory-and-the-file-tree-is-the-way-into-it)
+- [2026-08-07: filenames arriving from the webview are untrusted](#2026-08-07-filenames-arriving-from-the-webview-are-untrusted)
+- [2026-08-07: the index is generated, not delegated to makeindex](#2026-08-07-the-index-is-generated-not-delegated-to-makeindex)
+- [2026-08-14: the .bib file is the authority for a citation key](#2026-08-14-the-bib-file-is-the-authority-for-a-citation-key)
+- [2026-08-14: the comma is BibTeX syntax, so an author list is JSON](#2026-08-14-the-comma-is-bibtex-syntax-so-an-author-list-is-json)
+- [2026-08-14: a citing document is given a bibliography, but only one to point at](#2026-08-14-a-citing-document-is-given-a-bibliography-but-only-one-to-point-at)
+- [2026-08-14: a wrong reference is repaired in the library, not in the bibliography](#2026-08-14-a-wrong-reference-is-repaired-in-the-library-not-in-the-bibliography)
+- [2026-08-22: a new document is not always a research paper](#2026-08-22-a-new-document-is-not-always-a-research-paper)
+- [2026-08-22: an empty library is a state, not a blocker](#2026-08-22-an-empty-library-is-a-state-not-a-blocker)
+- [2026-08-23: a linked file is put on the compile's search path, not copied](#2026-08-23-a-linked-file-is-put-on-the-compiles-search-path-not-copied)
+- [2026-11-20: Tectonic compiles from the cache first](#2026-11-20-tectonic-compiles-from-the-cache-first)
+- [2026-08-23: what may be linked is not decided by what LaTeX can read](#2026-08-23-what-may-be-linked-is-not-decided-by-what-latex-can-read)
+
+**Interface**
+
+- [2026-08-06: the shell watches for use; features do not report it](#2026-08-06-the-shell-watches-for-use-features-do-not-report-it)
+- [2026-08-06: an automatic collapse is not a saved preference](#2026-08-06-an-automatic-collapse-is-not-a-saved-preference)
+- [2026-08-06: features are declared once, in a registry](#2026-08-06-features-are-declared-once-in-a-registry)
+- [2026-08-07: no browser dialogs, because there is no browser](#2026-08-07-no-browser-dialogs-because-there-is-no-browser)
+- [2026-08-07: the page subtitle became an "i"](#2026-08-07-the-page-subtitle-became-an-i)
+- [2026-08-08: a page declares whether it is a document or a workspace](#2026-08-08-a-page-declares-whether-it-is-a-document-or-a-workspace)
+- [2026-08-08: the press arms the collapse; the gesture ending applies it](#2026-08-08-the-press-arms-the-collapse-the-gesture-ending-applies-it)
+- [2026-08-13: the interface reads the backend's answer, never recomputes it](#2026-08-13-the-interface-reads-the-backends-answer-never-recomputes-it)
+- [2026-08-13: a dash is not a number, and three states are not one](#2026-08-13-a-dash-is-not-a-number-and-three-states-are-not-one)
+- [2026-08-13: a pane takes the height it is given](#2026-08-13-a-pane-takes-the-height-it-is-given)
+- [2026-08-13: the page titles go, and Library introduces the others](#2026-08-13-the-page-titles-go-and-library-introduces-the-others)
+- [2026-08-14: Paper and Ink replaces the interface](#2026-08-14-paper-and-ink-replaces-the-interface)
+- [2026-08-14: two trees means every fix is made twice](#2026-08-14-two-trees-means-every-fix-is-made-twice)
+- [2026-08-14: six named type steps, and a root size that is not fixed](#2026-08-14-six-named-type-steps-and-a-root-size-that-is-not-fixed)
+- [2026-08-14: a figure earns its place by answering a question](#2026-08-14-a-figure-earns-its-place-by-answering-a-question)
+- [2026-08-14: the collapsed sidebar is a rail](#2026-08-14-the-collapsed-sidebar-is-a-rail)
+- [2026-08-14: a caret-anchored popup is positioned in viewport coordinates](#2026-08-14-a-caret-anchored-popup-is-positioned-in-viewport-coordinates)
+- [2026-08-23: a control that chooses must not displace the control that acts](#2026-08-23-a-control-that-chooses-must-not-displace-the-control-that-acts)
+- [2026-08-23: a custom property that does not exist fails only on screen](#2026-08-23-a-custom-property-that-does-not-exist-fails-only-on-screen)
+
+**Data, privacy and sharing**
+
+- [2026-06-19: secure p2p networking layer](#2026-06-19-secure-p2p-networking-layer)
+- [2026-07-01: fine-tuning data collection pipeline](#2026-07-01-fine-tuning-data-collection-pipeline)
+- [2026-11-19: a paper is encrypted at rest, not given an encrypted copy](#2026-11-19-a-paper-is-encrypted-at-rest-not-given-an-encrypted-copy)
+- [2026-11-19: a write from a foreign origin is refused](#2026-11-19-a-write-from-a-foreign-origin-is-refused)
 
 ## context and goals
 
@@ -22,19 +155,9 @@ static download page, which handles no user data. this keeps the privacy claim
 intact in both modes: nothing is served off-device.
 
 **works without a network.** all inference, storage, and search are local, so the
-app is fully functional offline. the one optional network call is the update
-check (a version lookup against github releases), which sends no user data and
-fails silently when offline.
-
-## 2026-06-19: secure p2p networking layer
-**decision:** adopt libp2p and public key infrastructure (pki) for user-to-user document sharing.
-**rationale:** think stack is a privacy-first tool. rather than hosting user papers on a central database, users will serve files directly from their desktop instances. access is granted based on cryptographic signatures verified between peers.
-**status:** accepted.
-
-## 2026-06-19: migration to tauri desktop architecture
-**decision:** bundle the entire python backend and frontend into a single native desktop application using tauri and sidecars.
-**rationale:** running local ai models and a latex compiler requires direct hardware access, unrestricted file i/o, and bypassing browser sandboxes. tauri allows us to write the ui in react while maintaining native performance and minimal memory overhead compared to electron.
-**status:** accepted.
+app is fully functional offline. the network is used only when the user asks:
+pressing update app, searching or downloading a model in bench, or adding the
+graphics engine. nothing is contacted on launch (2026-07-30).
 
 ## 2026-06-16: project renaming
 **decision:** renamed the project from `scholarlens` to `think stack`.
@@ -51,6 +174,17 @@ fails silently when offline.
 **decision 3:** added gpu fallback.
 **rationale:** on machines where vram is insufficient (oom errors), the model will gracefully fallback to cpu-only inference rather than crashing the application.
 
+## 2026-06-19: secure p2p networking layer
+**decision:** adopt libp2p and public key infrastructure (pki) for user-to-user document sharing.
+**rationale:** think stack is a privacy-first tool. rather than hosting user papers on a central database, users will serve files directly from their desktop instances. access is granted based on cryptographic signatures verified between peers.
+**status:** accepted.
+**Status, 2026-11-19:** not built. Listed in FUTURE_WORK.
+
+## 2026-06-19: migration to tauri desktop architecture
+**decision:** bundle the entire python backend and frontend into a single native desktop application using tauri and sidecars.
+**rationale:** running local ai models and a latex compiler requires direct hardware access, unrestricted file i/o, and bypassing browser sandboxes. tauri allows us to write the ui in react while maintaining native performance and minimal memory overhead compared to electron.
+**status:** accepted.
+
 ## 2026-06-23: AI-assisted paper writer implementation
 **rationale:** the goal is to cut the friction of writing an academic paper. a researcher should be able to drop in their content and have the local model format it as compilable LaTeX, rather than learning LaTeX commands by hand or pasting drafts into a cloud LLM on top of an editor like Overleaf. keeping this local also fits the offline, on-device constraint (see context and goals).
 **decision:** implement the paper editor and compiler workflow as a core integrated component in the Tauri desktop application.
@@ -60,17 +194,20 @@ fails silently when offline.
 - **diagnostics:** parse `pdflatex` logs on compilation failure to extract clean, readable errors and present them directly under the editor.
 - **testing:** create a standalone, automated unit and integration test suite (`tools/test_paper_writer.py`) that tests all domain compiler operations and boots the FastAPI server to test API endpoints.
 **status:** accepted.
+**Status, 2026-11-19:** superseded in part. The editor is a plain `<textarea>`, not CodeMirror. `.ths` files are gone; Scribe edits `.tex` directly. The engine is the bundled Tectonic, with `pdflatex` only as a source-checkout fallback.
 
 ## 2026-07-01: real-time latex preview (client-side)
 **decision:** add a browser-side LaTeX HTML renderer using KaTeX alongside the existing pdflatex compilation.
 **rationale:** users need immediate visual feedback while editing LaTeX. waiting for pdflatex to compile on every keystroke is too slow. the client-side renderer handles common academic paper elements (sections, math, lists, tables, formatting) and renders them live. complex elements (tikz, pgfplots) still require the pdflatex compile step.
 **implementation:** `LatexPreview.jsx` component using KaTeX for math. two-tab preview pane in `PaperWriter.jsx`.
 **status:** accepted.
+**Status, 2026-11-19:** superseded. The browser-side renderer was removed because it disagreed with the real PDF; the compiled PDF is the only preview.
 
 ## 2026-07-01: cpu-only inference defaults
 **decision:** change `llm_gpu_layers` from `-1` (all GPU) to `0` (CPU-only) as the default. change `llm_model_path` from a hardcoded Windows path to the project-local `data/models/` directory.
 **rationale:** the app must work out-of-the-box on machines without GPU drivers (like fedora without CUDA). GPU acceleration is opt-in via `THINKSTACK_LLM_GPU_LAYERS=-1`.
 **status:** accepted.
+**Status, 2026-11-19:** still the default. Extended by 2026-08-07: graphics acceleration is offered on request, through Vulkan.
 
 ## 2026-07-01: cross-platform tauri shell
 **decision:** replace hardcoded Windows paths in `lib.rs` with env var + auto-detection logic.
@@ -82,6 +219,7 @@ fails silently when offline.
 **rationale:** to fine-tune the local SLM for better LaTeX generation and research gap analysis, we need training data. collecting it passively from real usage is the most natural source. data is stored in chat-format JSONL ready for QLoRA fine-tuning. this is groundwork for future work and a way to learn the fine-tuning pipeline end to end; it is not a shipped feature, and no fine-tuned model is used yet.
 **implementation:** `domain/fine_tuning/data_collector.py` hooked into `routes_papers.py`.
 **status:** accepted (data collection only; fine-tuning itself is future work).
+**Status, 2026-11-19:** as built, only LaTeX pairs are logged. `save_gap_analysis_pair` exists but nothing calls it.
 
 ## 2026-07-01: dead scaffold cleanup
 **decision:** removed the unused `src/` directory files (App.tsx, api.ts, main.ts, PaperWriter.tsx) and root-level test scripts (test_grammar.py, test_json.py).
@@ -93,6 +231,7 @@ fails silently when offline.
 **rationale:** users should be able to download a single file for their OS and install it with one click. the ci matrix runs pyinstaller to freeze the python backend, then tauri to compile the native shell. binaries are published to github releases.
 **implementation:** `.github/workflows/build-release.yml` with 3-runner matrix. `tauri.conf.json` `externalBin` for sidecar bundling.
 **status:** accepted.
+**Status, 2026-11-19:** superseded. `.rpm` and `.exe` were dropped (2026-07-24). Tags no longer build anything; one `release.yml` does (commit `e481e2f`, 2026-07-31; stable by dispatch since 2026-08-06). The backend ships as a bundled resource directory, not an `externalBin` sidecar (`lib.rs`, `sidecar_path`).
 
 ## 2026-07-08: sidecar-first backend launch
 **decision:** update `lib.rs` to prefer the bundled pyinstaller sidecar binary in production, falling back to `python -m uvicorn` for development.
@@ -108,23 +247,27 @@ fails silently when offline.
 **decision:** create a static html landing page (`docs/landing/index.html`) for github pages deployment with per-platform download buttons.
 **rationale:** users visit the page, see buttons for their OS, and click to download the right binary. linux uses AppImage (works on any distro without root/package-manager). macOS uses a universal dmg (apple silicon + intel). windows uses an exe installer.
 **status:** accepted.
+**Status, 2026-11-19:** superseded by 2026-07-22: `landing.html` at the repo root is the page. `docs/landing/` no longer exists. Windows ships an `.msi`.
 
 ## 2026-07-22: single lightweight base model bundled
 **decision:** bundle only Qwen2.5-0.5B-Instruct (q4_k_m gguf, ~470mb) with every installer, dropping the 1.5b model that CI previously bundled alongside it.
 **rationale:** the base model must be light enough to run on low-end/low-ram machines out of the box, and a smaller installer downloads faster. users who want higher quality can drop a larger gguf into `data/models/` themselves and switch to it as the active model.
 **implementation:** `.github/workflows/build-release.yml` "download base model" step now pulls a single file. see `scripts/set-repo.sh` and `release.config.json` for the places to update if this changes again.
 **status:** accepted.
+**Status, 2026-11-19:** superseded by 2026-07-23, then 2026-07-25, then 2026-08-31 (no language model is bundled).
 
 ## 2026-07-22: `landing.html` (repo root) is the page of record
 **decision:** `landing.html` at the repo root is the landing page intended for deployment, not `docs/landing/index.html`. fixed its download buttons (previously static `href="#"` placeholders promising windows/linux arm64 builds that ci does not produce) to wire real github releases urls matching what `build-release.yml` actually publishes, mirroring the working link-wiring script already present in `docs/landing/index.html`.
 **rationale:** the two landing pages had drifted - different content, and only one had functioning download links. `docs/landing/index.html` is left in place for now but is not the deployment target; consolidate or remove it once `landing.html` is live and confirmed as the sole page.
 **status:** accepted. hosting/deployment of `landing.html` itself is deferred until the desktop app has been tested end-to-end (see `scripts/README.md`).
+**Status, 2026-11-19:** deployed by `deploy-pages.yml` (2026-07-30). `scripts/README.md`, cited above, was merged into `CONTRIBUTING.md`.
 
 ## 2026-07-22: heavier model for structured-json analysis tasks
 **decision:** route the structured-json analysis tasks (summarize, claims, themes, gap analysis) to a heavier model (`qwen2.5-1.5b-instruct-q4_k_m.gguf`, `settings.llm_analysis_model`) while chat/search/paper-writer keep using the lightweight 0.5b base model.
 **rationale:** end-to-end testing showed the 0.5b model reliably works for free-text tasks (chat, latex generation) but produces truncated/unparseable json on the structured-extraction tasks, failing summarize/claims/gaps. the 1.5b model produces valid json. paired with demo's `max_tokens` caps (640/768/800) the analysis tasks became both reliable and faster (~20s single summary on cpu).
 **implementation:** `TASK_MODEL_MAP` in `infrastructure/ollama_client.py` maps `analysis`/`gap_analysis` the 1.5b file; `_get_llama` keeps a **single model resident at a time and swaps on demand** (unload current, load requested) so peak memory stays at one model - important on low-ram machines. if the 1.5b file is absent, tasks fall back to the base model. see `scripts/README.md`.
 **status:** accepted.
+**Status, 2026-11-19:** `scripts/README.md`, cited above, was merged into `CONTRIBUTING.md`. The single-resident swap stands. Which model serves which task is now the registry and router (2026-08-05); `TASK_MODEL_MAP` is deprecated.
 
 ## 2026-07-22: reconcile `ollama_client.py` after demo merge - GPU-when-available, safe CPU fallback
 **decision:** when rebasing onto `demo`, its `infrastructure/ollama_client.py` was **syntactically broken** (a botched merge - two `_get_llama` defs, an unclosed `Llama(` call; would not import; `main`/`demo` both affected). rather than take it verbatim, `ollama_client.py` was reconciled into one clean working file that keeps the analysis-model routing + single-resident swap, and loads on gpu **when available** but falls back to cpu instead of crashing when a cuda build/gpu is absent. demo's `routes_gaps.py` also had a duplicate `max_tokens=` kwarg (syntax error) which was fixed.
@@ -136,12 +279,14 @@ fails silently when offline.
 **rationale:** asking users to re-download and reinstall the app for every fix is poor ux, so updates should arrive in-app. this appears to conflict with the offline stance, but it does not: the app never requires a network, and the update check is a single non-blocking http get for a version manifest. it sends no user data (no papers, no queries, just a version number), and when the machine is offline the check fails silently and the app runs normally. an always-offline install simply never auto-updates. github releases (already the CI publish target) hosts both the installers and the manifest for free, and integrates with the updater's signature verification.
 **implementation:** `tauri-plugin-updater`/`-process` in `Cargo.toml`+`lib.rs`; `plugins.updater` (endpoint + pubkey) and `bundle.createUpdaterArtifacts` in `tauri.conf.json`; `updater:default`/`process:default` capabilities; `frontend/src/utils/updater.js` called from `App.jsx` (no-op in the web build); CI signs with `TAURI_SIGNING_*` secrets and publishes `latest.json` via `scripts/compose-updater-manifest.sh`; `scripts/release.sh` bumps+tags. private signing key stays at `~/.tauri` (gitignored `*.key`), public key committed. full flow in `scripts/README.md`.
 **status:** accepted. needs a real signed build to verify end-to-end; this was verified by the v0.1.1 release, which published signed installers for all three platforms.
+**Status, 2026-11-19:** `scripts/README.md`, cited above, was merged into `CONTRIBUTING.md`. Superseded in part by 2026-07-30: nothing is checked on launch, only when the user presses Update app. `scripts/release.sh` is no longer called by anything, and tags no longer trigger builds (see ISSUES).
 
 ## 2026-07-23: bundle both models again + seed them on first run
 **decision:** reverse the 2026-07-22 "single 0.5b model" decision - bundle **both** the 0.5b base and the 1.5b analysis model, and seed them from the read-only bundle into the writable models dir on first run.
 **rationale:** the user needs the gap-finder / summarize / claims features to work in the *installed* app, and those route to the 1.5b model (the 0.5b emits unparseable json on them). the earlier 0.5b-only build would have shipped a broken gap-finder. bundling both makes analysis work offline out of the box, at the cost of a larger installer (~3.7gb). without seeding, a frozen build finds no model at all: `config.py` loads from the writable `STATE_DIR/models`, but pyinstaller `--add-data` places the ggufs under the read-only `BUNDLE_DIR/data/models`.
 **implementation:** `settings.bundled_models_dir` (`BUNDLE_DIR/data/models`) + `file_manager.seed_bundled_models()` copies missing ggufs into `models_dir` at startup (no-op in a source checkout where the two dirs coincide). CI re-adds the 1.5b download. the embedding model is not bundled yet, so first-run embeddings still need internet (documented in the deployment guide).
 **status:** accepted.
+**Status, 2026-11-19:** superseded by 2026-07-25 and 2026-08-31.
 
 ## 2026-07-23: PyInstaller collect-all for llama_cpp + sentence_transformers
 **decision:** freeze the backend with `--collect-all llama_cpp --collect-all sentence_transformers` (in addition to the uvicorn/psutil hidden imports).
@@ -157,6 +302,7 @@ fails silently when offline.
 **decision:** replace the monolithic build workflow with `release.config.json` (repo, platform matrix, channels, models) plus reusable `_build-desktop.yml` / `_publish-release.yml` and thin per-channel callers. branches never build installers; **tags do**. `scripts/preflight.sh` and the shared `.githooks/` reproduce the CI gate locally.
 **rationale:** three long-lived branches (`dev` experiments, `beta` bundles and tests installers, `main` releases) each need different feedback. building on every push would burn ~20 minutes of runner time per commit for a binary nobody asked for, so the expensive path is opt-in via a tag or a manual `dev-build.yml` run. adding a platform or channel is a config edit rather than workflow surgery, which is what makes an enterprise or mobile target cheap later. the local gate exists because "green locally, red in CI" was a recurring waste - notably a shellcheck finding that only surfaced in CI because shellcheck was not installed locally.
 **status:** accepted.
+**Status, 2026-11-19:** config-driven still holds. Tag-triggered does not: tags trigger nothing; `release.yml` publishes beta on a push to `beta`, and stable only when dispatched (2026-08-06).
 
 ## 2026-07-25: smoke-test the frozen bundle before it can be published
 **decision:** after PyInstaller freezes the backend, boot the frozen binary in CI and require a real 200 from `/api/system/health` before the build may continue. runs on all three platforms.
@@ -167,41 +313,71 @@ fails silently when offline.
 **decision:** `release.sh` refuses to tag when the version is older than what is published, or when CI is not green for that exact commit. the publish job fails when any asset reaches GitHub's 2 GiB limit.
 **rationale:** a tag builds and publishes installers that installed apps auto-update to; none of it is reversible. releasing backwards would drag users to an older build, tagging a red commit ships known-broken installers, and an oversized asset kills the upload partway through after a ~45 minute build, leaving a half-populated release. version comparison uses `sort -V` so 0.10.0 correctly counts as newer than 0.1.0.
 **status:** accepted.
+**Status, 2026-11-19:** the guards now live in `scripts/ship.sh` and `release.yml`. `release.sh` is no longer called (see ISSUES). The asset-size check is in `_publish-release.yml`.
 
 ## 2026-07-25: bundle only the baseline model; reuse what the user already has
 **decision:** ship only the 0.5B baseline inside the installer. heavier models are optional, fetched only with explicit consent, and never fetched at all when an equivalent already exists on the machine.
 **rationale:** bundling both models put installers at 1781-1940 MiB against a hard 2 GiB asset limit - roughly 5% headroom, so any dependency growth would have broken releases outright. dropping the 1.5B removes ~1066 MiB and lands every installer near 40% of the limit. the app stays genuinely offline-first because the baseline still ships, and analysis degrades to it rather than failing when the larger model is absent (verified end-to-end on Linux: a summarize call with only the baseline present produced a coherent summary). matching is on a canonical `family/size` key, since Ollama (`qwen2.5:1.5b`), LM Studio (`Qwen2.5-1.5B-Instruct-Q4_K_M.gguf`) and our own naming all describe the same weights - comparing filenames offered a 1.1 GB download for weights already on disk.
 **status:** accepted.
+**Status, 2026-11-19:** superseded by 2026-08-31. The reuse-what-you-have half stands.
 
 ## 2026-07-25: hardware diagnosis stays conservative about GPUs
 **decision:** the native Rust diagnosis (`src-tauri/src/diagnosis.rs`) reports RAM, CPU threads and NVIDIA VRAM, and enables GPU offload **only** for CUDA with >= 2 GB VRAM. AMD and Apple Metal are reported but treated as CPU-only.
 **rationale:** the shipped `llama-cpp-python` is the CPU wheel. attempting offload on AMD or Metal would fail at model load, so reporting no usable GPU makes the app do the only thing it can. diagnosis is deliberately hardware-only and does not check for models - that belongs to the backend, which seeds the bundled model and resolves paths lazily. doing it in Rust removed a multi-second `import torch` from the startup path; the equivalent argument does not hold for model discovery, which is ~9 ms and dominated by I/O, so that stayed in Python next to its only consumer.
 **status:** accepted.
+**Status, 2026-11-19:** the Rust diagnosis is unchanged. Acceleration is now offered through Vulkan (2026-08-07), and Bench's advice asks Vulkan, not `nvidia-smi` (2026-08-09).
 
 ## 2026-07-25: release guide folded into this log
 **decision:** delete `docs/RELEASE_GUIDE.md`. the decisions it recorded live here; the runbook (branch model, `promote.sh`, `preflight.sh`, guardrails, hooks) lives in `scripts/README.md`, next to the scripts it describes.
 **rationale:** the guide had grown to 450 lines mixing two genres - why the pipeline is shaped this way, and how to operate it - and duplicated `scripts/README.md`. splitting them by genre keeps each one short enough to stay accurate.
 **status:** accepted.
+**Status, 2026-11-19:** `scripts/README.md` was in turn merged into `CONTRIBUTING.md`.
 
 ## 2026-07-29: branch protection guards production, releases guard themselves
 **decision:** `main` requires a green `CI OK` and a pull request (0 approvals, must be up to date); `beta` requires `CI OK` but allows direct pushes; `dev` is unprotected. force-push and deletion are blocked on both long-lived branches. tags are deliberately **not** protected - the release scripts, not github, enforce that a tag is safe to cut.
 **rationale:** with three contributors, mandatory review would be ceremony that slows a team that already talks constantly; a required status check catches the thing review misses anyway. what actually needs guarding is not the merge but the tag, because a tag builds and publishes installers that auto-update every install and cannot be un-shipped. `release.sh` checks the version is not going backwards and that CI is green for the exact commit - checks github's branch rules cannot express, since a tag can point at any commit. the cost is that the guards only apply if you use the scripts, and any of the three of us can publish a stable release; that is a documented convention (maintainer cuts stable, anyone cuts beta) rather than an enforced rule. revisit with a `v*` tag ruleset if the team grows or a release ever goes out by accident.
 **status:** accepted.
+**Status, 2026-11-19:** superseded in part, verified against GitHub. `main` now requires 1 approval. A `v*` tag ruleset blocks moving or deleting release tags (admins bypass); creating one is harmless because tags trigger nothing.
 
 ## 2026-07-30: two channel pages on one GitHub Pages site
 **decision:** publish the public page at `/` from `main` and a beta page at `/beta/` from the `beta` branch, both from `deploy-pages.yml`. the beta page is generated from the same `landing.html` by rewriting `/releases/latest/download/` to `/releases/download/<newest-prerelease-tag>/` at deploy time, and carries a banner naming the tag. `dev` gets no page.
 **rationale:** a repository gets exactly one Pages site, so a second site for beta is not available; a subpath is. generating the beta page rather than duplicating the file means a landing-page change cannot land on one channel and not the other. the tag must be substituted by something because github resolves `/releases/latest/` to the newest *stable* release by design and publishes no equivalent prerelease URL - doing that substitution in CI keeps `/beta/` a static file, with no client-side API call to rate-limit or fail in a tester's browser. the stable checkout is pinned to the default branch: a bare checkout takes the triggering ref, so a push to `beta` would have published beta's page publicly and handed pre-release downloads to everyone. the workflow fails the deploy if any stable download URL survives the rewrite, because the failure mode otherwise is a tester downloading the wrong build and reporting bugs against code we are not shipping.
 **status:** accepted.
+**Status, 2026-11-19:** superseded in part. `/beta/` is rewritten to the rolling `beta` tag, not the newest prerelease, which once picked up nightly.
 
 ## 2026-07-30: updates are user-initiated; nothing is checked on launch
 **decision:** remove the update check that ran on every app start. the updater is reached only through an explicit "Update app" button in the sidebar, which reports every outcome (up to date / newer version found / desktop only / failed) rather than staying silent. the running version is shown beside it, read at build time from `src-tauri/tauri.conf.json`.
 **rationale:** the product's entire claim is that nothing leaves the device. an unprompted request to github on every launch contradicts that even though it carries no user data - a user watching their firewall would see an "offline" research tool calling home, and would be right to distrust the rest of the claim. the cost is that a user who never presses the button never updates; that is the correct trade for this product, and the button reporting "Up to date" makes the state visible rather than implicit. a silent variant of the checker was deleted rather than left unused, because leaving it in invites re-adding the launch-time call.
 **status:** accepted.
 
+## 2026-07-30: the model prompt records what was answered, not that it was answered
+**decision:** `ModelSetup` stores `{outcome, model, at}` instead of `dismissed=true`, treats declining and installing as different answers, only stays quiet about the *specific* model already answered for, and can be reopened from a sidebar button. the legacy boolean is dropped on read rather than honoured.
+**rationale:** the boolean silenced the dialog permanently, for every future model, with no way back from inside the app - and it lives in the webview's localStorage under the app identifier, so reinstalling did not clear it. a tester who clicked "Not now" once would never be offered anything again and would reasonably report that the app never asked; that is exactly what happened during v1.0.0 validation. recording the model name means a later, different suggestion is still asked about, and the sidebar entry makes the decision reversible. the legacy flag is dropped because it carries no record of *what* was declined, so honouring it would mean silencing every future model on the strength of one click that was probably the bug.
+**status:** accepted.
+**Status, 2026-11-19:** superseded. The first-run model dialog (`ModelSetup`) was replaced by a one-time note pointing at Bench (`FirstRunNote.jsx`).
+
+## 2026-07-31: rolling tags are named after their channel, and beta has no -beta.N
+
+**Context.** The rolling tags had been renamed `beta-latest` / `nightly-latest`
+to stop `git checkout beta` resolving to the tag. Separately, beta builds were
+numbered `X.Y.Z-beta.N`.
+
+**Decision.** Back to `beta` and `nightly`. Beta carries a plain `X.Y.Z`.
+
+**Why.** The rename split the download path: new builds went to `beta-latest`
+while the `/beta/` page, generated from `main`'s copy of `release.config.json`,
+still linked `/releases/download/beta/`, so testers downloaded the previous
+build. And MSI needs a numeric version, so the bundle stripped `-beta.N` while
+the updater manifest kept it; semver ranks `1.6.7-beta.2` below `1.6.7`, so the
+updater offered nothing and beta auto-update had never worked. A branch/tag
+name clash is a developer inconvenience, and costs little now that tags trigger
+nothing; handing testers the wrong binary is not. (Commit `9cc8936`.)
+
 ## 2026-08-01: litgraph replaces search, analysis and gap finder
 **decision:** collapse the search, analysis and gap-finder pages into a single spatial canvas, and rename the remaining sections. the app is now three: bibliotekh (collect), litgraph (understand), scribe (write).
 **rationale:** the three pages were three views onto one question -- what is in this collection, and what is missing from it -- and splitting them across three routes pushed the joins into the user's head: which paper a claim came from, which papers a gap was about, whether a "theme" and a "cluster" were the same thing. on a canvas those joins are drawn instead of remembered: position is meaning, edges are similarity, hulls are themes, amber nodes are gaps with dashed edges to their evidence. the decisive part is that the map becomes the *selector* -- lasso a region or run a search and that set is what every analysis action operates on, so choosing papers and seeing why you chose them are one gesture rather than a checkbox list on another page. cost: it is a large surface with more state than three simple pages, and the old routes had to keep redirecting because a desktop shell makes a stale deep link a dead end.
 **status:** accepted.
+**Status, 2026-11-19:** the sections are now Library, LitGraph, Scribe, and Bench as the fourth.
 
 ## 2026-08-01: search is purely semantic; bm25 and rrf removed
 **decision:** delete `hybrid_search.py` and `keyword_search.py`, drop the `rank-bm25` dependency, and rank search results by cosine similarity alone -- plus a small exact-token bonus. sweep every chunk in the corpus rather than a `top_k` candidate pool, and add a per-paper rollup.
@@ -209,10 +385,33 @@ fails silently when offline.
 **tradeoff:** every query now scores every chunk. that is what makes the search exhaustive, and it is cheap at a few thousand chunks; an ann index is the upgrade if collections grow much larger.
 **status:** accepted.
 
-## 2026-07-30: the model prompt records what was answered, not that it was answered
-**decision:** `ModelSetup` stores `{outcome, model, at}` instead of `dismissed=true`, treats declining and installing as different answers, only stays quiet about the *specific* model already answered for, and can be reopened from a sidebar button. the legacy boolean is dropped on read rather than honoured.
-**rationale:** the boolean silenced the dialog permanently, for every future model, with no way back from inside the app - and it lives in the webview's localStorage under the app identifier, so reinstalling did not clear it. a tester who clicked "Not now" once would never be offered anything again and would reasonably report that the app never asked; that is exactly what happened during v1.0.0 validation. recording the model name means a later, different suggestion is still asked about, and the sidebar entry makes the decision reversible. the legacy flag is dropped because it carries no record of *what* was declined, so honouring it would mean silencing every future model on the strength of one click that was probably the bug.
-**status:** accepted.
+## 2026-08-01: pin every dependency
+
+**Context.** A build failed on all three platforms at once from a commit that
+changed no Python. `nltk` was declared `>=3.9.1`; 3.10.1 was released between
+two builds and refuses to import `xml.etree` when the working directory is
+importable, and the frozen backend imports `nltk` at startup. It could not be
+reproduced locally: the dev venv had 3.9.4.
+
+**Decision.** Every line of `requirements.txt` is `==`, at the versions the last
+working build resolved (checked identical on all three platforms).
+`scripts/check_pins.py` refuses a range or a bare name, in CI and in
+`preflight.sh`. Dependabot proposes upgrades one package at a time against
+`dev`.
+
+**Consequences.** A range is a promise that every future release will work,
+which nobody can make. Upgrades now fail in a PR instead of at a tester's desk.
+(Commit `c167529`.)
+
+## 2026-08-01: theme membership comes from embeddings, not the model
+
+**Context.** Asked to cluster papers from text excerpts, the small model
+returned one-paper themes on three closely related papers, and once drew a hull
+around a `doc_id` it invented.
+
+**Decision.** Membership is decided by cosine between the paper centroids
+written at ingest. The model only names each group, and cannot change who is in
+it (`domain/analysis/theme_clusterer.py`, commit `717c34b`).
 
 ## 2026-08-05: models are a registry the user owns, not a hardcoded table
 
@@ -279,6 +478,83 @@ permits only JSON from the first token, leaving a reasoning model's `<think>`
 block nowhere to go. It emits the shortest legal document instead: `{}`.
 `json.loads` succeeds, so nothing downstream notices. The baseline is now
 chosen by measured behaviour on the two flagship jobs, not by size or recency.
+**Status, 2026-11-20:** still holds for reasoning models that cannot stop thinking. Qwen3, which can, is now driven with an empty think block (2026-11-20); the downloadable Qwen3-4B had returned `{}`.
+
+## 2026-08-05: Hugging Face download URLs are constructed, never accepted
+
+**Context.** The local API is reachable from the webview, which Tauri treats as
+remote content.
+
+**Decision.** `/api/hf/download` takes a repository id and a filename and builds
+the URL itself. It never accepts a URL.
+
+**Consequences.** Only huggingface.co can be fetched from. Traversal sequences
+and non-`.gguf` paths are refused before a socket opens. An endpoint that
+fetched whatever address it was handed would be a general-purpose downloader
+aimed by anything able to reach the local API.
+
+## 2026-08-06: the shell watches for use; features do not report it
+
+**Context.** Opening a paper, a node or a project wants the width the sidebar is
+occupying. The first build of this hooked the handler for each of those, in each
+feature.
+
+**Decision.** The shell listens for a pointer or key press anywhere inside its
+own content area and collapses the sidebar itself. Features call nothing and
+import nothing.
+
+**Consequences.** Every control on every screen counts, including ones nobody
+enumerated and ones not written yet. The per-feature version was green in tests
+and still felt broken, because everything absent from the list did nothing --
+"any action" is not a list that can be kept complete across four screens of
+buttons, fields, canvas drags and keystrokes. The listener is on the content
+element only, so the nav and theme toggle are not "use". It is a capture-phase
+`pointerdown`: several rows stop propagation on their own buttons, and the
+canvas lasso is a drag that may never produce a click.
+
+## 2026-08-06: an automatic collapse is not a saved preference
+
+**Context.** The sidebar's collapsed state is persisted, like the theme. Once
+actions could also collapse it, both wrote to the same flag.
+
+**Decision.** Two flags. The one the logo sets persists; the one an action sets
+lives for the session only. The sidebar hides when either is set, and the logo
+clears both.
+
+**Consequences.** Opening one paper no longer teaches the app to launch
+collapsed forever -- a setting the user never chose, changed by something
+unrelated to settings, with nothing on screen explaining it. Clearing both from
+the logo is what stops it appearing dead: with one flag still held by a feature,
+clicking it moved nothing.
+
+## 2026-08-06: features are declared once, in a registry
+
+**Context.** Each feature was written out as a nav entry and again as a route,
+and the brand mark was inline SVG pasted in twice.
+
+**Decision.** `frontend/src/features.js` holds id, path, label, icon, mark and
+component. Nav, routes and the logo all render from it.
+
+**Consequences.** Adding a feature is one entry and the shell needs no edit. The
+mark follows the active feature, which is what makes the collapsed peek button
+say where you are when nothing else on screen can. The two logo copies could
+drift and no longer exist. The registry is data and knows nothing about a
+sidebar, so it survives the interface refactor that reads it.
+
+## 2026-08-06: a stable release is declared, never implied by a merge
+
+**Context.** A merge into `main` published to every user, so "this is a
+release" was a side effect of a git operation.
+
+**Decision.** A push to `main` builds nothing. Stable is published only by
+dispatching `release.yml` with `channel=stable` and a version or bump;
+`scripts/ship.sh` does the merge, the dispatch and the verification. Without a
+request, a push to `main` exits as a notice, not a failure, so a red X still
+means something.
+
+**Consequences.** One extra step for the rarest event in the project, and
+nobody ships to production by merging. (Commit `0a3a405`; the X/Y rules it
+introduced were later revised on 2026-08-18 and 2026-08-22.)
 
 ## 2026-08-07: graphics acceleration is offered, not shipped
 
@@ -369,6 +645,189 @@ it never opened. Papers can now be split across section files and keep a `.bib`
 beside them. Build artefacts are hidden from the tree; they are regenerated and
 mean nothing to an author.
 
+## 2026-08-07: filenames arriving from the webview are untrusted
+
+**Context.** The file API is reachable from the webview, which Tauri treats as
+remote content. `../../../.ssh/id_rsa` is a filename.
+
+**Decision.** Every operation resolves its argument against the project
+directory and refuses anything landing outside. Resolution happens BEFORE the
+check, never a string test for "..".
+
+**Consequences.** Traversal, absolute paths, NUL bytes and symlinks pointing out
+of the project are refused. Resolving first is what catches the symlink: nothing
+about the name `notes.tex` says it points at `/etc`. Disabling the containment
+check fails the tests, which is how we know they test it.
+
+## 2026-08-07: the index is generated, not delegated to makeindex
+
+**Context.** `\index{term}` writes `main.idx`; something must turn it into
+`main.ind` before `\printindex` can read it. Tectonic runs BibTeX by itself but
+not makeindex, so a paper with an index failed with `Undefined control sequence
+\indexentry` -- `imakeidx` giving up and `\input`-ing the raw `.idx`.
+
+**Decision.** `domain/paper_writer/indexing.py` builds the `.ind` in Python, and
+the compiler runs a second pass when it changes.
+
+**Consequences.** No second binary in the installer. Shelling out to makeindex
+would have worked on this machine and on no user's -- the same mistake as
+assuming a system LaTeX, which is what the bundled engine exists to avoid.
+Sub-entries, `sort@printed` keys, `|hyperpage` encapsulators and `|(`...`|)`
+page ranges are supported because real papers use them.
+
+## 2026-08-07: no browser dialogs, because there is no browser
+
+**Context.** "New file", "New folder" and "New paper" were built on
+`window.prompt`, deletes on `window.confirm`. The Tauri webview implements
+neither: `prompt` returns null, so every menu item silently did nothing.
+
+**Decision.** Naming happens in an inline row in the tree, where the file will
+appear. Destructive actions go through a shared `ConfirmDialog`.
+
+**Consequences.** They work. A second defect hid behind the first: the context
+menu closed on a capture-phase `pointerdown`, unmounting the button before its
+own `click` landed, so even a working `prompt` would not have been reached. The
+dialog is shared because this was about to be the third in the codebase -- and
+`if (!confirm(...)) return` is worse than useless when `confirm` returns
+undefined: the guard either blocks forever or deletes without asking.
+
+## 2026-08-07: the page subtitle became an "i"
+
+**Context.** Every screen carried a title and a sentence explaining the feature.
+The sentence is worth reading once and then holds a strip of the window forever
+-- and Scribe wants that strip so the editor and the PDF have half the height
+each.
+
+**Decision.** The title and its brush-slash stay. The sentence moves behind an
+"i" in the bottom-left corner, on the brand accent, declared once per feature in
+`frontend/src/features.js`.
+
+**Consequences.** LitGraph already did this for its canvas controls, so this
+generalises something that worked rather than inventing it; its private copy is
+gone. The guide floats rather than pushes, so opening it never reflows an editor
+mid-sentence and it costs no height closed.
+
+## 2026-08-08: a page declares whether it is a document or a workspace
+
+**Context.** `.main-content` carried one `max-width: 1400px` for every screen.
+
+**Decision.** A feature declares `fills: true` in `features.js`; workspaces take
+the whole window, reading pages keep a measure.
+
+**Consequences.** On a 1920px window Scribe's panes resized correctly inside a
+1400px box and left 500px of dead space, so the dividers looked broken when they
+were only out of room. The cap is right for reading -- prose set 1900px wide is
+unreadable -- and wrong for working, and which one a page is belongs to the page.
+Declared in the registry rather than matched on a path in CSS, for the same
+reason as the nav, routes, marks and guides: a rewritten shell still reads it.
+
+## 2026-08-08: the press arms the collapse; the gesture ending applies it
+
+**Context.** Any press inside the page collapses the sidebar, and it collapsed
+during the press.
+
+**Decision.** `pointerdown` still triggers it, but the state change is deferred
+to the end of the gesture. Keyboard stays immediate.
+
+**Consequences.** The sidebar is 220px wide and the page is offset by it, so
+collapsing slid the page 220px left while the button was still held. A click is
+not something the page sends -- it is a conclusion the browser draws when
+mousedown and mouseup land on the same element -- so moving the element between
+them meant the sidebar shut and the action never ran. `pointerdown` remains the
+trigger because LitGraph's lasso may never produce a click at all. Keyboard is
+exempt because activating a focused control does not depend on where it is.
+
+## 2026-08-08: a release asserts that it published
+
+**Context.** A beta release built correctly, uploaded fifteen assets, reported
+every job green, and stayed a draft.
+
+**Decision.** After creating the release, assert it is not a draft and that the
+manifest the updater fetches returns 200. Publish and retry if not.
+
+**Consequences.** `draft: false` is a request, not a guarantee. A draft is
+invisible and its assets 404, and the updater maps 404 to "up to date" -- so
+testers were told they were current while the release sat there unreachable.
+Checking the outcome beats predicting it; the suspected cause (`--cleanup-tag`)
+was deliberately kept, because the rolling tag has to move to the new commit and
+leaving it behind would strand beta on an older one.
+
+## 2026-08-09: the advice asks Vulkan, not nvidia-smi
+
+**Context.** Two detectors answer "is there a GPU here". `vram_gb` comes from
+`nvidia-smi`, which exists only where NVIDIA's proprietary driver is installed.
+`accelerable_device` comes from Vulkan, which reaches AMD, Intel and Mesa/NVK
+too. The Bench advice was gated on `vram_gb >= 2`.
+
+**Decision.** Gate on `accelerable_device`, keeping `vram_gb` as the fallback
+for a card `nvidia-smi` found but Vulkan could not reach.
+
+**Consequences.** Every AMD, Intel and open-driver machine reported 0.0 GB, so
+the sentence explaining that their GPU was idle never printed -- while the card
+beside it offered them the graphics download anyway. The endpoint's own
+docstring says it returns one payload so the panel can never render two halves
+that disagree; this was the two halves disagreeing, on exactly the machines the
+Vulkan work was done to reach. It was invisible here because the development
+laptop reaches its RTX 3050 Ti through NVK, so `nvidia-smi` is absent and the
+sentence had never once appeared.
+
+## 2026-08-09: Y carries into X at twenty
+
+**Context.** The version scheme carried Y into X at ten, so a tenth feature
+produced a major version.
+
+**Decision.** Carry at twenty. Both lower columns still reset when X moves.
+
+**Consequences.** Ten features can be one quiet quarter, so X climbed for
+reasons no user could feel. Twenty is still an arbitrary line, but it falls
+roughly where the application really has become a different one. Ordering is
+unaffected, which is the only property the updater depends on.
+**Status, 2026-11-19:** superseded by 2026-08-18 (back to ten).
+
+## 2026-08-09: merging and publishing are one intention
+
+**Context.** Promoting to production was `promote.sh release` to merge, then a
+separate `gh workflow run release.yml` to publish. Both were needed; only the
+first was memorable.
+
+**Decision.** `scripts/ship.sh` does both, and asserts the result afterwards --
+not a draft, not a prerelease, `latest.json` attached, four installers present,
+`/releases/latest` resolving to the new tag.
+
+**Consequences.** The gap was not theoretical: the merge was done, the dispatch
+was not, and main sat un-released while everyone assumed it had shipped. The
+assertions are there because each one has been wrong in a real release, and
+because a broken release is indistinguishable from a working one from outside --
+a draft is invisible, its assets 404, and the updater reads 404 as "up to date".
+
+## 2026-08-09: a version may never go backwards, checked where the decision lands
+
+**Context.** `release.yml` accepted a `version` override with no ordering check
+at all. `-f version=1.0.0` would have tagged it and published it as "latest".
+
+**Decision.** Refuse a version not ahead of the published one, in `ship.sh`
+**and** in the workflow.
+
+**Consequences.** The updater only moves forward, so a lower number is invisible
+to everyone who already has the higher one, and nothing about the release says
+so. The guard already existed in `release.sh`, which is not on the dispatch path
+anyone uses -- duplicating it is deliberate, because a dispatch can be run from
+the GitHub UI or a phone, which is exactly when no script is involved.
+
+## 2026-08-09: rollback is two problems, because you cannot un-ship
+
+**Context.** A bad release reaches two populations: people who have not updated
+yet, and people who have.
+
+**Decision.** `scripts/rollback.sh` marks the bad release a prerelease, which
+makes `/releases/latest` fall back to the previous one within seconds. `--reship`
+publishes the previous tree under a *higher* number.
+
+**Consequences.** The updater only ever moves forward, so an app that already
+updated will never move back and deleting the release does not reach it --
+forward is the only direction that exists. Marking rather than deleting keeps
+the assets for diagnosis and makes the first half reversible with `--undo`.
+
 ## 2026-08-12: a title is the biggest text on page 1, not the first line
 
 **Context.** `_extract_title` kept any of the first ten lines longer than ten
@@ -448,6 +907,21 @@ third bug of the same shape found in a month -- the graphics advice gated on
 and this. When the model does run it is handed font sizes rather than the flat
 text, because a model given the same evidence makes the same mistake.
 
+## 2026-08-12: the extractor is scored on papers nobody here chose
+
+**Context.** A curated test set proves the rules match the papers the rules
+were written against.
+
+**Decision.** `local/eval_metadata.py` samples papers across 15 arXiv
+categories through the API and scores against arXiv's own metadata.
+
+**Consequences.** The curated 18 were 100%; the random 56 were 62.5%, and the
+gap was entirely templates nobody had looked at -- RevTeX spacing wide enough
+to read as columns, APS running from affiliations into an unlabelled abstract,
+and a margin cutoff that was deleting the first line of any centred title.
+Fixing those took the sample to 92.9% titles and 85.7% exact author lists. A
+number from papers you picked measures your test set, not your extractor.
+
 ## 2026-08-13: the interface reads the backend's answer, never recomputes it
 
 **Context.** Library's "Bench in use" panel did
@@ -509,6 +983,24 @@ invisible until it is rendered.
 should keep a measure. That rule is about PROSE -- a line set 1900px wide is
 unreadable. Bench is read and keeps its measure; Library is counts, panels and
 a list, and capping it left a third of a wide window empty.
+
+## 2026-08-13: the page titles go, and Library introduces the others
+
+**Context.** Every screen carried a heading repeating the nav item that was
+already highlighted.
+
+**Decision.** No page titles. Library carries a collapsible list of what the
+other screens are for, generated from `features.js`.
+
+**Consequences.** "LitGraph" and "Scribe" mean nothing to someone who has just
+installed this, and each page's own "i" cannot help -- you have to already be
+there, and you will not open a screen whose name tells you nothing. Saying it
+once on the page everyone lands on is what lets the headings go, and Scribe
+gets that strip back for its editor. Generated from `features.js` so a new
+feature appears without anyone remembering, and so the wording cannot drift
+from the "i" guide reading the same field. It expands only for someone who has
+never run the app: introducing an existing user to their own workspace after an
+update reads as a regression.
 
 ## 2026-08-14: Paper and Ink replaces the interface
 
@@ -714,6 +1206,35 @@ has, so the reference is fixed before it is cited, or in that project's file.
 The one rule a user cannot guess is stated in the form -- authors separate on
 commas, or on semicolons when a name contains one.
 
+## 2026-08-18: Y carries into X at ten (supersedes 2026-08-09)
+
+**Context.** The radix was raised from ten to twenty on 2026-08-09, so that X
+would not climb after ten declared minors — ten features can be one quiet
+quarter, and a major number that moves for reasons no user can feel says
+nothing.
+
+**Decision.** Back to ten. Y is a single digit, 0-9; at ten it carries into X
+and resets. X is unbounded. Z is unbounded and resets whenever a column above
+it moves.
+
+**Why the earlier reasoning does not hold.** The scheme is a decimal odometer,
+and the whole value of that is that Y never shows two digits — the distance
+between two versions is then readable at a glance, without parsing. A radix of
+twenty permits `1.19.4`, which is the exact shape the scheme was chosen to
+avoid, and it buys nothing the reader can feel either.
+
+The problem the earlier change was aimed at is real but sits elsewhere: if X
+climbs too often, minors are being declared too readily. That is an editorial
+habit, and X and Y are editorial by design. Moving the radix to fix it was
+treating a judgement problem as an arithmetic one.
+
+**Consequence.** `MINOR_RADIX = 10` in `scripts/next_version.py`, with tests
+asserting the invariant directly rather than by example. `v1.10.0`, already
+published, keeps a two-digit Y that the rule now forbids — re-tagging a
+published release is blocked by the `v*` ruleset, and anyone on it would see a
+version that no longer exists. It corrects itself at the next declared minor.
+**Status, 2026-11-19:** "X and Y are editorial" is superseded by 2026-08-22: branch names now move Y.
+
 ## 2026-08-22: a new document is not always a research paper
 
 **Context.** Scribe is a LaTeX editor that happens to live inside a research
@@ -740,6 +1261,109 @@ accepted because the id is chosen from a served list, never typed.
 
 The default is served too, as `default`. Hardcoding "paper" in the interface
 would be a second place that has to change when the set does.
+
+## 2026-08-22: an empty library is a state, not a blocker
+
+**Context.** The Library is the first screen, and on a new install it is empty.
+It said one thing: drop a PDF here. For someone who installed ThinkStack to
+write, that is a door with nothing behind it -- and the reasonable conclusion
+from an app whose only instruction cannot be followed is that it is broken, or
+that it is not for them.
+
+**Decision.** Nothing in Scribe may require an ingested paper, and the empty
+Library says so, offering writing beside reading. Tests hold the property
+rather than the wording: the citation routes return empty rather than failing,
+no starter document arrives citing a key nothing defines, and a project can be
+created, edited, listed and compiled with no library at all.
+
+**Consequences.** Scribe carries its own TeX engine and compiles offline, so
+this is a claim the product can actually make -- writing genuinely does not
+depend on reading. The tests matter more than the sentence in the empty state,
+because the sentence is what a reader sees and the property is what makes it
+true; a later change that made some panel throw on an empty library would leave
+the invitation in place and break what it promises.
+
+The link is asserted as a link, not as prose. A sentence mentioning Scribe with
+no way to reach it is the same dead end in nicer words.
+
+## 2026-08-22: a lazily-imported module is asserted over HTTP, not assumed
+
+**Context.** `templates.py` is imported inside the two functions that use it,
+never at module scope. PyInstaller's static analysis does follow function-level
+imports -- verified against the shipped AppImage, whose `/api/models/registry`
+handler imports `domain.model_manager.discovery` the same way and answers
+correctly -- but that is a claim about a tool, checked once, on one platform.
+
+**Decision.** `scripts/validate_bundle.py` asks the frozen backend for the
+template list and asserts all six ids are present and every one is labelled.
+It runs before packaging, on all three platforms, and is not
+`continue-on-error`.
+
+**Consequences.** The failure this guards against is silent rather than loud. A
+bundle that lost the module would not crash: `create_project` falls back to the
+paper on an unknown id, so the picker would offer a single option and look like
+a design decision. Nothing in a build log would say otherwise. The label check
+is there because a blank `<option>` has already shipped once -- the route sends
+`label`, the interface read `name` -- and jsdom computes no layout, so an
+interface test cannot see a picker that renders as empty lines.
+
+
+## 2026-08-22: the branch name says which column moves
+
+**Context.** Since 2026-08-05 every landing moved Z, and only a human running
+the release workflow could move Y. The reasoning was that "is this a feature
+release" is an editorial judgement and a script reading branch prefixes cannot
+make one -- it can only guess consistently, which is what an earlier rule did
+and what produced version numbers nobody had chosen.
+
+**Decision.** `feat/` and `feature/` move Y and reset Z. `fix/` and `hotfix/`
+move Z. X is untouched by any branch name and stays with the release workflow.
+
+**Why the earlier reasoning does not hold.** It was right that the judgement is
+editorial and wrong about who makes it. Naming a branch `feat/` *is* the
+judgement, made by the person who built the thing, at the moment they know it is
+true -- not reconstructed later from a list of merges by someone reading titles.
+What the old rule produced in practice was Y almost never moving, so the number
+stopped saying anything about the SHAPE of what had landed: a build that had
+gained a whole subsystem read the same as one that had fixed a typo, and the
+only signal was a warning nobody had to act on.
+
+X stays a decision, because "this is a new generation of the product" is not a
+claim a branch name can make.
+
+**Consequence.** `replay_landings` in `scripts/next_version.py` routes features
+through `bump_minor`. The `--pending-minor` warning is removed along with its
+step-summary block in `release.yml`: it existed only because the old rule had no
+enforcement, and now the condition it watched for cannot arise, so it could only
+ever be wrong. Order of landings matters again and is asserted -- a feature
+resets Z, so fix-feat-fix and feat-fix-fix differ.
+
+Note that the entry below, from 2026-08-18, says "X and Y are editorial by
+design". That was true when written and is now true only of X.
+
+## 2026-08-22: vectors live in SQLite; search stays exact, in NumPy
+
+**Context.** Every chunk lived in one `vectors.json`, rewritten in full on every
+write and parsed in full at every start. JSON was chosen to avoid a compiled
+dependency, which was right about ChromaDB and FAISS: their C++ extensions are
+the most fragile thing in a PyInstaller bundle built for three OSes. Measured
+on the real store, 464 chunks / 21 papers was 5.57 MB, 54 ms to parse and 70 ms
+to rewrite; at 500 papers, 133 MB, 1.3 s and 1.7 s. Building a library was
+quadratic in papers.
+
+**Decision.** Persist chunks in SQLite (`vectors.db`, WAL, float32 embedding
+blobs, metadata as JSON). Keep search exactly as it was: every embedding in one
+NumPy matrix, every query compared against all of them.
+
+**Why SQLite is not the dependency that was rejected.** It is compiled into
+CPython and reached through the standard library: no wheel, no toolchain,
+nothing for the bundler to miss.
+
+**Consequences.** The same data became 2.59 MB, opens in 11 ms, and appending a
+chunk costs about 4.6 ms regardless of library size. Search is untouched: no
+ANN index, deliberately exact, affordable for a personal library. An existing
+`vectors.json` is imported once on first open and renamed, never deleted, so a
+failed migration can be retried. (Commit `d416283`.)
 
 ## 2026-08-23: a linked file is put on the compile's search path, not copied
 
@@ -851,388 +1475,6 @@ The rest of that class remains uncovered, and the honest mitigation is the one
 that caught both: run it and look at it before committing.
 
 
-## 2026-08-22: an empty library is a state, not a blocker
-
-**Context.** The Library is the first screen, and on a new install it is empty.
-It said one thing: drop a PDF here. For someone who installed ThinkStack to
-write, that is a door with nothing behind it -- and the reasonable conclusion
-from an app whose only instruction cannot be followed is that it is broken, or
-that it is not for them.
-
-**Decision.** Nothing in Scribe may require an ingested paper, and the empty
-Library says so, offering writing beside reading. Tests hold the property
-rather than the wording: the citation routes return empty rather than failing,
-no starter document arrives citing a key nothing defines, and a project can be
-created, edited, listed and compiled with no library at all.
-
-**Consequences.** Scribe carries its own TeX engine and compiles offline, so
-this is a claim the product can actually make -- writing genuinely does not
-depend on reading. The tests matter more than the sentence in the empty state,
-because the sentence is what a reader sees and the property is what makes it
-true; a later change that made some panel throw on an empty library would leave
-the invitation in place and break what it promises.
-
-The link is asserted as a link, not as prose. A sentence mentioning Scribe with
-no way to reach it is the same dead end in nicer words.
-
-## 2026-08-22: a lazily-imported module is asserted over HTTP, not assumed
-
-**Context.** `templates.py` is imported inside the two functions that use it,
-never at module scope. PyInstaller's static analysis does follow function-level
-imports -- verified against the shipped AppImage, whose `/api/models/registry`
-handler imports `domain.model_manager.discovery` the same way and answers
-correctly -- but that is a claim about a tool, checked once, on one platform.
-
-**Decision.** `scripts/validate_bundle.py` asks the frozen backend for the
-template list and asserts all six ids are present and every one is labelled.
-It runs before packaging, on all three platforms, and is not
-`continue-on-error`.
-
-**Consequences.** The failure this guards against is silent rather than loud. A
-bundle that lost the module would not crash: `create_project` falls back to the
-paper on an unknown id, so the picker would offer a single option and look like
-a design decision. Nothing in a build log would say otherwise. The label check
-is there because a blank `<option>` has already shipped once -- the route sends
-`label`, the interface read `name` -- and jsdom computes no layout, so an
-interface test cannot see a picker that renders as empty lines.
-
-
-## 2026-08-13: the page titles go, and Library introduces the others
-
-**Context.** Every screen carried a heading repeating the nav item that was
-already highlighted.
-
-**Decision.** No page titles. Library carries a collapsible list of what the
-other screens are for, generated from `features.js`.
-
-**Consequences.** "LitGraph" and "Scribe" mean nothing to someone who has just
-installed this, and each page's own "i" cannot help -- you have to already be
-there, and you will not open a screen whose name tells you nothing. Saying it
-once on the page everyone lands on is what lets the headings go, and Scribe
-gets that strip back for its editor. Generated from `features.js` so a new
-feature appears without anyone remembering, and so the wording cannot drift
-from the "i" guide reading the same field. It expands only for someone who has
-never run the app: introducing an existing user to their own workspace after an
-update reads as a regression.
-
-## 2026-08-12: the extractor is scored on papers nobody here chose
-
-**Context.** A curated test set proves the rules match the papers the rules
-were written against.
-
-**Decision.** `local/eval_metadata.py` samples papers across 15 arXiv
-categories through the API and scores against arXiv's own metadata.
-
-**Consequences.** The curated 18 were 100%; the random 56 were 62.5%, and the
-gap was entirely templates nobody had looked at -- RevTeX spacing wide enough
-to read as columns, APS running from affiliations into an unlabelled abstract,
-and a margin cutoff that was deleting the first line of any centred title.
-Fixing those took the sample to 92.9% titles and 85.7% exact author lists. A
-number from papers you picked measures your test set, not your extractor.
-
-## 2026-08-09: the advice asks Vulkan, not nvidia-smi
-
-**Context.** Two detectors answer "is there a GPU here". `vram_gb` comes from
-`nvidia-smi`, which exists only where NVIDIA's proprietary driver is installed.
-`accelerable_device` comes from Vulkan, which reaches AMD, Intel and Mesa/NVK
-too. The Bench advice was gated on `vram_gb >= 2`.
-
-**Decision.** Gate on `accelerable_device`, keeping `vram_gb` as the fallback
-for a card `nvidia-smi` found but Vulkan could not reach.
-
-**Consequences.** Every AMD, Intel and open-driver machine reported 0.0 GB, so
-the sentence explaining that their GPU was idle never printed -- while the card
-beside it offered them the graphics download anyway. The endpoint's own
-docstring says it returns one payload so the panel can never render two halves
-that disagree; this was the two halves disagreeing, on exactly the machines the
-Vulkan work was done to reach. It was invisible here because the development
-laptop reaches its RTX 3050 Ti through NVK, so `nvidia-smi` is absent and the
-sentence had never once appeared.
-
-## 2026-08-22: the branch name says which column moves
-
-**Context.** Since 2026-08-05 every landing moved Z, and only a human running
-the release workflow could move Y. The reasoning was that "is this a feature
-release" is an editorial judgement and a script reading branch prefixes cannot
-make one -- it can only guess consistently, which is what an earlier rule did
-and what produced version numbers nobody had chosen.
-
-**Decision.** `feat/` and `feature/` move Y and reset Z. `fix/` and `hotfix/`
-move Z. X is untouched by any branch name and stays with the release workflow.
-
-**Why the earlier reasoning does not hold.** It was right that the judgement is
-editorial and wrong about who makes it. Naming a branch `feat/` *is* the
-judgement, made by the person who built the thing, at the moment they know it is
-true -- not reconstructed later from a list of merges by someone reading titles.
-What the old rule produced in practice was Y almost never moving, so the number
-stopped saying anything about the SHAPE of what had landed: a build that had
-gained a whole subsystem read the same as one that had fixed a typo, and the
-only signal was a warning nobody had to act on.
-
-X stays a decision, because "this is a new generation of the product" is not a
-claim a branch name can make.
-
-**Consequence.** `replay_landings` in `scripts/next_version.py` routes features
-through `bump_minor`. The `--pending-minor` warning is removed along with its
-step-summary block in `release.yml`: it existed only because the old rule had no
-enforcement, and now the condition it watched for cannot arise, so it could only
-ever be wrong. Order of landings matters again and is asserted -- a feature
-resets Z, so fix-feat-fix and feat-fix-fix differ.
-
-Note that the entry below, from 2026-08-18, says "X and Y are editorial by
-design". That was true when written and is now true only of X.
-
-## 2026-08-18: Y carries into X at ten (supersedes 2026-08-09)
-
-**Context.** The radix was raised from ten to twenty on 2026-08-09, so that X
-would not climb after ten declared minors — ten features can be one quiet
-quarter, and a major number that moves for reasons no user can feel says
-nothing.
-
-**Decision.** Back to ten. Y is a single digit, 0-9; at ten it carries into X
-and resets. X is unbounded. Z is unbounded and resets whenever a column above
-it moves.
-
-**Why the earlier reasoning does not hold.** The scheme is a decimal odometer,
-and the whole value of that is that Y never shows two digits — the distance
-between two versions is then readable at a glance, without parsing. A radix of
-twenty permits `1.19.4`, which is the exact shape the scheme was chosen to
-avoid, and it buys nothing the reader can feel either.
-
-The problem the earlier change was aimed at is real but sits elsewhere: if X
-climbs too often, minors are being declared too readily. That is an editorial
-habit, and X and Y are editorial by design. Moving the radix to fix it was
-treating a judgement problem as an arithmetic one.
-
-**Consequence.** `MINOR_RADIX = 10` in `scripts/next_version.py`, with tests
-asserting the invariant directly rather than by example. `v1.10.0`, already
-published, keeps a two-digit Y that the rule now forbids — re-tagging a
-published release is blocked by the `v*` ruleset, and anyone on it would see a
-version that no longer exists. It corrects itself at the next declared minor.
-
-## 2026-08-09: Y carries into X at twenty
-
-**Context.** The version scheme carried Y into X at ten, so a tenth feature
-produced a major version.
-
-**Decision.** Carry at twenty. Both lower columns still reset when X moves.
-
-**Consequences.** Ten features can be one quiet quarter, so X climbed for
-reasons no user could feel. Twenty is still an arbitrary line, but it falls
-roughly where the application really has become a different one. Ordering is
-unaffected, which is the only property the updater depends on.
-
-## 2026-08-09: merging and publishing are one intention
-
-**Context.** Promoting to production was `promote.sh release` to merge, then a
-separate `gh workflow run release.yml` to publish. Both were needed; only the
-first was memorable.
-
-**Decision.** `scripts/ship.sh` does both, and asserts the result afterwards --
-not a draft, not a prerelease, `latest.json` attached, four installers present,
-`/releases/latest` resolving to the new tag.
-
-**Consequences.** The gap was not theoretical: the merge was done, the dispatch
-was not, and main sat un-released while everyone assumed it had shipped. The
-assertions are there because each one has been wrong in a real release, and
-because a broken release is indistinguishable from a working one from outside --
-a draft is invisible, its assets 404, and the updater reads 404 as "up to date".
-
-## 2026-08-09: a version may never go backwards, checked where the decision lands
-
-**Context.** `release.yml` accepted a `version` override with no ordering check
-at all. `-f version=1.0.0` would have tagged it and published it as "latest".
-
-**Decision.** Refuse a version not ahead of the published one, in `ship.sh`
-**and** in the workflow.
-
-**Consequences.** The updater only moves forward, so a lower number is invisible
-to everyone who already has the higher one, and nothing about the release says
-so. The guard already existed in `release.sh`, which is not on the dispatch path
-anyone uses -- duplicating it is deliberate, because a dispatch can be run from
-the GitHub UI or a phone, which is exactly when no script is involved.
-
-## 2026-08-09: rollback is two problems, because you cannot un-ship
-
-**Context.** A bad release reaches two populations: people who have not updated
-yet, and people who have.
-
-**Decision.** `scripts/rollback.sh` marks the bad release a prerelease, which
-makes `/releases/latest` fall back to the previous one within seconds. `--reship`
-publishes the previous tree under a *higher* number.
-
-**Consequences.** The updater only ever moves forward, so an app that already
-updated will never move back and deleting the release does not reach it --
-forward is the only direction that exists. Marking rather than deleting keeps
-the assets for diagnosis and makes the first half reversible with `--undo`.
-
-## 2026-08-08: a page declares whether it is a document or a workspace
-
-**Context.** `.main-content` carried one `max-width: 1400px` for every screen.
-
-**Decision.** A feature declares `fills: true` in `features.js`; workspaces take
-the whole window, reading pages keep a measure.
-
-**Consequences.** On a 1920px window Scribe's panes resized correctly inside a
-1400px box and left 500px of dead space, so the dividers looked broken when they
-were only out of room. The cap is right for reading -- prose set 1900px wide is
-unreadable -- and wrong for working, and which one a page is belongs to the page.
-Declared in the registry rather than matched on a path in CSS, for the same
-reason as the nav, routes, marks and guides: a rewritten shell still reads it.
-
-## 2026-08-08: the press arms the collapse; the gesture ending applies it
-
-**Context.** Any press inside the page collapses the sidebar, and it collapsed
-during the press.
-
-**Decision.** `pointerdown` still triggers it, but the state change is deferred
-to the end of the gesture. Keyboard stays immediate.
-
-**Consequences.** The sidebar is 220px wide and the page is offset by it, so
-collapsing slid the page 220px left while the button was still held. A click is
-not something the page sends -- it is a conclusion the browser draws when
-mousedown and mouseup land on the same element -- so moving the element between
-them meant the sidebar shut and the action never ran. `pointerdown` remains the
-trigger because LitGraph's lasso may never produce a click at all. Keyboard is
-exempt because activating a focused control does not depend on where it is.
-
-## 2026-08-08: a release asserts that it published
-
-**Context.** A beta release built correctly, uploaded fifteen assets, reported
-every job green, and stayed a draft.
-
-**Decision.** After creating the release, assert it is not a draft and that the
-manifest the updater fetches returns 200. Publish and retry if not.
-
-**Consequences.** `draft: false` is a request, not a guarantee. A draft is
-invisible and its assets 404, and the updater maps 404 to "up to date" -- so
-testers were told they were current while the release sat there unreachable.
-Checking the outcome beats predicting it; the suspected cause (`--cleanup-tag`)
-was deliberately kept, because the rolling tag has to move to the new commit and
-leaving it behind would strand beta on an older one.
-
-## 2026-08-07: filenames arriving from the webview are untrusted
-
-**Context.** The file API is reachable from the webview, which Tauri treats as
-remote content. `../../../.ssh/id_rsa` is a filename.
-
-**Decision.** Every operation resolves its argument against the project
-directory and refuses anything landing outside. Resolution happens BEFORE the
-check, never a string test for "..".
-
-**Consequences.** Traversal, absolute paths, NUL bytes and symlinks pointing out
-of the project are refused. Resolving first is what catches the symlink: nothing
-about the name `notes.tex` says it points at `/etc`. Disabling the containment
-check fails the tests, which is how we know they test it.
-
-## 2026-08-07: the index is generated, not delegated to makeindex
-
-**Context.** `\index{term}` writes `main.idx`; something must turn it into
-`main.ind` before `\printindex` can read it. Tectonic runs BibTeX by itself but
-not makeindex, so a paper with an index failed with `Undefined control sequence
-\indexentry` -- `imakeidx` giving up and `\input`-ing the raw `.idx`.
-
-**Decision.** `domain/paper_writer/indexing.py` builds the `.ind` in Python, and
-the compiler runs a second pass when it changes.
-
-**Consequences.** No second binary in the installer. Shelling out to makeindex
-would have worked on this machine and on no user's -- the same mistake as
-assuming a system LaTeX, which is what the bundled engine exists to avoid.
-Sub-entries, `sort@printed` keys, `|hyperpage` encapsulators and `|(`...`|)`
-page ranges are supported because real papers use them.
-
-## 2026-08-07: no browser dialogs, because there is no browser
-
-**Context.** "New file", "New folder" and "New paper" were built on
-`window.prompt`, deletes on `window.confirm`. The Tauri webview implements
-neither: `prompt` returns null, so every menu item silently did nothing.
-
-**Decision.** Naming happens in an inline row in the tree, where the file will
-appear. Destructive actions go through a shared `ConfirmDialog`.
-
-**Consequences.** They work. A second defect hid behind the first: the context
-menu closed on a capture-phase `pointerdown`, unmounting the button before its
-own `click` landed, so even a working `prompt` would not have been reached. The
-dialog is shared because this was about to be the third in the codebase -- and
-`if (!confirm(...)) return` is worse than useless when `confirm` returns
-undefined: the guard either blocks forever or deletes without asking.
-
-## 2026-08-07: the page subtitle became an "i"
-
-**Context.** Every screen carried a title and a sentence explaining the feature.
-The sentence is worth reading once and then holds a strip of the window forever
--- and Scribe wants that strip so the editor and the PDF have half the height
-each.
-
-**Decision.** The title and its brush-slash stay. The sentence moves behind an
-"i" in the bottom-left corner, on the brand accent, declared once per feature in
-`frontend/src/features.js`.
-
-**Consequences.** LitGraph already did this for its canvas controls, so this
-generalises something that worked rather than inventing it; its private copy is
-gone. The guide floats rather than pushes, so opening it never reflows an editor
-mid-sentence and it costs no height closed.
-
-## 2026-08-06: the shell watches for use; features do not report it
-
-**Context.** Opening a paper, a node or a project wants the width the sidebar is
-occupying. The first build of this hooked the handler for each of those, in each
-feature.
-
-**Decision.** The shell listens for a pointer or key press anywhere inside its
-own content area and collapses the sidebar itself. Features call nothing and
-import nothing.
-
-**Consequences.** Every control on every screen counts, including ones nobody
-enumerated and ones not written yet. The per-feature version was green in tests
-and still felt broken, because everything absent from the list did nothing --
-"any action" is not a list that can be kept complete across four screens of
-buttons, fields, canvas drags and keystrokes. The listener is on the content
-element only, so the nav and theme toggle are not "use". It is a capture-phase
-`pointerdown`: several rows stop propagation on their own buttons, and the
-canvas lasso is a drag that may never produce a click.
-
-## 2026-08-06: an automatic collapse is not a saved preference
-
-**Context.** The sidebar's collapsed state is persisted, like the theme. Once
-actions could also collapse it, both wrote to the same flag.
-
-**Decision.** Two flags. The one the logo sets persists; the one an action sets
-lives for the session only. The sidebar hides when either is set, and the logo
-clears both.
-
-**Consequences.** Opening one paper no longer teaches the app to launch
-collapsed forever -- a setting the user never chose, changed by something
-unrelated to settings, with nothing on screen explaining it. Clearing both from
-the logo is what stops it appearing dead: with one flag still held by a feature,
-clicking it moved nothing.
-
-## 2026-08-06: features are declared once, in a registry
-
-**Context.** Each feature was written out as a nav entry and again as a route,
-and the brand mark was inline SVG pasted in twice.
-
-**Decision.** `frontend/src/features.js` holds id, path, label, icon, mark and
-component. Nav, routes and the logo all render from it.
-
-**Consequences.** Adding a feature is one entry and the shell needs no edit. The
-mark follows the active feature, which is what makes the collapsed peek button
-say where you are when nothing else on screen can. The two logo copies could
-drift and no longer exist. The registry is data and knows nothing about a
-sidebar, so it survives the interface refactor that reads it.
-
-## 2026-08-05: Hugging Face download URLs are constructed, never accepted
-
-**Context.** The local API is reachable from the webview, which Tauri treats as
-remote content.
-
-**Decision.** `/api/hf/download` takes a repository id and a filename and builds
-the URL itself. It never accepts a URL.
-
-**Consequences.** Only huggingface.co can be fetched from. Traversal sequences
-and non-`.gguf` paths are refused before a socket opens. An endpoint that
-fetched whatever address it was handed would be a general-purpose downloader
-aimed by anything able to reach the local API.
 ## 2026-08-31: no bundled SLM weights
 **decision:** ship no GGUF/SLM weights in desktop installers. Bench is the
 explicit consent boundary for model downloads and can also reuse compatible
@@ -1245,3 +1487,89 @@ PDF writing offline; therefore the embedding model and Tectonic remain bundled.
 packaging validator asserts that no LLM is present while it still exercises all
 non-inference features on Linux, macOS, and Windows.
 **status:** accepted.
+
+## 2026-11-19: a paper is encrypted at rest, not given an encrypted copy
+
+**Context.** Encrypting stored an encrypted copy of the text on every chunk
+and left the chunk text and the PDF plaintext; the document route returned the
+text with no password. Found by reading the code; the routes had 26% coverage.
+
+**Decision.** Encrypt everything at rest (Rithesh's call, over "text only" and
+"access lock only"). Chunk texts are sealed in one envelope keyed by chunk id
+(payload v2), then blanked; the PDF becomes `<file>.pdf.tsenc` and the
+plaintext is deleted; the cached summary is dropped. Embeddings stay, so the
+paper keeps its place on the map and search by meaning still finds it.
+
+**Consequences.** Removing encryption restores text and PDF byte for byte.
+Every ciphertext is written before any plaintext is removed. Search, grounding
+and the document route withhold text whenever `is_encrypted` is set, which
+also covers papers encrypted under v1. Those v1 papers keep plaintext on disk
+until re-encrypted, and run histories keep derived summaries (ISSUES).
+
+## 2026-11-19: a write from a foreign origin is refused
+
+**Context.** CORS stops another web page READING a reply from the local API,
+not SENDING a request. A multipart upload or a bodyless POST needs no
+preflight, so any page the user visited could add a PDF to their library or
+start the graphics-engine download.
+
+**Decision.** `main._refuse_foreign_writes`: a POST, PUT, PATCH or DELETE whose
+`Origin` header is present and is not the app or the Vite dev server gets 403
+before any route runs. No `Origin` (curl, tests, the bundle validator) passes.
+
+**Consequences.** Reads are untouched; the loading screen polls with GET from
+`tauri://`. Binding the server to another host (`THINKSTACK_HOST`) adds that
+origin automatically; reaching it under any other name is refused.
+
+## 2026-11-20: ship.sh promotes the changelog, in CHANGELOG.md itself
+
+**Context.** CHANGELOG's `[Unreleased]` was promoted only by `release.sh`,
+which nothing called, so it never happened.
+
+**Decision.** `scripts/ship.sh` runs `_ship_changelog.sh`, which renames
+`[Unreleased]` to the version on `beta` and cherry-picks that commit onto
+`dev` (never a backwards merge). `release.sh` is deleted. Entries stay in
+CHANGELOG.md; a separate fragment directory was built and rejected as one more
+place to look (Rithesh: "we're trying to reduce information bloat").
+
+**Consequences.** One file, entries where people read them. Accepted cost,
+shown by a test: an entry added on `dev` between a ship and the next
+`dev` -> `beta` merge conflicts there, as plain text resolved by hand.
+
+## 2026-11-20: a thinking model's think block is pre-filled, empty
+
+**Context.** The catalog offered Qwen3-4B as its best model for analysis, gap
+finding and Scribe. Measured, it returned `{}` for gap finding: under the JSON
+grammar it cannot open `<think>`, so it closes the object. `/no_think` alone
+did not help; its template still emits an empty block, which the grammar
+forbids.
+
+**Decision.** When a loaded model's chat template is ChatML with a think block,
+`ollama_client` renders the prompt itself with `<think>\n\n</think>\n\n`
+pre-filled (what the template does with `enable_thinking=False`) and completes
+from there. Leftover reasoning in plain-text output is stripped.
+
+**Consequences.** The same prompt gives 5 gaps and 3 suggestions. Models
+without a think block are untouched. Reasoning families that cannot switch
+thinking off (DeepSeek-R1) are still never a default (2026-08-05). The Ollama
+path is unchanged (ISSUES).
+
+## 2026-11-20: Tectonic compiles from the cache first
+
+**Context.** With the cache complete for a document, the built installer still
+could not compile it offline. Run normally, Tectonic answers any lookup the
+cache cannot satisfy by fetching the online bundle's `SHA256SUM`, including
+LaTeX merely probing for an optional file that exists nowhere (hyperref and
+imakeidx do). Offline that is fatal. CI never saw it: CI has a network.
+
+**Decision.** `compiler._run_engine` runs Tectonic with `--only-cached` first.
+Only if that reports a file it truly lacks ("not found", "not loadable", "did
+not find") is the compile repeated normally, and if that retry cannot reach the
+network, the cached result stands.
+
+**Consequences.** Offline compiles never depend on the network; online, a
+document using a new package still downloads it. The warm-up was extended at
+the same time (10/11/12pt, report, book, imakeidx, every font size and shape
+in both font paths) and its stamp now records which warm documents proved it.
+The proof is the built backend validated in a network namespace with only
+loopback, plus `tests/test_offline_templates.py`.

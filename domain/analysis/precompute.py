@@ -112,16 +112,9 @@ async def _rescan_gaps() -> None:
 
 
 def schedule_for_new_document(doc_id: str, text: str, title: str = "") -> None:
-    """queue everything a newly ingested paper makes stale.
-
-    called from the upload route *after* the response is built, so the upload
-    itself never waits on the model.
-
-    args:
-        doc_id: the freshly ingested document.
-        text: its full text, already in memory from ingestion.
-        title: for the progress label; falls back to the id.
-    """
+    """Queue everything a new paper makes stale: its own analysis, then a
+    library re-cluster and gap rescan. Called by the upload route; never
+    awaited. `title` labels the progress bar."""
     name = (title or doc_id)[:60]
 
     job_queue.submit(Job(

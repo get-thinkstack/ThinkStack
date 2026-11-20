@@ -1,12 +1,7 @@
 /**
  * Every feature in the application, declared once.
  *
- * The shell used to describe each feature in three separate places -- a nav
- * entry, a <Route>, and (for the logo) nothing at all, because the mark was
- * hardcoded SVG pasted in twice. Adding a feature meant remembering all of
- * them, and the two copies of the logo could and did drift apart.
- *
- * This array is the single source. The nav, the routes and the brand mark are
+ * This array is the single source (ADR 2026-08-06). The nav, the routes and the brand mark are
  * all rendered FROM it, so adding a feature is one entry and the shell needs no
  * edit at all. Nothing here knows what a sidebar is; it is data, which is why
  * it survives a redesign of the shell that reads it.

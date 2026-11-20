@@ -144,6 +144,9 @@ data/tex/
 # local working notes, never shared
 TODO.md
 
+# validation workspace
+.validation-no-slm/
+
 # ── Local-only docs and scratch design artifacts ─────────
 # Personal reference material and prototypes that live on this machine. The
 # SHARED docs stay tracked: docs/*.md, docs/TEAM/, and docs/academic/ (the

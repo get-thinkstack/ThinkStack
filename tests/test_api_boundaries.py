@@ -56,6 +56,50 @@ class TestWhoMayCall:
         assert r.headers.get("access-control-allow-credentials") != "true"
 
 
+class TestStrangersCannotActBlind:
+    """CORS stops a foreign page READING a reply, not SENDING the request.
+
+    A multipart upload or a bodyless POST is a "simple" request: the browser
+    sends it with no preflight, so before this guard any page the user visited
+    could put a PDF in their library or start the graphics-engine download.
+    Browsers always attach Origin to a cross-site POST; curl and tests send none.
+    """
+
+    def test_a_stranger_cannot_trigger_a_bodyless_post(self, client):
+        r = client.post("/api/system/diagnose", headers={"Origin": "https://evil.example"})
+        assert r.status_code == 403
+
+    def test_a_stranger_cannot_upload_into_the_library(self, client):
+        r = client.post(
+            "/api/documents/upload",
+            headers={"Origin": "https://evil.example"},
+            files={"file": ("x.pdf", b"%PDF-1.4 junk", "application/pdf")},
+        )
+        assert r.status_code == 403
+
+    def test_an_opaque_null_origin_is_a_stranger(self, client):
+        # sandboxed iframes and file:// pages send the literal string "null"
+        r = client.post("/api/system/diagnose", headers={"Origin": "null"})
+        assert r.status_code == 403
+
+    def test_the_app_itself_may_post(self, client):
+        r = client.post("/api/system/diagnose", headers={"Origin": "http://127.0.0.1:8000"})
+        assert r.status_code != 403
+
+    def test_the_dev_server_may_post(self, client):
+        r = client.post("/api/system/diagnose", headers={"Origin": "http://localhost:3001"})
+        assert r.status_code != 403
+
+    def test_a_caller_with_no_origin_is_not_a_browser_and_may_post(self, client):
+        r = client.post("/api/system/diagnose")
+        assert r.status_code != 403
+
+    def test_reads_are_left_to_cors(self, client):
+        # the loading screen polls with GET from tauri://; reads must not be refused
+        r = client.get("/api/system/health", headers={"Origin": "tauri://localhost"})
+        assert r.status_code != 403
+
+
 class TestHowFarACallerCanReach:
     """A project id is one path segment, and was joined to a path unchecked.
 

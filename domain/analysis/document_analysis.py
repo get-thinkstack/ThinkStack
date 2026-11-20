@@ -1,9 +1,8 @@
-"""single-call per-document analysis.
+"""Summary and claims for one paper in ONE model call.
 
-produces a paper's summary and key claims in ONE llm call (rather than
-separate summary + claim-extraction passes). this is the per-paper unit the
-gap-finder caches, so each paper is analyzed at most once regardless of how
-many times it appears in a gap scan.
+This is the per-paper unit written to the analysis cache at ingest
+(precompute.py) and read by the gap finder and the canvas, so a paper is
+analysed at most once however many scans include it.
 """
 
 import json
@@ -43,17 +42,8 @@ _SYSTEM = (
 
 
 async def analyze_document(doc_id: str, text: str) -> Optional[dict]:
-    """summarize a paper and extract its claims in a single model call.
-
-    args:
-        doc_id: the document identifier (used only for logging here).
-        text: the paper text (or concatenated chunks) to analyze.
-
-    returns:
-        ``{"summary": str, "claims": [{"text": str, "type": str}, ...]}`` on
-        success, or ``None`` if the model call fails or its output cannot be
-        parsed -- so the caller can skip (and not cache) a failed paper.
-    """
+    """`{"summary", "claims": [{"text", "type"}]}`, or None on failure so the
+    caller skips (and does not cache) the paper."""
     prompt = DOCUMENT_ANALYSIS_PROMPT.format(text=text[:_TEXT_LIMIT])
 
     try:
@@ -61,10 +51,8 @@ async def analyze_document(doc_id: str, text: str) -> Optional[dict]:
             prompt,
             system=_SYSTEM,
             max_tokens=600,
-            # summary + claims in one call is still analysis work, so it routes
-            # like the two separate passes it replaced. Merging them is exactly
-            # how the task got dropped in the gap pipeline; stating it here
-            # keeps this call honest about what it is.
+            # Analysis work, so task "analysis". Every generation must name its
+            # task, or it silently routes as "general".
             task_type="analysis",
         )
         data = json.loads(response)

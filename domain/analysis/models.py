@@ -1,9 +1,4 @@
-"""
-analysis domain models.
-
-data classes for paper summaries, extracted claims, and thematic
-clusters produced by the slm-powered analysis engine.
-"""
+"""Data classes for summaries, claims and themes."""
 
 from dataclasses import dataclass, field
 

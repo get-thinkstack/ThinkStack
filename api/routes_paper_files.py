@@ -1,16 +1,14 @@
-"""the files inside a paper project.
+"""Scribe's file tree: the files in a project, linked files, the directory
+browser, and source <-> PDF sync.
 
-Mounted under the papers router, so every path here is
-``/api/papers/projects/{project_id}/files...``.
+Mounted under the papers router: ``/api/papers/projects/{project_id}/...``.
+The logic is domain/paper_writer/files.py (inside a project) and links.py
+(outside it).
 
-A project has always been a directory; until now `main.tex` was the only thing
-in it anything could reach, which is why `\\includegraphics{chart.png}` failed --
-the compiler runs with the project directory as its working directory, so the
-relative path was correct and the file simply was not there.
-
-Every route resolves its argument through `files.safe_path`, which is the
-security boundary: the webview can reach this API, so a filename is untrusted
-input. Nothing here builds a path by concatenation.
+**Security boundary.** The webview can reach this API, so every filename is
+untrusted. Paths inside a project go through `files.safe_path`; nothing builds
+a path by concatenation. The link and browse routes are the exception and take
+absolute paths (see the comment above those routes).
 """
 
 from __future__ import annotations
@@ -32,13 +30,8 @@ router = APIRouter()
 
 
 def _project(project_id: str) -> Path:
-    """the project directory, or 404.
-
-    A malformed id is answered with the same 404 as a missing one, deliberately:
-    the caller has no business distinguishing "no such project" from "that was
-    not a project id", and saying which would confirm to a probe that the id
-    shape matters.
-    """
+    """The project directory, or 404. A malformed id gets the same 404 as a
+    missing one, so a probe learns nothing about the id format."""
     try:
         d = _get_project_dir(project_id)
     except ProjectIdError:
@@ -56,12 +49,8 @@ def _tree(project_dir: Path) -> list[dict]:
 
 
 def _guard(fn):
-    """turn a FileError into a 400 carrying its own message.
-
-    `FileError` is raised only with text already written for a person, so it is
-    passed through verbatim. Anything else is a bug here and must not have its
-    internals shown to the webview.
-    """
+    """FileError -> 400 with its message (written for a person). Anything else
+    is a bug and its internals must not reach the webview."""
     try:
         return fn()
     except F.FileError as e:
@@ -115,12 +104,10 @@ async def api_upload_file(
     file: UploadFile = File(...),
     dest: str = "",
 ):
-    """store an uploaded figure or data file.
+    """Store an uploaded file in folder `dest` ("" = project root).
 
-    `dest` is the folder to drop it into ("" = the project root). The name is
-    taken from the upload but never trusted -- a browser can send
-    `../../../evil.png` as a filename, so it goes through the same boundary as
-    everything else, and an existing file is never silently replaced.
+    The upload's filename is untrusted (`../../../evil.png` is legal to send)
+    and goes through the same boundary; an existing file is never replaced.
     """
     d = _project(project_id)
     raw = await file.read()
@@ -160,12 +147,8 @@ class MoveAcrossRequest(BaseModel):
 
 @router.post("/projects/{project_id}/files/move-to")
 async def api_move_across(project_id: str, req: MoveAcrossRequest):
-    """Move a file into a different paper.
-
-    Both project ids go through the same boundary as any other, so a crafted
-    destination is a 404 rather than a way to write outside the workspace, and
-    each end of the path is resolved against its OWN project root.
-    """
+    """Move a file into a different paper. Each end is resolved against its
+    own project root, so a crafted destination is a 404, not an escape."""
     src_dir = _project(project_id)
     dst_dir = _project(req.to_project)
     dst = req.dst or Path(req.src).name
@@ -202,30 +185,19 @@ async def api_delete(project_id: str, path: str):
 
 # ── files that live outside the project ──────────────────────────────────
 #
-# These take an ABSOLUTE path, which is the one thing `safe_path` exists to
-# refuse everywhere else. Three things make that acceptable here and they are
-# worth naming, because "it takes a path from the caller" is otherwise exactly
-# the shape of the traversal this codebase already had once.
+# These take an ABSOLUTE path, the thing `safe_path` refuses everywhere else,
+# and can reach any file the user can. That is acceptable only because:
 #
-#   1. The caller is the application. The API answers only same-origin requests
-#      and the Vite dev server; a page the user happens to visit cannot reach
-#      it. That was not true until recently and is the reason this feature
-#      waited for it.
-#   2. The path comes from a native file dialog the user drove, not from
-#      anything the interface invented.
-#   3. The file is never read into a response that a page could script: a
-#      served project file goes out with Content-Disposition: attachment.
+#   1. another web page cannot read the replies (CORS allowlist, main.py), and
+#      cannot send these routes' JSON bodies without a preflight the allowlist
+#      refuses;
+#   2. the path comes from a chooser the user drove;
+#   3. a served file goes out as Content-Disposition: attachment, never as
+#      something a page could script.
 #
-# Point 3 used to read differently, and the change is worth recording. A suffix
-# allowlist refused anything LaTeX could not use, which also kept ~/.ssh/id_rsa
-# and /etc/passwd out of reach because neither has a suffix. That was removed
-# on 2026-08-23: it was refusing datasets, READMEs and image formats people
-# legitimately keep beside a paper, and the protection it stood in for is now
-# point 1's job. The honest summary is that this endpoint reaches any file the
-# user can reach, and what keeps that acceptable is that the user is the only
-# caller who can get to it.
-#
-# The file itself is never modified. A link is a note about where something is.
+# There is no suffix allowlist (removed, ADR 2026-08-23). If (1) ever weakens,
+# these routes become a file reader for any website. A linked file is never
+# modified; a link is a note about where something is.
 
 
 class LinkRequest(BaseModel):
@@ -242,12 +214,7 @@ class CopyInRequest(BaseModel):
 
 @router.get("/projects/{project_id}/links")
 async def api_list_links(project_id: str):
-    """Every linked file, with where it actually is now.
-
-    Resolution happens on read rather than on a schedule: a file that moved
-    while the application was closed is discovered the next time anyone looks,
-    which is the moment it matters.
-    """
+    """Every linked file and where it is now, resolved on read (no watcher)."""
     d = _project(project_id)
     return {"links": [r.as_dict() for r in L.list_links(d)]}
 
@@ -289,10 +256,8 @@ async def api_link_raw(project_id: str, link_id: str):
     d = _project(project_id)
     link = _guard(lambda: L.get(d, link_id))
     if link.kind == "dir":
-        # A linked folder is a remembered location, not a browsable one.
-        # Serving its contents would turn "remember where my figures are" into
-        # a remote directory listing, which is a much larger thing to offer and
-        # is not what a paper needs.
+        # A linked folder is a remembered location, never served: that
+        # would make this a remote directory listing.
         raise HTTPException(status_code=400, detail=f"{link.name} is a folder.")
     r = L.resolve(d, link)
     if r.resolved is None:
@@ -300,34 +265,20 @@ async def api_link_raw(project_id: str, link_id: str):
     return FileResponse(r.resolved, filename=r.resolved.name)
 
 
-# ── browsing the machine, so the user can point at something ─────────────
+# ── browsing the machine, for the chooser ─────────────────────────────────
 #
-# The native dialog only exists inside the desktop shell. In a browser there is
-# none, and a file input hands back bytes with the path deliberately withheld --
-# so the fallback was typing a path, which is not a way to choose a file.
-#
-# This is the way out: the backend lists a directory, the interface draws it,
-# and the user navigates and clicks. Identical in the desktop window and in a
-# browser, and testable, which the native dialog is not.
-#
-# It lists and nothing else. No content is read through it, no file is opened,
-# nothing is written. The reply carries names, sizes and whether each entry is a
-# directory -- exactly what is needed to draw a chooser and no more. Reading
-# still goes through the link endpoints, which apply the suffix rule.
-#
-# It is reachable only by this application: the API answers same-origin requests
-# and the dev server, so a page the user happens to visit cannot enumerate their
-# disk with it. That fix landing is what made this reasonable to add.
+# A browser has no native file dialog and a file input withholds the path, so
+# the backend lists directories and the interface draws the chooser (the same
+# in the desktop window and a tab). It lists only: names, sizes, is-directory.
+# Nothing is read, opened or written; other pages cannot read the reply.
 
 
 @router.get("/browse")
 async def api_browse(path: str = ""):
-    """One directory, listed for a chooser.
+    """One directory, listed for the chooser. Empty `path` = the home folder.
 
-    `path` empty means the user's home, which is where a person looks first.
-    Unreadable directories answer 403 rather than an empty listing, because
-    "there is nothing here" and "you may not look here" are different facts and
-    a chooser that confuses them sends people hunting.
+    Unreadable directories answer 403, not an empty listing: "nothing here"
+    and "not allowed to look" are different facts.
     """
     root = Path(path).expanduser() if path else Path.home()
     try:
@@ -351,12 +302,8 @@ async def api_browse(path: str = ""):
                         "path": str(entry),
                         "is_dir": False,
                         "size": entry.stat().st_size,
-                        # what the link endpoints will accept, so the chooser can
-                        # grey out the rest rather than let someone pick a file
-                        # that is then refused
-                        # Every file can be taken now. `latex` is a hint the
-                        # picker can show -- "a document could reference this"
-                        # -- rather than a reason to refuse one.
+                        # Every file can be linked; `latex` only hints that a
+                        # document could reference it.
                         "linkable": True,
                         "latex": entry.suffix.lower() in F.LATEX_SUFFIXES,
                     })
@@ -375,13 +322,12 @@ async def api_browse(path: str = ""):
     }
 
 
-# ── source and page, pointing at each other ──────────────────────────────
+# ── source <-> page (synctex) ────────────────────────────────────────────
 #
-# Every compile already wrote a `.synctex.gz`; until now nothing read it. Both
-# directions are answered from the same file, parsed per request rather than
-# cached: it is rewritten on every compile, a stale cache would point at the
-# previous draft, and parsing 184 boxes costs less than deciding whether the
-# cache is still good.
+# Both directions read the `main.synctex.gz` every compile writes. Parsed per
+# request, not cached: it changes on every compile and parsing is cheap, so a
+# cache could only ever point at the previous draft. No interface calls these
+# yet (FUTURE_WORK).
 
 
 @router.get("/projects/{project_id}/sync/forward")

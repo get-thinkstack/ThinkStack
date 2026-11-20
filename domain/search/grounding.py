@@ -1,18 +1,10 @@
-"""retrieve the passages that should ground a generation, within a budget.
+"""Grounding: the passages a generation should be shown, within a budget.
 
-This is the "show the model what the user's papers actually say" step. It runs
-a semantic search for a query and assembles the winning chunks into one bounded
-block of text, so a feature can say "write about X" and have the model see real
-excerpts instead of inventing them.
-
-It used to live in the chat service, which is why Scribe imported from
-`domain.chat`. Chat is gone; the retrieval was never chat-specific -- it takes a
-query and returns text -- so it sits here in `search/`, next to the semantic
-search it is built on, and any feature that needs grounding can call it.
-
-The budget is the point. The local context window is small, so an unbounded
-context block would push out the instructions and the room the model needs to
-answer. Chunks are taken best-first and truncated at the limit.
+Scribe's write-at-the-cursor calls this so the model writes from what the
+selected papers say instead of inventing it. It runs semantic search and
+joins the best chunks into one block, best-first, cut at the budget: the local
+context window is small, and an unbounded block would crowd out the
+instructions and the answer.
 """
 
 import logging
@@ -38,19 +30,10 @@ def build_grounding_context(
     query: str,
     doc_ids: list[str] | None = None,
 ) -> tuple[str, list[GroundingSource]]:
-    """retrieve relevant chunks and assemble a bounded context block.
+    """`(context_text, sources)` for `query`, limited to `doc_ids` if given.
 
-    args:
-        query: what to retrieve for -- usually the user's question or writing
-            instruction.
-        doc_ids: restrict retrieval to these documents; empty/None searches the
-            whole library.
-
-    returns:
-        ``(context_text, sources)``. Both are empty when the knowledge base has
-        no content, which callers treat as "generate without grounding" rather
-        than as an error -- a library with nothing in it is a normal state, not
-        a failure.
+    Both are empty for an empty library: callers generate ungrounded, because
+    an empty library is a normal state, not an error.
     """
     store = get_vector_store()
     if store.count() == 0:
