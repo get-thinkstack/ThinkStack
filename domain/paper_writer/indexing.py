@@ -1,21 +1,10 @@
 r"""build the index a document asked for, without shipping makeindex.
 
-`\index{term}` writes a line into `main.idx`; something then has to turn that
-into `main.ind`, which `\printindex` reads. Nothing did. Tectonic runs BibTeX on
-its own but not makeindex, so a paper using an index compiled into:
-
-    ! Undefined control sequence.
-    l.26 \indexentry
-                    {federated learning|hyperpage}{1}
-
-which is `imakeidx` falling back to `\input`-ing the raw `.idx` -- a file full
-of a command LaTeX does not define.
-
-The obvious fix is to shell out to `makeindex`. It is on this developer's
-machine and would not be in the installer, and the whole premise of the
-bundled TeX engine is that a user needs nothing installed. So the `.ind` is
-generated here instead. It is a small format, and this is the same
-auto-healing the compiler already does for missing packages.
+`\index{term}` writes a line into `main.idx`; something must turn that into
+`main.ind`, which `\printindex` reads. Tectonic runs BibTeX but not
+makeindex, and makeindex is not in the bundle, so the `.ind` is generated
+here (ADR 2026-08-07). Without it, `\printindex` fails with
+"Undefined control sequence \indexentry".
 
 Supported, because real papers use them:
   ``term``                a plain entry

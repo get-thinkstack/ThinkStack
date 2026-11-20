@@ -1,11 +1,9 @@
-"""
-gap analysis api routes.
+"""Gap finding route, and its run history.
 
-provides the endpoint for running comprehensive gap analysis across
-ingested documents. per-document summary+claims analysis is cached (computed
-at ingest time, or lazily on first scan), so a gap scan of already-analyzed
-papers reuses that work and only pays for the single combined gaps+suggestions
-call.
+A scan needs each paper's summary and claims. Those come from the analysis
+cache (filled at ingest, or on first scan), so a scan over analysed papers
+costs one model call: the combined gaps + suggestions pass in
+domain/gap_finder/gap_pipeline.py.
 """
 
 import logging
@@ -40,11 +38,11 @@ def _decrypt_or_join(doc_id: str, chunks: dict, password: str | None) -> str:
                 status_code=403,
                 detail="document is encrypted. password required.",
             )
-        from domain.encryption.vault import decrypt_paper, WrongPasswordError
+        from domain.encryption.vault import open_text, WrongPasswordError
         from domain.encryption.envelope import EnvelopeFormatError
         envelope = first_meta.get("encrypted_envelope")
         try:
-            return decrypt_paper(envelope, password)
+            return open_text(envelope, password)[0]
         except WrongPasswordError:
             raise HTTPException(status_code=403, detail="incorrect password")
         except EnvelopeFormatError:
@@ -53,12 +51,9 @@ def _decrypt_or_join(doc_id: str, chunks: dict, password: str | None) -> str:
 
 
 async def _get_analysis(doc_id: str, password: str | None) -> dict | None:
-    """return a document's summary+claims, using the cache when possible.
+    """A paper's summary and claims, from the cache or computed once and cached.
 
-    a cache hit needs no chunk fetch, no decryption, and no model call. on a
-    miss the document text is analyzed once and the result cached for future
-    scans. returns None if the document has no chunks or analysis fails, so
-    the caller can skip it.
+    None when the paper has no chunks or analysis fails; the caller skips it.
     """
     cached = doc_analysis_cache.get(doc_id)
     if cached is not None:
@@ -80,18 +75,7 @@ async def _get_analysis(doc_id: str, password: str | None) -> dict | None:
 
 @router.post("/analyze")
 async def analyze(request: GapAnalysisRequest):
-    """run comprehensive gap analysis across multiple documents.
-
-    for each document it obtains a cached (or freshly computed) summary and
-    claims, then runs a single combined pass that identifies gaps and proposes
-    research directions. requires at least 2 processable documents.
-
-    args:
-        request: list of document ids to analyze for gaps.
-
-    returns:
-        complete gap analysis with identified gaps and suggestions.
-    """
+    """Find gaps and suggest directions across the given papers (at least 2)."""
     if len(request.doc_ids) < 2:
         raise HTTPException(
             status_code=400,
@@ -132,8 +116,8 @@ async def analyze(request: GapAnalysisRequest):
         "total_suggestions": len(suggestions),
     }
 
-    # log this run so a subsequent scan doesn't discard it; the saved record
-    # adds run_id + created_at, which we surface so the ui can select it.
+    # The saved record adds run_id and created_at; returned so the UI can
+    # select this run.
     saved = gap_history.add({"doc_ids": request.doc_ids, **result})
     result["run_id"] = saved["run_id"]
     result["created_at"] = saved["created_at"]

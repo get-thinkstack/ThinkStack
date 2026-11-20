@@ -50,7 +50,40 @@ def gguf_dir(tmp_path):
     def make(name: str, size_mb: float) -> "os.PathLike":
         p = d / name
         with open(p, "wb") as f:
+            _make_sparse(f)
             f.truncate(int(size_mb * 1024 * 1024))
         return p
 
     return d, make
+
+
+def _make_sparse(f) -> None:
+    """Mark an open file sparse on Windows, so truncate() reserves no disk.
+
+    On NTFS, extending a file ALLOCATES the bytes; one full run once left
+    23.8 GB in %TEMP% and failed ~40 unrelated tests with ENOSPC. POSIX
+    filesystems already make a truncated file sparse, so this is a no-op there.
+    """
+    if os.name != "nt":
+        return
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    FSCTL_SET_SPARSE = 0x000900C4
+    handle = msvcrt.get_osfhandle(f.fileno())
+    returned = wintypes.DWORD()
+    ctypes.windll.kernel32.DeviceIoControl(
+        wintypes.HANDLE(handle), FSCTL_SET_SPARSE, None, 0, None, 0,
+        ctypes.byref(returned), None,
+    )
+
+
+def allocated_bytes(path) -> int:
+    """Disk actually used by a file, as opposed to its size."""
+    if os.name == "nt":
+        import ctypes
+        high = ctypes.c_ulong(0)
+        low = ctypes.windll.kernel32.GetCompressedFileSizeW(str(path), ctypes.byref(high))
+        return (high.value << 32) + low
+    return os.stat(path).st_blocks * 512

@@ -175,21 +175,11 @@ export default function LitGraph() {
   const graphRef = useRef(graph);
   useEffect(() => { graphRef.current = graph; }, [graph]);
 
-  /* Background analysis writes summaries, claims, themes and gaps straight to
-     the stores the graph reads, so the canvas goes stale as work lands.
-     It used to re-fetch on the falling edge -- when the queue drained -- and
-     redraw itself. Which meant: you are reading the map, a paper you uploaded
-     ten minutes ago finishes analysing, and every node moves. Not just the new
-     one. Positions are PCA over the whole library, so one arrival re-projects
-     the lot, and nothing had said it was about to.
-
-     So the map now holds still and raises a chip instead. `stale` counts the
-     papers that have landed since it was last drawn, which is also the state
-     that showed nowhere before: a paper ingested but not yet analysed was
-     invisible in every view, and there was no way to tell waiting from failed.
-
-     The run history is a list, not a picture, so it still refreshes itself --
-     nothing is holding your place in it. */
+  /* Background analysis keeps landing while the user reads the map. Do NOT
+     redraw on it: positions are PCA over the whole library, so one new paper
+     moves every node. Instead `stale` counts papers landed since the last
+     draw and raises a "rebuild" chip. An empty map draws at once (nothing to
+     disturb). The run history is a list, so it refreshes itself. */
   const [stale, setStale] = useState(0);
   const wasBusy = useRef(false);
   const batch = useRef(0);
@@ -648,9 +638,6 @@ export default function LitGraph() {
           </div>
         )}
 
-        {/* The canvas hint that used to live here is now the shell's page guide
-            -- the same "i" in the same corner, but on every screen and written
-            once in features.js. See components/PageGuide.jsx. */}
 
         {/* ---------- choosing, for the first time ----------
             With nothing selected the action bar is hidden and nothing on this
@@ -1021,10 +1008,8 @@ function RunResult({ run }) {
 /**
  * The papers a gap cites, each showing the passage the gap rests on.
  *
- * This used to be a list of titles, and clicking one lost the gap: you landed
- * on the paper's About tab with nothing saying which passage was the evidence.
- * A gap is a claim ABOUT several papers, so the useful view of it is the same
- * claim seen in each of them.
+ * A gap is a claim ABOUT several papers, so it is shown as the passage it
+ * rests on in each one, not as a list of titles that loses the gap on click.
  *
  * The text is fetched through the shared cache, so opening a gap warms the
  * reader for exactly the papers you are about to open from it.

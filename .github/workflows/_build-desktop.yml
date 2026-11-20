@@ -57,7 +57,7 @@ on:
 
 env:
   PYTHON_VERSION: '3.12'
-  NODE_VERSION: '20'
+  NODE_VERSION: '22'
 
 jobs:
   # -- read the platform matrix from release.config.json --
@@ -223,17 +223,10 @@ jobs:
         run: npm --prefix frontend run build
         shell: bash
 
-      # -- download base + analysis models (list lives in release.config.json) --
-      # both are bundled (seeded into the user's models dir on first run):
-      #   0.5B  -> chat / search / paper-writer (light, fast)
-      #   1.5B  -> summarize / claims / gap-finder (0.5B emits unparseable json
-      #           on these; the app routes them to 1.5B -- see ollama_client.py)
-      # this makes gap analysis work offline out of the box at the cost of a
-      # larger installer. drop a model line in release.config.json to slim it.
-      # cache the gguf weights. they are ~1.5 GB, identical on every runner and
-      # every build, and were previously re-downloaded from HuggingFace by all
-      # three OS jobs on every single release. the key is the model list itself,
-      # so the cache invalidates only when release.config.json changes.
+      # -- optional GGUF models --
+      # Releases intentionally ship no SLM/GGUF weights.  Keep this generic so
+      # a development build can opt into a configured model, but Bench remains
+      # the normal consent boundary for downloads after installation.
       - name: Cache models
         if: ${{ !inputs.skip_models }}
         uses: actions/cache@v4
@@ -252,8 +245,7 @@ jobs:
           # are unaffected, so this only ever showed up on Windows.
           #
           # --fail makes curl exit non-zero on an HTTP error instead of writing
-          # the error page into the .gguf; --retry rides out flaky transfers of
-          # these ~1 GB files.
+          # an error page into a requested .gguf.
           # `.models[]` entries may be a bare URL string or an object with a
           # `url` plus metadata (label/tasks/replaces). Both are supported so
           # swapping the bundled SLM is a config edit, not a pipeline change.
@@ -339,7 +331,9 @@ jobs:
           if [ -d data/tex ]; then
             ADD_DATA+=(--add-data "data/tex${SEP}data/tex")
           fi
-          if ls data/models/*.gguf 1>/dev/null 2>&1; then
+          # The embedding weights and empty bundled.json must travel even when
+          # the release deliberately has no GGUF/SLM files.
+          if [ -d data/models ] && [ -n "$(find data/models -mindepth 1 -maxdepth 1 -print -quit)" ]; then
             ADD_DATA+=(--add-data "data/models${SEP}data/models")
           fi
           pyinstaller --name thinkstack-api --onedir --clean --noconfirm \
@@ -432,8 +426,10 @@ jobs:
           # that before, which is how a build shipped showing the previous
           # version's number and the previous version's buttons.
           NUMERIC="$(echo '${{ inputs.version }}' | sed -E 's/[-+].*$//')"
+          LLM_ARG=()
+          [ "$(jq '.models | length' release.config.json)" -eq 0 ] && LLM_ARG+=(--no-bundled-llm)
           python3 scripts/validate_bundle.py --url http://127.0.0.1:8766 \
-            --timeout 240 --expect-version "$NUMERIC"
+            --timeout 240 --expect-version "$NUMERIC" "${LLM_ARG[@]}"
           RC=$?
           set -e
           kill "$PID" 2>/dev/null || true
@@ -540,8 +536,10 @@ jobs:
 
           # and the whole product works through the packaged app, not a bare backend
           NUMERIC="$(echo '${{ inputs.version }}' | sed -E 's/[-+].*$//')"
+          LLM_ARG=()
+          [ "$(jq '.models | length' release.config.json)" -eq 0 ] && LLM_ARG+=(--no-bundled-llm)
           python3 scripts/validate_bundle.py --url http://127.0.0.1:8000 \
-            --timeout 60 --expect-version "$NUMERIC"
+            --timeout 60 --expect-version "$NUMERIC" "${LLM_ARG[@]}"
           RC=$?
           pkill -f "usr/bin/tauri-app" 2>/dev/null || true
           exit $RC
@@ -554,9 +552,9 @@ jobs:
       # to install it and look. That is why every release needed friends with
       # the right machine, and why a broken build could sit unnoticed.
       #
-      # continue-on-error while this proves itself: a spurious failure here
-      # would block releases, which is a worse bug than the one it catches.
-      # Once it has passed a few real builds, drop the flag and let it gate.
+      # This is a release gate.  The frozen-backend validation above cannot
+      # prove that a packaged desktop process locates and launches that backend
+      # on macOS or Windows.
       - name: Detect Apple signing availability
         id: apple
         if: runner.os == 'macOS'
@@ -628,7 +626,6 @@ jobs:
 
       - name: App launch smoke test (macOS)
         if: runner.os == 'macOS' && !inputs.skip_models
-        continue-on-error: true
         shell: bash
         run: |
           APP="$(find src-tauri/target/universal-apple-darwin/release/bundle/macos \
@@ -654,15 +651,16 @@ jobs:
           echo "app answered; checking it SURVIVES"
           sleep 45
           NUMERIC="$(echo '${{ inputs.version }}' | sed -E 's/[-+].*$//')"
+          LLM_ARG=()
+          [ "$(jq '.models | length' release.config.json)" -eq 0 ] && LLM_ARG+=(--no-bundled-llm)
           python3 scripts/validate_bundle.py --url http://127.0.0.1:8000 \
-            --timeout 60 --expect-version "$NUMERIC"
+            --timeout 60 --expect-version "$NUMERIC" "${LLM_ARG[@]}"
           RC=$?
           kill "$APP_PID" 2>/dev/null || true
           exit $RC
 
       - name: App launch smoke test (Windows)
         if: runner.os == 'Windows' && !inputs.skip_models
-        continue-on-error: true
         shell: pwsh
         run: |
           $exe = Get-ChildItem -Path src-tauri\target\release -Filter *.exe -File |
@@ -690,8 +688,10 @@ jobs:
           Write-Host "app answered; checking it SURVIVES"
           Start-Sleep -Seconds 45
           $numeric = ('${{ inputs.version }}' -split '[-+]')[0]
+          $llmArg = @()
+          if (((Get-Content release.config.json -Raw | ConvertFrom-Json).models.Count) -eq 0) { $llmArg += '--no-bundled-llm' }
           python scripts/validate_bundle.py --url http://127.0.0.1:8000 `
-            --timeout 60 --expect-version $numeric
+            --timeout 60 --expect-version $numeric @llmArg
           $rc = $LASTEXITCODE
           if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
           exit $rc

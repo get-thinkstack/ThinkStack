@@ -1,7 +1,7 @@
 """gap-analysis run history.
 
-a RunHistoryStore bound to ``gap_history.json`` so a new gap scan no longer
-discards the previous result -- past runs stay available to reopen.
+A RunHistoryStore bound to ``gap_history.json``: past scans stay available to
+reopen. LitGraph draws gaps from the newest one.
 """
 
 from config import settings

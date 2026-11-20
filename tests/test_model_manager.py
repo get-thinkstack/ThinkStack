@@ -35,20 +35,18 @@ from domain.model_manager.discovery import (
 
 
 class TestCatalog:
-    def test_exactly_one_model_is_bundled(self):
-        # more than one and the installer carries weight nobody asked for;
-        # none and a fresh offline install cannot do anything at all.
-        assert len(bundled_models()) == 1
+    def test_no_language_model_is_bundled(self):
+        # Bench is the explicit consent boundary. Reading, search, and Scribe's
+        # PDF compiler work without an LLM; generation begins after a user
+        # chooses a model or connects an existing local runtime.
+        assert bundled_models() == []
 
-    def test_the_bundled_model_needs_no_particular_machine(self):
-        # it ships to every user, so it cannot have a memory floor some of
-        # them fail to clear.
-        assert bundled_models()[0].min_ram_gb == 0.0
+    def test_the_baseline_is_optional_and_needs_no_particular_machine(self):
+        assert BASE_MODEL.bundled is False
+        assert BASE_MODEL.min_ram_gb == 0.0
 
-    def test_the_bundled_model_is_the_smallest_thing_we_offer(self):
-        # it is chosen to run anywhere; anything we would suggest INSTEAD is
-        # an upgrade, and an upgrade that is smaller is a contradiction.
-        assert bundled_models()[0].size_gb == min(s.size_gb for s in CATALOG)
+    def test_the_baseline_is_the_smallest_download_we_offer(self):
+        assert BASE_MODEL.size_gb == min(s.size_gb for s in CATALOG)
 
     def test_analysis_model_is_optional_not_shipped(self):
         assert ANALYSIS_MODEL.bundled is False
@@ -427,6 +425,21 @@ class TestTheBaselineIsUsableNotJustValid:
                     f"and Scribe rely on. See the note in catalog.py."
                 )
 
+    def _reasoning(self, specs):
+        return [s.name for s in specs
+                if any(f in s.name.lower() for f in self.REASONING_FAMILIES)]
+
+    def test_the_check_recognises_a_reasoning_model(self):
+        """Without this the checks here could pass by checking nothing, which
+        is what the bundled-only one did once nothing shipped."""
+        from types import SimpleNamespace
+        assert self._reasoning([SimpleNamespace(name="Qwen3-0.6B-Q4_K_M.gguf")])
+
+    def test_the_base_model_is_not_a_reasoning_model(self):
+        """The router's floor for every task, bundled or not."""
+        from domain.model_manager.catalog import BASE_MODEL
+        assert not self._reasoning([BASE_MODEL])
+
     def test_release_config_does_not_bundle_a_reasoning_model(self):
         # the config is what the BUILD reads; catalog.py agreeing is not enough
         import json
@@ -441,3 +454,22 @@ class TestTheBaselineIsUsableNotJustValid:
                     f"release.config.json bundles {url}, which looks like a "
                     f"{family} reasoning model."
                 )
+
+
+def test_no_catalog_copy_mentions_a_bundled_model_while_none_ships():
+    """Bench shows these strings; none ships since 2026-08-31."""
+    from domain.model_manager.catalog import CATALOG, bundled_models
+    if bundled_models():
+        return
+    for spec in CATALOG:
+        for text in (spec.description, spec.outcome):
+            assert "bundled" not in (text or "").lower(), f"{spec.name}: {text!r}"
+
+
+def test_a_fake_model_costs_almost_no_disk(gguf_dir):
+    """A 1 GB fake must be sparse, or a full run fills the disk (NTFS)."""
+    from tests.conftest import allocated_bytes
+    _, make = gguf_dir
+    p = make("big.gguf", 1024)
+    assert p.stat().st_size == 1024 * 1024 * 1024
+    assert allocated_bytes(p) < 16 * 1024 * 1024

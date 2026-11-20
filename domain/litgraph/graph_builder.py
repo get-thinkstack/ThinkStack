@@ -12,6 +12,8 @@ The layout rules the canvas depends on:
 
 import logging
 
+from pathlib import Path
+
 import numpy as np
 
 from domain.knowledge_base.author_codec import authors_display
@@ -20,6 +22,7 @@ from infrastructure.analysis_cache import doc_analysis_cache
 from infrastructure.analysis_history import analysis_history
 from infrastructure.gap_history import gap_history
 from infrastructure.local_vector_store import get_vector_store
+from infrastructure.file_manager import list_stored_pdfs
 
 logger = logging.getLogger(__name__)
 
@@ -308,6 +311,12 @@ def build_graph() -> dict:
     ids, matrix, info = _collect()
     coords = _project(matrix)
 
+    # The stored filename stands in for a missing title (never the hex id);
+    # read only when some paper actually lacks one.
+    files = {}
+    if any(not info[d]["meta"].get("title") for d in ids):
+        files = {p["doc_id"]: Path(p["filename"]).stem for p in list_stored_pdfs()}
+
     nodes = []
     for i, doc_id in enumerate(ids):
         meta = info[doc_id]["meta"]
@@ -316,7 +325,7 @@ def build_graph() -> dict:
             "doc_id": doc_id,
             "x": round(float(coords[i][0]), 4),
             "y": round(float(coords[i][1]), 4),
-            "title": meta.get("title") or doc_id,
+            "title": meta.get("title") or files.get(doc_id) or doc_id,
             "authors": authors_display(meta.get("authors", "")),
             "year": meta.get("year", ""),
             "chunks": info[doc_id]["chunks"],

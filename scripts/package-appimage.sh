@@ -14,7 +14,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-APPIMAGE_DIR="src-tauri/target/release/bundle/appimage"
+# Keep this in lockstep with build.sh.  A caller can redirect Cargo output to a
+# disposable directory; hard-coding src-tauri/target here made the final Linux
+# packaging step look for an AppDir in the wrong tree.
+TARGET_DIR="${CARGO_TARGET_DIR:-src-tauri/target}"
+APPIMAGE_DIR="$TARGET_DIR/release/bundle/appimage"
 APPDIR="$(find "$APPIMAGE_DIR" -maxdepth 1 -name '*.AppDir' 2>/dev/null | head -1)"
 if [ -z "$APPDIR" ]; then
     echo "error: no *.AppDir in $APPIMAGE_DIR (run 'npm run tauri build -- --bundles appimage' first)" >&2

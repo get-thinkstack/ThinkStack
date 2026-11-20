@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
-"""write data/models/bundled.json, describing what THIS build ships.
+"""Write data/models/bundled.json, describing what THIS build ships.
 
-Swapping the bundled model used to mean editing four places -- release.config
-.json, catalog.BASE_MODEL, settings.llm_analysis_model and TASK_MODEL_MAP --
-and missing one left routing pointing at a file that is not there. That friction
-is exactly what would make shipping our own fine-tuned SLM painful.
-
-Now the build emits a manifest beside the weights and the app reads that, so
-changing the bundled model is ONE edit to release.config.json.
+Run by the build. The app (domain/model_manager/manifest.py) reads the result,
+so changing what ships is ONE edit to release.config.json's `models`, which is
+empty today: no language model is bundled.
 
 release.config.json accepts two shapes, and both work:
 
@@ -29,11 +25,9 @@ release pipeline is a bad place to require a migration. Missing fields are
 filled from catalog.py where the model is one we already know, so the common
 case needs no metadata at all.
 
-`replaces` is the field that makes an UPDATE work rather than just an install:
-it names the previously-bundled ids this model supersedes, so first run after an
-upgrade deletes the old weights instead of leaving both. Without it retirement
-would have to infer intent from absence -- which is how the beta-latest installs
-got stranded.
+`replaces` names previously-bundled ids this model supersedes, so the first
+run after an upgrade retires the old weights. Retirement is never inferred from
+absence: the release states it.
 
 usage:
     scripts/make_bundled_manifest.py [--config release.config.json]
@@ -105,9 +99,14 @@ def _measure(models_dir: Path, filename: str) -> float | None:
         return None
 
 
-def build_manifest(config: dict, models_dir: Path) -> dict:
-    """the manifest this config describes."""
-    entries = []
+def model_entries(config: dict):
+    """Yield normalized bundled-model entries from either supported config shape.
+
+    The release config started as a list of URLs and later gained per-model
+    metadata.  Build scripts need the filename before a manifest exists, so
+    keep that normalization here instead of letting each caller guess the
+    config shape independently.
+    """
     for item in config.get("models", []):
         if isinstance(item, str):
             item = {"url": item}
@@ -116,9 +115,14 @@ def build_manifest(config: dict, models_dir: Path) -> dict:
 
         url = str(item.get("url") or "").strip()
         filename = str(item.get("file") or "").strip() or url.rsplit("/", 1)[-1]
-        if not filename:
-            continue
+        if filename:
+            yield item, filename
 
+
+def build_manifest(config: dict, models_dir: Path) -> dict:
+    """the manifest this config describes."""
+    entries = []
+    for item, filename in model_entries(config):
         defaults = _catalog_defaults(filename)
         measured = _measure(models_dir, filename)
 
@@ -146,6 +150,8 @@ def main() -> int:
                     help="directory to write bundled.json into")
     ap.add_argument("--check", action="store_true",
                     help="verify the existing manifest matches, do not write")
+    ap.add_argument("--print-files", action="store_true",
+                    help="print the model filenames this config selects, then exit")
     args = ap.parse_args()
 
     try:
@@ -153,6 +159,11 @@ def main() -> int:
     except (OSError, json.JSONDecodeError) as e:
         print(f"cannot read {args.config}: {e}", file=sys.stderr)
         return 1
+
+    if args.print_files:
+        for _, filename in model_entries(config):
+            print(filename)
+        return 0
 
     out_dir = Path(args.out)
     manifest = build_manifest(config, out_dir)

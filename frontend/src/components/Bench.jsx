@@ -15,17 +15,10 @@ import ModelCatalog from './ModelCatalog';
  * A lab bench is where you measure and where the instruments live, which is
  * exactly the pair here: the machine's capability, and the models that use it.
  *
- * ONE models card, deliberately. An earlier version of this screen had a
- * registry list AND a separate "Download a better model" button that opened the
- * first-run modal -- two places to add a model, listing overlapping sets, each
- * unaware of the other. Downloading is now just another way to get a row in the
- * same list, so there is one story: here are your models, here is what each is
- * for, here is how to get more.
- *
- * This is the ONLY place models are managed. The first-run modal that used to
- * ask about downloading one is gone: it popped up over whatever the user was
- * doing, offered a model Bench already lists, and kept its own record of what
- * had been declined.
+ * ONE models card, and the ONLY place models are managed: importing,
+ * reusing what is on the machine, and downloading are all ways to get a row
+ * in the same list. (A separate download button and a first-run dialog once
+ * told overlapping stories; both are gone.)
  *
  * Every mutation replaces state from the `snapshot` the server returns rather
  * than patching it locally. Removing a model changes what the OTHER cards say
@@ -201,9 +194,8 @@ export default function Bench() {
 
         {!snapshot && <p className="bench-wait">Reading the model list…</p>}
 
-        {/* Reachable by removing the included model, which is allowed. Says
-            what stopped working and the three ways back, rather than showing
-            an empty list and leaving the user to infer the rest. */}
+        {/* A fresh install (no model ships) or after removing the last one.
+            Says what needs a model and the three ways to get one. */}
         {snapshot && models.length === 0 && !importing && (
           <div className="model-empty">
             <strong>ThinkStack has no model, so it cannot answer anything yet.</strong>

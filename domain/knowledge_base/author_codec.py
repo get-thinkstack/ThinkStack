@@ -1,15 +1,13 @@
 """How an author list survives a store that only holds strings.
 
-Chroma metadata values must be str, int, float or bool, so a list of authors
-has to be flattened to write it and rebuilt to read it. The obvious flattening
-is `", ".join(authors)`, and it is the one thing that cannot be used here: in
-BibTeX the comma is *syntax*. `Vaswani, Ashish and Shazeer, Noam` is two
-people, so re-splitting a joined list on commas turns eight authors into
-sixteen half-names, and every one of them is wrong in a bibliography.
+Chunk metadata values are scalars (str, int, float, bool), so a list of
+authors is flattened to write and rebuilt to read. Never with commas: in
+BibTeX the comma is syntax (`Vaswani, Ashish and Shazeer, Noam` is two
+people), so re-splitting on commas turns eight authors into sixteen
+half-names. JSON keeps the boundaries.
 
-JSON keeps the boundaries. `decode` still accepts the old comma form, because
-every document ingested before this change is stored that way and a library is
-not re-ingested to fix a codec.
+`decode` still reads the old comma form, because papers ingested before the
+switch are stored that way and a library is not re-ingested to fix a codec.
 """
 
 import json

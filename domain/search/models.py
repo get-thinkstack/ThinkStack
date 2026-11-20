@@ -1,9 +1,4 @@
-"""
-search domain models.
-
-data classes for search queries, individual results, and aggregated
-search responses used across semantic and keyword search.
-"""
+"""Data classes for a search query, a result, and a response."""
 
 from dataclasses import dataclass, field
 

@@ -1,4 +1,5 @@
-"""tests for the merged gaps + suggestions analysis (single llm call)."""
+"""Gaps + suggestions in one call: suggestions linked by index, empty on failure,
+and duplicate findings merged (D-17) without merging genuinely different gaps."""
 
 import json
 

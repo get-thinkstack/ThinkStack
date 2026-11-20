@@ -1,9 +1,4 @@
-"""
-gap finder domain models.
-
-data classes for identified research gaps and suggested research
-directions produced by the gap analysis pipeline.
-"""
+"""Data classes for gaps, suggestions, and a gap-analysis result."""
 
 from dataclasses import dataclass, field
 

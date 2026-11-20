@@ -1,8 +1,10 @@
-"""
-system api routes.
+"""System routes: health, the active model, background jobs, hardware,
+graphics acceleration, and training-data counts.
 
-provides health check, model status, and collection statistics
-endpoints for monitoring the application state.
+`/health` is what build.sh, validate_bundle.py and the selftests poll to prove a
+frozen backend serves requests (the desktop shell only waits for the port).
+Hardware decisions come from infrastructure/capability.py; acceleration from
+infrastructure/acceleration.py.
 """
 
 import logging
@@ -28,11 +30,7 @@ class SetModelRequest(BaseModel):
 
 @router.get("/health")
 async def health_check():
-    """check overall system health including llm runtime connectivity.
-
-    returns:
-        system status, llm connection state, and configuration.
-    """
+    """Backend status, LLM runtime state and the effective configuration."""
     llm_status = await ollama_client.check_health()
     collection_stats = get_collection_stats()
 
@@ -62,11 +60,7 @@ async def health_check():
 
 @router.get("/models")
 async def list_models():
-    """list all models available in the active local llm runtime.
-
-    returns:
-        list of available models and the currently configured target.
-    """
+    """Models the active runtime can see, and the configured one."""
     llm_status = await ollama_client.check_health()
     return {
         "provider": settings.llm_provider,
@@ -109,11 +103,7 @@ async def background_jobs():
 
 @router.get("/stats")
 async def system_stats():
-    """get knowledge base statistics.
-
-    returns:
-        total documents, chunks, and document id listing.
-    """
+    """Knowledge-base counts: documents, chunks, document ids."""
     return get_collection_stats()
 
 
@@ -173,11 +163,9 @@ async def acceleration_status():
     from infrastructure.accel_download import fetch_manifest, installer
     from infrastructure.hardware import engine_supports_gpu_offload
 
-    # Acceleration is optional, so nothing about it may take this endpoint
-    # down. A graphics driver is third-party code loaded into our process and
-    # can do anything, including raise from a function documented not to --
-    # and Bench renders the machine card from this response. Degrade to "no
-    # offer", which is the state the app was in anyway.
+    # A graphics driver is third-party code in our process and can raise from
+    # anything. Bench's machine card depends on this response, so any failure
+    # degrades to "no offer" rather than an error.
     try:
         plan = acceleration.plan(settings.data_dir)
         devices = vulkan.report()

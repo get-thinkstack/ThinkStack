@@ -34,6 +34,17 @@ def manifest_of(out_dir: Path) -> dict:
 
 
 class TestBothConfigShapes:
+    def test_print_files_supports_both_config_shapes(self, tmp_path):
+        cfg = {
+            "models": [
+                "https://h/a-q4_k_m.gguf",
+                {"url": "https://h/b-q4_k_m.gguf", "label": "B"},
+            ]
+        }
+        r = run(cfg, tmp_path / "models", tmp_path, "--print-files")
+        assert r.returncode == 0, r.stderr
+        assert r.stdout.splitlines() == ["a-q4_k_m.gguf", "b-q4_k_m.gguf"]
+
     def test_a_plain_url_string_still_works(self, tmp_path):
         # every config that exists today uses this; a release pipeline is a bad
         # place to require a migration.

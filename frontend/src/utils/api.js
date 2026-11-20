@@ -263,13 +263,9 @@ export const systemApi = {
 };
 
 /**
- * Model setup.
- *
- * The baseline model ships inside the installer, so the app is fully usable
- * offline the moment it starts. Heavier models are optional: `setup` reports
- * whether this machine can run a better one AND does not already have it (from
- * ThinkStack, Ollama or LM Studio), and only then does the UI ask permission.
- * Nothing is ever downloaded without an explicit `download` call.
+ * Catalog downloads. Bench uses `download`, `downloadStatus` and
+ * `cancelDownload`; `setup` and `catalog` have no caller since the first-run
+ * dialog was removed. Nothing downloads without an explicit `download` call.
  */
 export const modelsApi = {
   setup: () => request('/models/setup'),

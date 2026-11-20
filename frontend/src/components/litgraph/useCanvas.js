@@ -418,12 +418,9 @@ export default function useCanvas({
       placed.push(at);
     });
 
-    // polish.md #7: a gap was dropped at its centroid with no test of what was
-    // already there. Two gaps drawn from overlapping sets of papers share most
-    // of a centroid, so five of them stack into one bullseye -- and a relaxing
-    // layout, which pulls those papers together, makes it certain rather than
-    // likely. A few passes of the same separation the papers get.
-    //
+    // Gaps cited by overlapping sets of papers share most of a centroid and
+    // would stack into one bullseye (a relaxed layout makes that certain), so
+    // they get a few passes of the same separation the papers get.
     // GAP_SEP is the outer ring (31) plus a little, so two markers read as two.
     for (let pass = 0; pass < 12; pass++) {
       for (let i = 0; i < placed.length; i++) {
@@ -467,11 +464,9 @@ export default function useCanvas({
 
   /**
    * Positions every node and gap from the graph payload. Called at the top of
-   * render rather than from an effect of its own: it used to be separate, and
-   * because `model` and `state` are mutated in place their identity never
-   * changes, so nothing in render's dependency list ever noticed a new graph.
-   * The model updated and the scene did not -- a reload after ingest left the
-   * canvas showing the previous library.
+   * render, NOT from its own effect: `model` and `state` are mutated in place,
+   * so their identity never changes and no dependency list would notice a new
+   * graph (the canvas would keep drawing the previous library).
    */
   const rebuildModel = useCallback(() => {
     model.nodes = graph?.nodes || [];
@@ -731,10 +726,9 @@ export default function useCanvas({
   /**
    * Everything a selection changes, written onto the scene that already exists.
    *
-   * This is the whole reason render was split. Selecting a node, or moving the
-   * cursor off one, used to re-create every hull, edge, node, label and
-   * sub-node and re-attach a listener to each -- which is what made the canvas
-   * feel slow on a three-paper library. Nothing here touches DOM structure.
+   * Hover, selection and search come here, never to render: rebuilding every
+   * hull, edge, node and label (and their listeners) on each one made a
+   * three-paper canvas lag. Nothing here touches DOM structure.
    */
   const restyle = useCallback(() => {
     const { nodes, edges, gapEdges, gapNodes } = state.paint;

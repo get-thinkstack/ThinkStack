@@ -14,12 +14,9 @@ const MIN_CANVAS = 360;   // narrower than this and the map stops being one
 /**
  * How wide the panel may actually be, given where the grip was dropped.
  *
- * The ceiling used to be half the window, on the reasoning that the map is the
- * point of the page. That was right until the panel grew a PDF reader: reading
- * a paper wants width, and a hard stop at 50% meant dragging further simply did
- * nothing, which reads as a broken grip rather than a considered limit.
- *
- * So the ceiling is now "whatever leaves the map still a map". Both panes
+ * The ceiling is "whatever leaves the map still a map", not half the window:
+ * the panel holds a PDF reader, which wants width, and a grip that stops
+ * mid-drag reads as broken. Both panes
  * remain resizable in both directions; neither can erase the other.
  *
  * The order matters: the ceiling is applied last, so on a narrow window the
@@ -108,10 +105,8 @@ export function nearestFurthest(node, nodes) {
 /**
  * A gap's evidence, located in each paper it cites.
  *
- * A gap connects papers, and until now you could only read it in one of them:
- * the panel listed the evidence, listed the papers, and clicking a paper lost
- * the gap. This is the join between those two lists -- for each cited paper,
- * the passage in it the gap rests on, or nothing when it cannot be found.
+ * For each paper a gap cites, the passage the gap rests on, or null when it
+ * cannot be found.
  *
  * `passage: null` is a real answer and has to be shown as one. The evidence is
  * a model's paraphrase and may not locate; a paper's text may not have arrived

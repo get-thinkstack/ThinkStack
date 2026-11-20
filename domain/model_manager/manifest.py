@@ -1,16 +1,8 @@
-"""what THIS build ships, declared as data rather than code.
+"""What THIS build ships, declared as data: `data/models/bundled.json`.
 
-Changing which model ThinkStack bundles used to mean editing four places --
-``release.config.json``, ``catalog.BASE_MODEL``, ``settings.llm_analysis_model``
-and ``ollama_client.TASK_MODEL_MAP``. Miss one and routing points at a file that
-is not there. That friction is exactly what would make shipping our own
-fine-tuned SLM painful, so the build now writes a manifest beside the weights
-and everything reads that instead:
-
-    data/models/bundled.json
-
-Swapping the bundled model becomes one edit to ``release.config.json``. No
-Python changes.
+`scripts/make_bundled_manifest.py` writes it at build time from
+`release.config.json`, so changing what ships is one config edit, no Python.
+Today it lists no language model. The router and reconcile read it.
 
 The ``replaces`` field is what makes an UPDATE work rather than just an install.
 Without it, first run after an upgrade would have to infer "is this old bundled

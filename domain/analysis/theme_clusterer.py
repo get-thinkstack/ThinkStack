@@ -1,21 +1,10 @@
-"""
-theme clusterer module.
+"""Themes: group papers by embedding similarity, then have the model name them.
 
-groups research papers into thematic clusters, then labels them with the slm.
+    which papers group   cosine between paper centroids (deterministic, free)
+    what a group is      one model call, which cannot change membership
 
-membership is decided by the embeddings written at ingest, never by the model.
-asking a small model to cluster from raw text excerpts was the previous design
-and it did not work: on a library of three closely-related papers it returned
-three themes of one paper each, which is not a clustering at all. it also had
-no way to be wrong *visibly* -- a hallucinated doc_id silently produced a hull
-around nothing.
-
-so the split of responsibility is:
-
-  * which papers group together -- cosine between document centroids. free,
-    deterministic, and already computed for the graph.
-  * what the group is called    -- one slm call, naming clusters it cannot
-    change the membership of.
+The model never decides membership (ADR 2026-08-01). Used by LitGraph's Themes
+action and by the re-cluster precompute queues after each ingest.
 """
 
 import json
@@ -64,20 +53,11 @@ _SYSTEM = (
 
 
 def _components(ids: list[str], matrix: np.ndarray, threshold: float) -> list[list[str]]:
-    """group documents into connected components of the similarity graph.
+    """Connected components of the graph "cosine >= threshold", largest first.
 
-    single-linkage on purpose: a paper that bridges two subtopics belongs with
-    both, and a territory on the canvas is meant to be a region of related work
-    rather than a tight ball. papers similar to nothing become their own group,
-    which is an honest answer -- it says "this one stands alone".
-
-    args:
-        ids: document ids, aligned with the rows of ``matrix``.
-        matrix: centroid matrix of shape (n, d).
-        threshold: minimum cosine for two papers to be linked.
-
-    returns:
-        list of groups, each a list of doc_ids, largest group first.
+    Single-linkage on purpose: a paper bridging two subtopics joins both, and
+    a territory is a region of related work, not a tight ball. A paper similar
+    to nothing is its own group.
     """
     n = len(ids)
     if n == 0:
@@ -155,15 +135,8 @@ async def _label(groups: list[list[str]], texts: dict[str, str]) -> list[dict]:
 
 
 async def cluster_by_themes(texts: dict[str, str]) -> list[Theme]:
-    """cluster papers into thematic groups and label them.
-
-    args:
-        texts: mapping of doc_id to paper text content.
-
-    returns:
-        list of Theme objects. membership comes from embedding similarity, so
-        every doc_id returned is real and every paper appears exactly once.
-    """
+    """Themes for these papers. Every returned doc_id is real, and every paper
+    appears exactly once."""
     doc_ids = list(texts.keys())
     ids, matrix = get_doc_centroids(doc_ids)
 

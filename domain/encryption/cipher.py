@@ -1,9 +1,8 @@
-"""
-cipher module.
+"""AES-256-GCM, authenticated encryption.
 
-wraps aes-256-gcm authenticated encryption. encrypting also produces
-an authentication tag; decrypting with the wrong key makes that tag
-check fail loudly instead of returning corrupted plaintext.
+Encrypting also produces an authentication tag. Decrypting with the wrong key,
+or with tampered bytes, fails that tag check loudly instead of returning
+corrupted plaintext.
 """
 
 import os
@@ -29,38 +28,18 @@ def generate_nonce() -> bytes:
 
 
 def encrypt(key: bytes, nonce: bytes, plaintext: bytes) -> bytes:
-    """encrypt plaintext with aes-256-gcm.
+    """Ciphertext with the 16-byte auth tag appended (AESGCM's layout).
 
-    args:
-        key: 32-byte key, e.g. from kdf.derive_key.
-        nonce: 12-byte nonce, e.g. from generate_nonce. must be unique
-            per (key, nonce) pair -- never reused.
-        plaintext: the raw bytes to encrypt.
-
-    returns:
-        ciphertext with the 16-byte auth tag appended at the end
-        (this is the standard layout AESGCM produces).
+    `key` is 32 bytes (kdf.derive_key); `nonce` is 12 bytes and must never be
+    reused with the same key.
     """
     aesgcm = AESGCM(key)
     return aesgcm.encrypt(nonce, plaintext, associated_data=None)
 
 
 def decrypt(key: bytes, nonce: bytes, ciphertext: bytes) -> bytes:
-    """decrypt ciphertext produced by encrypt().
-
-    args:
-        key: the 32-byte key. must be the exact key used to encrypt --
-            in this system that means the password and salt must match.
-        nonce: the same nonce used during encryption.
-        ciphertext: bytes including the trailing 16-byte auth tag.
-
-    returns:
-        the original plaintext bytes.
-
-    raises:
-        DecryptionError: if the key is wrong or the ciphertext was
-            tampered with / corrupted.
-    """
+    """The plaintext, or DecryptionError if the key is wrong or the bytes
+    were tampered with. The right key means the same password AND salt."""
     aesgcm = AESGCM(key)
     try:
         return aesgcm.decrypt(nonce, ciphertext, associated_data=None)

@@ -1,36 +1,23 @@
 # Changelog
 
-All notable changes to ThinkStack, newest first.
-
-Versions read `MAJOR.MINOR.PATCH` but this is **not** semantic versioning, and
-does not pretend to be. Under semver, MAJOR means "we broke your code", which is
-meaningless for a desktop application nobody imports. The number here says how
-far a build has drifted from the current one:
-
-- **Z** advances when a `fix/` branch lands, and is unbounded
-- **Y** advances when a `feat/` branch lands, resetting Z, and carries into X at
-  **ten** — so `1.9.4` is followed by `2.0.0`, never `1.10.0`. Y is a single
-  digit, 0–9
-- **X** is declared by a human running the release workflow, and moving it
-  resets both columns below it
-
-Ordering is preserved either way, which is the property that actually matters:
-the updater compares versions and must never be offered a number lower than the
-one already installed. See `scripts/next_version.py`.
-
-A version exists only once it has been **tagged and published** — every entry
-below corresponds to a real release with installers on the
+All notable changes to ThinkStack, newest first. A version exists only once it
+has been published; each entry below has installers on the
 [releases page](https://github.com/get-thinkstack/ThinkStack/releases).
 
-Channels: **stable** (`vX.Y.Z`, what users get), **beta**
-(`vX.Y.Z-beta.N`, opt-in testers), **nightly** (rolling, unversioned).
-See [scripts/README.md](scripts/README.md) for how releases are cut.
+Versions are not semantic versioning: the number says how far a build has
+drifted, and the updater only needs it to grow. The rules are in
+`scripts/next_version.py`; how a release is cut is in
+[CONTRIBUTING.md](CONTRIBUTING.md#releasing).
+
+Pending entries go under `[Unreleased]` in the same PR; `scripts/ship.sh`
+renames that section to the version it publishes.
 
 ---
 
 ## [Unreleased]
 
 ### Added
+
 - **The map can be relaxed without ceasing to mean anything.** LitGraph draws
   where PCA put each paper, which is the product's central claim — position
   encodes meaning — but a static plate cannot be taken hold of. A single dial
@@ -104,6 +91,7 @@ See [scripts/README.md](scripts/README.md) for how releases are cut.
 - **`Ctrl+K` reaches any screen or any paper** from the keyboard.
 
 ### Changed
+
 - **A `feat/` branch moves the minor again.** Landing a feature advances Y and
   resets Z; a `fix/` advances Z. Between 2026-08-05 and now every landing moved
   Z and only a human could move Y, on the reasoning that calling something a
@@ -124,6 +112,30 @@ Otherwise a new development cycle. See `docs/FUTURE_WORK.md` for what is
 planned.
 
 ---
+
+### Fixed
+
+- **Documents compile offline.** The research paper, article, CV, report and
+  slides, and any plain article, report or book, needed a network on their
+  first compile; the bundled TeX engine now compiles them with none.
+- **Qwen3 4B now works for analysis and gap finding.** Offered as the most
+  capable model, it returned empty results for both; it now produces real
+  gaps, suggestions and summaries.
+- **No screen claims a model comes with the app any more.** None has since
+  models became user-managed; the first-run note now says to choose one in
+  Bench.
+- **A paper with no title appears under its filename** on the map, not as an
+  id.
+
+### Security
+
+- **Encrypting a paper now hides it at rest.** Its text and its PDF are
+  encrypted on disk, and no part of the app shows either without the password.
+  Removing encryption restores both exactly. Before, an encrypted paper's text
+  stayed readable on disk and through the app.
+- **Other websites can no longer act on ThinkStack.** A page open in your
+  browser could previously send requests that added a PDF to your library or
+  started a download; any write from another site is now refused.
 
 ## [2.3.5] — 2026-08-15
 

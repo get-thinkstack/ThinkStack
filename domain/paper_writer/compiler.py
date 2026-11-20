@@ -1,8 +1,24 @@
-"""
-paper writer compiler module.
+"""Scribe's compiler, and the project directory boundary.
 
-handles latex compilation to pdf using pdflatex, and manages
-the working directory for latex projects on disk.
+`compile_pdf(project_id)` turns `main.tex` into a PDF, Overleaf-style: keep
+going past errors, and treat "a PDF exists" as success, with the errors as
+warnings. In order:
+
+    check tables (_check_tables)            report miscounted rows, in words
+    heal the source                         wrap a bare fragment, add missing
+      (_ensure_compilable,                  \\usepackage lines, add a
+       _ensure_bibliography)                \\bibliography if it cites
+    run the engine (_find_engine)           bundled Tectonic, else pdflatex;
+                                            linked files on the search path
+    citations and index                     BibTeX (pdflatex only; Tectonic
+      (_needs_bibtex_pass,                  runs it itself) and a generated
+       _needs_index_pass)                   .ind, then another pass
+    no PDF? salvage and retry               placeholder for the broken
+      (_salvage_one,                        environment, then for every
+       _neutralize_all_figures)             figure, then give up
+
+Also the project CRUD (create, list, rename, read, save, delete) and
+`_get_project_dir`, the only place a project id becomes a path.
 """
 
 import logging
@@ -196,19 +212,9 @@ def _ensure_compilable(source: str) -> str:
 
 # ── tables the model got wrong ───────────────────────────────────────────
 #
-# A tabular declares its columns once and then every row has to agree. A model
-# writing one from a prompt loses count, and TeX answers with
-#
-#     ! Extra alignment tab has been changed to \cr
-#
-# which names a line and says nothing a person who did not write LaTeX can act
-# on. A tester on Windows hit exactly this. The engine was right and the
-# document was wrong; `_ensure_packages` can declare a missing package but has
-# no opinion about arithmetic.
-#
-# Counting is the whole fix, and it is worth doing HERE rather than by prompting
-# more carefully: a grammar or a better instruction makes the mistake rarer,
-# while counting makes it impossible to reach the engine.
+# Every row of a tabular must have the cells its column spec declares. A model
+# loses count, and TeX's "! Extra alignment tab" is no help to a non-LaTeX
+# author, so rows are counted here and the wrong one named (see compile_pdf).
 
 # The column specification, reduced to the letters that consume a cell. Anything
 # in @{...}, !{...} or >{...} is material between columns, not a column, and a
@@ -314,13 +320,8 @@ def _get_project_dir(project_id: str) -> Path:
     the join is what makes all of them safe at once; validating at each caller
     would be twenty-seven chances to forget.
 
-    It was missing, and the consequence was not theoretical: `_project()` in the
-    routes only checked `is_dir()`, so an id of "../../../../etc" resolved to a
-    real directory, passed that check, and let `list_files` enumerate it and
-    `read_file` return /etc/passwd. The webview can reach this API, so a project
-    id is untrusted input in exactly the sense a filename is.
-
-    Two checks, deliberately. The pattern refuses separators and traversal
+    A project id is untrusted input: without this, "../../../../etc" is a real
+    directory and `read_file` returns /etc/passwd. Two checks, deliberately. The pattern refuses separators and traversal
     before any filesystem call. The containment check then resolves and confirms
     the result is still inside the workspace, which is what catches a symlink --
     a string test cannot see that `mine` is a link to `/`.
@@ -341,19 +342,8 @@ def _get_project_dir(project_id: str) -> Path:
 def create_project(name: str = "untitled", template: str | None = None) -> dict:
     """Create a project from a starter document.
 
-    `template` names one of `domain.paper_writer.templates`; omitting it gives
-    the research paper, which is what most people here are writing. It is an
-    argument rather than a fixed shape because Scribe is a LaTeX editor that
-    happens to live inside a research application -- a letter or a CV is a
-    perfectly good reason to open it, and the paper template's abstract and
-    methodology sections are noise for both.
-
-    args:
-        name: human-readable project name.
-        template: which starter to use; unknown ids fall back to the paper.
-
-    returns:
-        dict with project_id, name, template and initial latex source.
+    `template` is an id from templates.py; omitted or unknown gives the
+    research paper. Returns project_id, name, template and the source.
     """
     from domain.paper_writer import templates as _templates
 
@@ -384,15 +374,7 @@ def create_project(name: str = "untitled", template: str | None = None) -> dict:
 
 
 def save_source(project_id: str, source: str) -> dict:
-    """save the latex source for a project.
-
-    args:
-        project_id: the project identifier.
-        source: raw latex source code.
-
-    returns:
-        dict confirming the save.
-    """
+    """Overwrite main.tex."""
     project_dir = _get_project_dir(project_id)
     if not project_dir.exists():
         raise FileNotFoundError(f"project {project_id} not found")
@@ -404,12 +386,8 @@ def save_source(project_id: str, source: str) -> dict:
 
 
 def _tex_install_hint() -> str:
-    """The install command for THIS machine's OS.
-
-    We printed `sudo dnf install texlive-...` to every user on every platform,
-    so a macOS tester chasing a missing package was handed a Fedora command.
-    Advice written by a Linux developer must not be shown to everyone.
-    """
+    """The TeX package install command for THIS machine's OS, never one
+    hardcoded distribution's."""
     if sys.platform == "darwin":
         return "brew install --cask mactex-no-gui"
     if sys.platform.startswith("win"):
@@ -419,7 +397,7 @@ def _tex_install_hint() -> str:
 
 
 def _extract_errors(log_text: str) -> list[str]:
-    """pull the meaningful ``! ...`` error blocks out of a pdflatex log.
+    """Pull the meaningful ``! ...`` error blocks out of an engine log.
 
     each block is the error line plus a few non-blank context lines (which carry
     the ``l.NN`` source line and the offending control sequence), deduplicated.
@@ -544,12 +522,8 @@ def _neutralize_all_figures(source: str) -> tuple[str, str | None]:
 def _find_engine() -> tuple[str, str] | None:
     """Locate a TeX engine: bundled Tectonic first, then anything on PATH.
 
-    The bundled copy is preferred so a packaged install compiles with no LaTeX
-    on the machine. Requiring users to install MacTeX or MiKTeX made the
-    flagship feature fail on every clean machine, which is not a documentation
-    problem -- it is a missing dependency.
-
-    returns (executable_path, kind) where kind is "tectonic" or "pdflatex".
+    Bundled first, so a packaged install compiles with no TeX installed.
+    Returns (executable_path, kind), kind "tectonic" or "pdflatex".
     """
     exe = "tectonic.exe" if sys.platform.startswith("win") else "tectonic"
     bundled = settings.bundled_tex_dir / exe
@@ -567,16 +541,10 @@ def _find_engine() -> tuple[str, str] | None:
 def _link_search_paths(project_dir: Path) -> list[Path]:
     """Directories a compile should look in besides the project itself.
 
-    A link records where a file IS rather than taking a copy. Until this
-    existed that was bookkeeping and nothing more: Tectonic runs with the
-    project as its working directory, so a linked figure was invisible to the
-    compile and `\includegraphics{chart.png}` failed on a file the panel
-    listed as present. The only thing that worked was typing an absolute path,
-    which works whether or not the file was ever linked and breaks the moment
-    it moves -- which is the exact thing linking exists to survive.
-
-    A linked FILE contributes its parent; a linked FOLDER contributes itself,
-    which is what makes a shared `figures/` directory work.
+    This is what lets a bare name such as `chart.png` in an includegraphics
+    resolve to a linked file that lives outside the project. A linked FILE
+    contributes its parent; a linked FOLDER contributes itself (a shared
+    `figures/` directory).
 
     Failures here are not the compile's problem. A missing link is already
     reported in the panel, and a compile that refused to start because one of
@@ -617,14 +585,25 @@ def _tectonic_env() -> dict:
     cache = settings.tex_cache_dir
     try:
         seed = settings.bundled_tex_dir / "cache"
-        if seed.is_dir() and not cache.exists():
-            shutil.copytree(seed, cache)
+        seed_marker = cache / ".thinkstack-bundled-cache-seeded"
+        if seed.is_dir() and not seed_marker.exists():
+            # The application or an installer may create the state directory
+            # before the first compile.  `cache.exists()` is therefore not a
+            # reliable indication that its bundled package data was copied.
+            shutil.copytree(seed, cache, dirs_exist_ok=True)
+            seed_marker.write_text("1\n", encoding="utf-8")
             logger.info("seeded bundled TeX cache into %s", cache)
         cache.mkdir(parents=True, exist_ok=True)
         env["TECTONIC_CACHE_DIR"] = str(cache)
     except OSError as e:  # noqa: BLE001 - fall back to tectonic's own default
         logger.warning("could not prepare the TeX cache: %s", e)
     return env
+
+
+# What --only-cached reports when the cache truly lacks a file the document
+# needs: a missing file, font or TikZ library.
+_CACHE_MISS = re.compile(r"not found|not loadable|did not find")
+_NO_NETWORK = re.compile(r"failure requesting|Network is unreachable|error sending request")
 
 
 def _run_engine(engine: str, kind: str, tex_file: Path, project_dir: Path):
@@ -653,11 +632,27 @@ def _run_engine(engine: str, kind: str, tex_file: Path, project_dir: Path):
         ]
         for d in search:
             cmd += ["-Z", f"search-path={d}"]
-        return subprocess.run(
+        # Cache first. Run normally, Tectonic fetches the online bundle's
+        # SHA256SUM for any lookup the cache cannot answer, including LaTeX
+        # merely probing for an optional file that exists nowhere; offline that
+        # is fatal. --only-cached answers such a probe "not found". Only a file
+        # the cache truly lacks sends the compile back out to the network.
+        env = _tectonic_env()
+        cached = subprocess.run(
+            cmd + ["--only-cached"],
+            capture_output=True, text=True, timeout=180,
+            cwd=str(project_dir), env=env,
+        )
+        if not _CACHE_MISS.search(cached.stderr or ""):
+            return cached
+        online = subprocess.run(
             cmd,
             capture_output=True, text=True, timeout=180,
-            cwd=str(project_dir), env=_tectonic_env(),
+            cwd=str(project_dir), env=env,
         )
+        # Offline, the retry can only fail on the network; the miss may be the
+        # user's own missing file, and the cached result is the better answer.
+        return cached if _NO_NETWORK.search(online.stderr or "") else online
 
     # pdflatex is the fallback engine and is the one that DOES read TEXINPUTS.
     # The trailing empty entry is load-bearing: without it this replaces the
@@ -748,24 +743,11 @@ def _needs_index_pass(project_dir: Path, tex_file: Path) -> bool:
 
 
 def compile_pdf(project_id: str) -> tuple[Path, list[str]]:
-    """compile the project's main.tex into a pdf, overleaf-style.
+    """Compile main.tex. Returns `(pdf_path, warnings)`; the steps are in the
+    module docstring.
 
-    compiles in non-interactive mode WITHOUT halting on the first error, so a
-    single broken figure/table no longer prevents a PDF. if a PDF is produced,
-    any errors pdflatex recovered from are returned as warnings. only if no PDF
-    can be produced at all do we surgically replace the offending environment
-    with a placeholder and retry; failing that, raise.
-
-    args:
-        project_id: the project identifier.
-
-    returns:
-        ``(pdf_path, warnings)`` -- the generated pdf and a list of human-readable
-        warning strings (empty on a fully clean compile).
-
-    raises:
-        FileNotFoundError: if the project doesn't exist.
-        RuntimeError: if pdflatex is not installed or no PDF could be produced.
+    FileNotFoundError: no such project. RuntimeError: no engine, or no PDF
+    could be produced even after salvage.
     """
     project_dir = _get_project_dir(project_id)
     tex_file = project_dir / "main.tex"
@@ -890,14 +872,8 @@ def compile_pdf(project_id: str) -> tuple[Path, list[str]]:
 def list_projects() -> list[dict]:
     """Every paper project, newest work first.
 
-    Ordered by when `main.tex` was last written, because that is what a person
-    means by "the one I was working on". It used to come back in whatever order
-    the filesystem listed the directories -- effectively creation order, which
-    puts the paper you touched a minute ago wherever it happens to fall among
-    two dozen others. With seven projects named `bundle-validation` and four
-    named `untitled`, finding one was a visual scan of near-identical rows.
-
-    `modified` is carried so the interface can say *when* rather than only
+    Ordered by when `main.tex` was last written: that is what "the one I was
+    working on" means. `modified` is carried so the interface can say *when* rather than only
     imply it by position, and `name_lower` so sorting by name does not put
     `Zebra` above `apple`.
     """
@@ -933,23 +909,10 @@ def list_projects() -> list[dict]:
 
 
 def rename_project(project_id: str, name: str) -> dict:
-    """change a project's display name.
+    """Change the display name in meta.json; returns the metadata.
 
-    Only meta.json changes. The directory is named after the project id, not
-    the title, so renaming costs nothing and cannot break a path the compiler,
-    the PDF preview or an \\includegraphics is using -- which is exactly why
-    the id was never the title in the first place.
-
-    args:
-        project_id: the project identifier.
-        name: the new display name.
-
-    returns:
-        the updated metadata.
-
-    raises:
-        FileNotFoundError: no such project.
-        ValueError: the name is empty.
+    The directory is named by id, not title, so a rename cannot break any path
+    the compiler or a figure reference uses. ValueError for an empty name.
     """
     import json
 
@@ -971,14 +934,7 @@ def rename_project(project_id: str, name: str) -> dict:
 
 
 def get_source(project_id: str) -> str:
-    """read the latex source for a project.
-
-    args:
-        project_id: the project identifier.
-
-    returns:
-        the latex source string.
-    """
+    """The contents of main.tex."""
     tex_file = _get_project_dir(project_id) / "main.tex"
     if not tex_file.exists():
         raise FileNotFoundError(f"project {project_id} not found")
@@ -986,14 +942,7 @@ def get_source(project_id: str) -> str:
 
 
 def delete_project(project_id: str) -> bool:
-    """delete a paper project and all its files.
-
-    args:
-        project_id: the project identifier.
-
-    returns:
-        true if the project was deleted.
-    """
+    """Delete a project and all its files. False if it did not exist."""
     project_dir = _get_project_dir(project_id)
     if project_dir.exists():
         shutil.rmtree(project_dir)

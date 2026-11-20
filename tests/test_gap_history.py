@@ -1,4 +1,5 @@
-"""tests for the gap-analysis run history store."""
+"""Gap run history: ids and timestamps, newest first, retention cap, persistence,
+and a corrupt file tolerated."""
 
 from infrastructure.gap_history import GapHistoryStore
 

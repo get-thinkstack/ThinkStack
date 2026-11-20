@@ -1,12 +1,22 @@
 # Contributing to ThinkStack
 
-ThinkStack is an offline research assistant: a Python backend, a React UI, and a
-Rust (Tauri) desktop shell, shipped as installers for Linux, macOS and Windows.
+ThinkStack is a Python backend, a React interface and a Rust (Tauri) desktop
+shell, shipped as installers for Linux, macOS and Windows. This guide is the
+practical one: setup, branches, what blocks a push, and how a release reaches
+users. *Why* things are built this way is in [docs/ADR.md](docs/ADR.md).
 
-This guide is the practical one — how to get set up, what the branches mean, and
-what will block your push. For *why* things are built the way they are, read
-[docs/ADR.md](docs/ADR.md). For the release runbook, see
-[scripts/README.md](scripts/README.md).
+- [Getting set up](#getting-set-up)
+- [Branches](#branches)
+- [Before you push](#before-you-push)
+- [Dependencies](#dependencies)
+- [Tests](#tests)
+- [Code style](#code-style)
+- [Commits and merging](#commits-and-merging)
+- [Releasing](#releasing)
+- [Beta testing](#beta-testing)
+- [Scripts and tools](#scripts-and-tools)
+- [Runtime dependencies](#runtime-dependencies)
+- [Adding a model to the catalog](#adding-a-model-to-the-catalog)
 
 ---
 
@@ -16,30 +26,24 @@ what will block your push. For *why* things are built the way they are, read
 git clone git@github.com:get-thinkstack/ThinkStack.git && cd ThinkStack
 ./scripts/setup.sh          # system deps, rust, python venv, node, latex
 ./scripts/install-hooks.sh  # activate the shared git hooks  <- don't skip this
+./scripts/fetch-tex.sh      # the TeX engine the installers bundle
+
+./scripts/dev.sh            # backend + vite, hot reload
+./scripts/dev.sh --tauri    # ... plus the desktop window
 ```
 
 `install-hooks.sh` points git at the version-controlled `.githooks/`, so everyone
-runs the same checks and updates arrive with a normal `git pull`. It also audits
-your local tooling and tells you what's missing.
+runs the same checks and updates arrive with `git pull`. It also audits your
+tooling and says what is missing.
 
-> **Windows: set your Rust toolchain locally, never in the repo.** The default
-> host on Windows is often `x86_64-pc-windows-gnu`, which needs MinGW's
-> `dlltool.exe`; the MSVC toolchain works without it. Fix that for your machine
-> only:
->
-> ```bash
-> rustup override set stable-x86_64-pc-windows-msvc   # this directory, untracked
-> ```
->
-> Do **not** commit `src-tauri/rust-toolchain.toml` with a host triple in the
-> channel. That file is repo-wide, so pinning `stable-x86_64-pc-windows-msvc`
-> makes `cargo metadata` fail outright on Linux and macOS -- `tauri build` then
-> cannot run at all. It happened once, reached `dev`, and `build.sh` reported
-> success over a build that produced no binary.
+**Use Python 3.12 for the venv.** CI freezes the backend with 3.12, and syntax a
+newer Python accepts can be a `SyntaxError` there (a stray `t"""`, valid in 3.14,
+once shipped a backend that could not start). `preflight.sh` uses `python3.12`
+when installed. If your OS upgrades its Python, a venv built on the old one
+breaks silently (no `pip`); rebuild it with `python3.12 -m venv .venv`.
 
-**Install `shellcheck`.** Without it, `actionlint` silently skips its shell
-checks, a broken `run:` block passes locally, and CI catches it instead. That has
-already cost us a release build.
+**Install `shellcheck`.** Without it `actionlint` silently skips its shell
+checks, a broken `run:` block passes locally, and CI catches it instead.
 
 ```bash
 sudo dnf install ShellCheck      # fedora
@@ -47,33 +51,55 @@ sudo apt install shellcheck      # debian / ubuntu
 brew install shellcheck          # macos
 ```
 
-Then grab a model and run it:
+**A model to test with.** None ships; add one in Bench, or:
 
 ```bash
 mkdir -p data/models
 huggingface-cli download Qwen/Qwen2.5-0.5B-Instruct-GGUF \
   qwen2.5-0.5b-instruct-q4_k_m.gguf --local-dir data/models
-
-./scripts/dev.sh          # backend + vite, hot reload
-./scripts/dev.sh --tauri  # ... plus the desktop window
 ```
+
+> **Windows: set the Rust toolchain for your machine, never in the repo.** The
+> default Windows host is often `x86_64-pc-windows-gnu`, which needs MinGW's
+> `dlltool.exe`. Use MSVC locally:
+>
+> ```bash
+> rustup override set stable-x86_64-pc-windows-msvc   # this directory, untracked
+> ```
+>
+> Never commit a `src-tauri/rust-toolchain.toml` with a host triple: it is
+> repo-wide, makes `cargo metadata` fail on Linux and macOS, and `build.sh` once
+> reported success over a build that produced no binary because of it.
+
+**NVIDIA via CUDA, from source only (Windows).** The shipped engine is CPU-only
+and acceleration is offered through Vulkan (see FEATURES). To try CUDA in a dev
+checkout:
+
+```bash
+pip install llama-cpp-python \
+  --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
+python tools/fix_gpu_dlls.py   # CUDA runtime DLLs + a compatible CPU backend; idempotent
+python tools/verify_gpu.py     # tokens/sec, confirms offload
+```
+
+`THINKSTACK_LLM_GPU_LAYERS=-1` forces full offload, `0` forces CPU.
 
 ---
 
 ## Branches
 
-| Branch | What it's for | Push gate | Ships installers? |
-|--------|---------------|-----------|-------------------|
-| `dev`  | day-to-day work, experiments | **fast** — lint + tests on what changed | no |
-| `beta` | integration; bundle and test real installers | **full** — everything CI runs | on a merge into `beta` |
-| `main` | official releases | **full** | on merge |
+Work flows one way: `dev` → `beta` → `main`. Never merge `main` back into `beta`.
 
-**Work on `dev`.** Branch from it, and merge back into it. `beta` and `main` are
-promoted into, never developed on.
+| Branch | For | Protection (GitHub) | Push gate (hooks) | Publishes |
+|---|---|---|---|---|
+| `dev` | day-to-day work | none | fast: lint + tests on what changed | nothing |
+| `beta` | real installers for testers | `CI OK` must pass; no force-push or delete | full | a **beta**, on every push that changes code |
+| `main` | releases | PR + 1 approval; `CI OK`; up to date; no force-push or delete | full | **nothing** on push; stable is dispatched (see [Releasing](#releasing)) |
 
-**Branches never build installers — tags do.** Merging to `beta` costs nothing;
-you only pay the ~45 minute three-OS build when someone deliberately tags. If you
-need a real installer without releasing, run a build on demand:
+Branch from `dev` and merge back into it; `beta` and `main` are promoted into,
+never developed on.
+
+**Need an installer without releasing?**
 
 ```bash
 gh workflow run dev-build.yml -f platform=linux-x86_64
@@ -82,574 +108,346 @@ gh workflow run dev-build.yml -f platform=all -f skip_models=true
 
 That produces downloadable artifacts and publishes nothing.
 
-### Rolling release tags are suffixed on purpose
-
-The beta and nightly channels publish to *rolling* tags, named `beta-latest`
-and `nightly-latest` in [`release.config.json`](release.config.json). The suffix
-is not decoration: git resolves `refs/tags/` before `refs/heads/`, so when the
-tag was called plain `beta` a bare `beta` meant the **release**, not the branch,
-and `git checkout beta` detached onto a published build while `git pull`
-reported a divergence that did not exist.
-
-Nothing special is needed now. `git checkout beta`, `git pull`, and
-`git pull origin beta` all mean the branch. **Never name a rolling tag after a
-branch.**
-
-If you cloned before this change, `./scripts/install-hooks.sh` deletes the two
-stale tags.
+**Rolling tags are named `beta` and `nightly`**, the same as branches, on
+purpose (`release.config.json` explains why). So a bare `beta` is ambiguous to
+some git commands (`git log beta` reads the tag). `git switch beta` only ever
+means the branch; elsewhere write `refs/heads/beta`.
 
 ---
 
 ## Before you push
 
 The pre-push hook runs [`scripts/preflight.sh`](scripts/preflight.sh), which
-mirrors `.github/workflows/ci.yml` exactly. **Green locally means green in CI.**
-You can run it yourself at any time:
+mirrors `.github/workflows/ci.yml`. Green locally means green in CI.
 
 ```bash
 scripts/preflight.sh            # scope by branch + what changed
-scripts/preflight.sh --full     # everything, regardless of what changed
+scripts/preflight.sh --full     # everything
 scripts/preflight.sh --fix      # auto-fix what can be fixed, then check
+scripts/preflight.sh --no-fetch # skip the "behind your remote" check (offline)
 ```
 
-It's quick because it's **change-scoped** (editing a markdown file doesn't
-compile Rust) and **branch-scoped** (`dev` gets the fast gate). It also warns
-when your branch is behind its remote — validating against stale code is the most
-common cause of "it passed locally but broke on main".
-
-What the hooks block:
+It is change-scoped (editing markdown does not compile Rust) and branch-scoped
+(`dev` gets the fast gate), and warns when your branch is behind its remote.
 
 | Hook | Checks |
-|------|--------|
-| `pre-commit` (<2s) | committed keys/`.env`, Python syntax **against CI's 3.12**, JSON/YAML validity, merge-conflict markers |
-| `pre-push` | ruff, pytest, actionlint + shellcheck, `cargo fmt`/`check` at the level your target branch demands |
+|---|---|
+| `pre-commit` (fast) | committed keys / `.env`, Python syntax against CI's 3.12, JSON/YAML validity, conflict markers |
+| `pre-push` | ruff, pytest, actionlint + shellcheck, `cargo fmt` / `check`, at the level the target branch demands |
 
-Bypass once with `--no-verify` if you must. If you find yourself doing it often,
-the gate is wrong — fix the gate.
+Bypass once with `--no-verify`. If you do that often, fix the gate.
 
-> **Python version matters.** CI freezes the backend with **3.12**. If your local
-> Python is newer, syntax it accepts may be a hard `SyntaxError` there. A stray
-> `t"""` (valid in 3.14, fatal in 3.12) once shipped a build whose backend could
-> not start. `preflight.sh` uses `python3.12` when it's installed — please have it.
+### Quality gates
+
+Users run an installer, so the installer is what gets tested, not only the
+source.
+
+| Gate | Runs | Establishes |
+|---|---|---|
+| `preflight.sh` | your machine, every push | lint, Python + frontend tests, shellcheck, actionlint, cargo |
+| CI (`ci.yml`) | every push | the same on a clean machine; `CI OK` is the required check |
+| `validate_bundle.py` | Linux, macOS, Windows, every build | the frozen app starts, ingests a PDF, searches, compiles a PDF, embeds a figure, builds an index, reports its graphics hardware, and contains no LLM |
+| GUI smoke test | Linux, every build | the launched AppImage is still alive after the point it once died at |
 
 ---
 
 ## Dependencies
 
-**Every requirement is pinned with `==`, and `scripts/check_pins.py` refuses a
-range or a bare name** — in CI, and in `preflight.sh` before you push.
+**Every requirement in `requirements.txt` is pinned with `==`.**
+`scripts/check_pins.py` refuses a range or a bare name, in CI and in
+`preflight.sh`. Why: ADR 2026-08-01, "pin every dependency".
 
-This is not tidiness. `nltk` was declared `>=3.9.1`. Version 3.10.1 was released
-between two builds and refuses to import `xml.etree` when the working directory
-is importable, so the frozen backend died during startup on Linux, macOS and
-Windows at the same moment — from a commit that changed no Python code. It could
-not be reproduced locally either: the developer's venv had 3.9.4. A range is a
-promise that every future release will work, and nobody can make that promise.
+Do not upgrade by editing the file. Dependabot opens one PR per package against
+`dev`, weekly; let CI build it, then merge. A new package goes in pinned, with
+the reason for that version in the commit.
 
-Do not upgrade by editing the file. Dependabot proposes each upgrade as a pull
-request against `dev`, one package at a time, and the full pipeline runs on it.
-Review it, let CI build it, then merge. That way an upgrade like the one above
-is rejected in a PR instead of at a beta tester's desk.
-
-If you genuinely need a new package: add it pinned to an exact version, and say
-in the commit why that version.
+`requirements-test.txt` is the lean, unpinned set CI's unit tests use (no torch,
+no llama.cpp). `requirements-dev.txt` is both.
 
 ---
 
 ## Tests
 
 ```bash
-pytest                    # the whole suite (839 tests, a few seconds)
+pytest                    # the suite; heavy tests are skipped
 pytest tests/test_x.py    # one file
-pytest -m heavy           # tests that load real models / hit the network
+pytest -m heavy           # real models, the network, and offline template compiles
+                          #   (the last needs scripts/fetch-tex.sh run first)
+cd frontend && npx vitest run --maxWorkers=2   # interface tests; cap workers on a 16 GB machine
 ```
 
-Tests live in `tests/`, mirroring the module they cover. They must be:
+Tests live in `tests/`, named after the module they cover. They must be:
 
-- **Isolated** — no network, no real model loads, no writes outside `tmp_path`.
-  Anything that needs a real GGUF is marked `heavy` and skipped by default.
-- **About behaviour, not implementation** — assert what a caller observes.
-- **Explicit about edge cases** — the negative paths are usually the valuable
-  ones. Most bugs we've caught were "what happens when this is missing/empty/
+- **Isolated:** no network, no real model loads, no writes outside `tmp_path`.
+  Anything needing a real GGUF is marked `heavy`.
+- **About behaviour:** assert what a caller observes.
+- **Explicit about edge cases:** most bugs caught here were "missing, empty or
   malformed", not the happy path.
 
-When you fix a bug, add the test that would have caught it, and say so in the
-docstring. `tests/test_ollama_client.py` has examples.
+When you fix a bug, add the test that would have caught it, and say so in its
+docstring.
+
+What automation cannot see: `jsdom` computes no layout, so a component can be
+off-screen with every interface test green. Layout is checked by a person.
 
 ---
 
 ## Code style
 
-Enforced automatically, so there's little to memorise:
+Enforced automatically:
 
-- **Python** — `ruff` with `E9` + `F` only (real bugs: syntax errors, undefined
-  names, unused imports). No cosmetic rules; the gate never blocks on formatting
-  opinions.
-- **Rust** — `cargo fmt` (checked) and `cargo check`. Clippy runs non-blocking.
-- **Shell** — `shellcheck`, excluding `SC1091`/`SC2015` (unfollowable `source`,
-  and the `a && b || c` echo idiom used throughout).
-- **Workflows** — `actionlint`. Keep `.github/workflows/*.yml` **ASCII-only**; the
-  VSCode GitHub Actions extension misparses non-ASCII and floods the Problems
-  panel. Use `--` not an em dash.
+- **Python:** `ruff` with `E9` + `F` only (syntax errors, undefined names, unused
+  imports). No cosmetic rules.
+- **Rust:** `cargo fmt` (checked) and `cargo check`. Clippy runs non-blocking.
+- **Shell:** `shellcheck`, excluding `SC1091` / `SC2015`.
+- **Workflows:** `actionlint`. Keep `.github/workflows/*.yml` ASCII-only; the
+  VS Code Actions extension misparses non-ASCII. Use `--`, not an em dash.
 
-**Comments should explain *why*, not *what*.** The code already says what it
-does. Reserve comments for the non-obvious: a constraint, a failure mode, a
-decision someone would otherwise undo. Every guard in this codebase exists
-because something broke — say which thing.
+**Where writing goes:**
 
----
+| What | Where |
+|---|---|
+| what a module is for, where it sits in the flow, the trap a maintainer must not break | the module docstring |
+| a non-obvious rule beside the code it guards | a `#` comment, one or two lines |
+| why it was built this way, what was rejected | `docs/ADR.md`, referenced by date |
+| the story of a change | the commit message |
 
-## Commits
-
-Conventional-ish prefixes: `feat:`, `fix:`, `ci:`, `docs:`, `chore:`,
-`test:`, `refactor:`.
-
-User-visible changes go under `## [Unreleased]` in
-[CHANGELOG.md](CHANGELOG.md) in the same PR. `release.sh` promotes that section
-to the new version when you tag, so the changelog is never reconstructed from
-memory afterwards.
-
-Write the body for whoever hits this in six months. State the problem, the cause,
-and why the fix is right — not a restatement of the diff. If a teammate found the
-bug, credit them.
+Do not restate type hints in docstrings, and do not narrate history in comments
+("this used to..."): state the rule the code now keeps.
 
 ---
 
-## Merging
+## Commits and merging
 
-Day to day you only ever touch `dev`. Nothing you merge reaches a user until
-someone deliberately tags a release, so this loop is safe to run fast.
+Prefixes: `feat:`, `fix:`, `ci:`, `docs:`, `chore:`, `test:`, `refactor:`. Write
+the body for whoever hits this in six months: the problem, the cause, why the
+fix is right. Credit a teammate who found the bug.
+
+User-visible changes go under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md)
+in the same PR; `ship.sh` renames that section to the version it publishes.
 
 ```bash
-git switch dev && git pull            # always start from the latest dev
-git switch -c feat/short-description  # or fix/…
+git switch dev && git pull
+git switch -c feat/short-description   # or fix/...
 # ... work, commit ...
-scripts/preflight.sh                  # optional: the hook runs it anyway
 git push -u origin feat/short-description
 gh pr create --base dev
 ```
 
-Merge it once **CI OK** is green. On `dev` you don't need anyone's approval —
-review each other's work when it's worth reviewing, not as a ritual.
+**The branch name sets the version.** `feat/` and `fix/` landings each move the
+number; `chore/` and `docs/` do not; direct commits never do. The rules live in
+one place, the docstring of [`scripts/next_version.py`](scripts/next_version.py):
 
-### What each branch will let you do
+```bash
+scripts/next_version.py --explain --next   # replay what landed, show each bump
+scripts/next_version.py --current          # newest published version
+```
 
-| | `dev` | `beta` | `main` |
-|---|---|---|---|
-| Push directly | yes | yes | **no — PR only** |
-| Pull request required | no | no | **yes** |
-| `CI OK` must be green | no (hook still gates you) | **yes** | **yes** |
-| Branch must be up to date to merge | — | no | **yes** |
-| Force-push / delete | allowed | blocked | blocked |
+**Merge with `--no-ff`** (on GitHub, a merge commit). A fast-forward leaves no
+merge commit, so the branch name never enters history and the landing is
+invisible to the version replay. `promote.sh` does this for you.
 
-`main` and `beta` are **promoted into, never developed on** — use
-`scripts/promote.sh`, which does the branch-and-tag dance for you. A PR straight
-into `main` is for the rare case where a promotion isn't the right shape; it
-still can't merge red.
-
-**If a merge into `dev` breaks something**, fix forward on `dev`. Nothing has
-shipped — no installers were built and no user is running that code.
+If a merge into `dev` breaks something, fix forward on `dev`; nothing has
+shipped.
 
 ---
 
 ## Releasing
 
-### Who can do it
+Every publish is done by [`.github/workflows/release.yml`](.github/workflows/release.yml).
+It derives the version, creates the tag, builds all three platforms, publishes
+installers and the signed updater manifest. Tags trigger nothing; never tag by
+hand.
 
-All three of us have **write** access, and a release is triggered by pushing a
-`vX.Y.Z` tag. There is **no tag protection**, so — as things stand — any of us
-can publish a release that auto-updates every installed app.
+| Channel | Published when | How |
+|---|---|---|
+| beta | a push to `beta` changes code (docs-only pushes are skipped) | `scripts/promote.sh feature` (or `fix`, `major`) merges `dev` → `beta` |
+| stable | someone dispatches it | `scripts/ship.sh` |
+| nightly | daily cron, only if something was committed that day | automatic |
 
-| | Rithesh (`Rithesh077`) | Aditya (`AdityaMehta2006`) | Jitvan (`jitvanChadha`) |
-|---|---|---|---|
-| Role | admin | write | write |
-| Merge to `dev` / `beta` | yes | yes | yes |
-| Merge to `main` (green PR) | yes | yes | yes |
-| **Cut a release** | yes | yes | yes |
-
-The convention, not currently enforced by GitHub: **stable releases go through
-the maintainer (Rithesh).** Beta tags are fair game for anyone — that's what beta
-is for. If you're about to run `promote.sh release`, say so in the group first.
-
-Note that branch protection does **not** cover tags. A tag can be pushed from any
-commit, including one that never went through `main`. `release.sh` is what
-actually checks that the commit is green (see the guards below) — respect it, and
-don't reach for `git tag` by hand.
-
-### Step 1 — validate the actual installer, locally, first
-
-**Required before any beta or stable release.** A green CI run says the code
-compiles and the unit tests pass. It does not say the app *starts*. We shipped a
-build whose startup screen spun for 200 seconds because nothing in the gate ever
-launched the packaged application.
+**Stable is never published by merging.** A push to `main` builds nothing, by
+design: "this is a release" must be said out loud (ADR 2026-08-06).
+`scripts/ship.sh` does the whole thing:
 
 ```bash
-./scripts/build.sh          # builds, then copies installers into local/
+scripts/ship.sh              # merge beta -> main, dispatch stable, watch, verify
+scripts/ship.sh 2.4.0        # state the version instead of deriving it
+scripts/ship.sh --dry-run    # every step, nothing changed
 ```
 
-`build.sh` deletes the old installers from `local/` and puts the fresh ones
-there, so `local/` always holds exactly the build you are about to release. A
-validation pass against last week's binary tells you nothing.
+It refuses a dirty tree, an unreachable origin, a beta no ahead of main, a beta
+whose own build failed, a version not ahead of what is published, and a tag that
+already exists. Then it renames CHANGELOG's `[Unreleased]` to the new version
+on beta (and cherry-picks that commit to dev), merges, and dispatches.
+Afterwards it checks the release is real: not a draft, not a
+prerelease, `latest.json` attached, every installer present, `/releases/latest`
+pointing at it. Each of those has been wrong once; a broken release looks like a
+working one from outside, and the updater reads a 404 as "up to date".
 
-Now **install and run it from `local/`** — not `npm run tauri dev`, not the
-`dist/` backend on its own. The packaged artifact is the only thing that
-exercises the resource paths, the frozen imports and the startup handshake.
+`release.yml` itself also refuses a stable version lower than the published
+one, because it can be dispatched from the GitHub UI with no script involved.
+`_publish-release.yml` fails any asset at GitHub's 2 GiB limit and warns near it.
 
-Check, at minimum:
+**Convention:** stable releases go through the maintainer (Rithesh); say so in
+the group before shipping. GitHub enforces only that `v*` tags cannot be moved
+or deleted.
 
-- [ ] It launches, and the loading screen **names each step** as it happens.
-- [ ] It reaches the UI. Note how long it took **from a cold start** (first run
-      after install, not a second launch — the difference is minutes).
-- [ ] Ingest one PDF. This is the first thing to touch the embedding model, and
-      the first thing that would reveal a missing bundled model.
-- [ ] Ask Scribe for one paragraph and run one analysis.
-- [ ] If anything fails, the screen shows a **real error and a log path** —
-      never an endless spinner.
+### Step 1: validate the real installer, locally
 
-If startup fails, the log is at the path shown on screen
-(`~/.local/share/com.thinkstack.app/logs/backend.log` on Linux). Backend stdout and
-stderr are captured there.
-
-### Step 2 — promote
-
-Only once the installer in `local/` has been validated:
+Required before any beta or stable. CI proves the code compiles and the tests
+pass; it does not prove the app *starts*. A build once spun on its loading
+screen for minutes because nothing in the gate launched the packaged app.
 
 ```bash
-scripts/promote.sh feature     # dev -> beta,   next MINOR
-scripts/promote.sh fix         # dev -> beta AND main, next PATCH
-scripts/promote.sh major       # dev -> beta,   next MAJOR
-
-scripts/ship.sh                # beta -> main AND published, then verified
+./scripts/build.sh     # builds, then replaces the installers in local/
 ```
 
-**Use `ship.sh` for production, not `promote.sh release`.** The latter merges
-but does not publish — `release.yml` owns the tag and only runs when dispatched
-— so doing one without the other leaves `main` merged and un-released while
-everyone assumes it shipped. That has happened. `ship.sh` does both and then
-checks the release is real: not a draft, `latest.json` attached, all four
-installers present, `/releases/latest` pointing at the new tag.
+`build.sh` clears `local/` first, so it always holds exactly the build you are
+about to release. **Install and run that**, not `tauri dev` and not the bare
+`dist/` backend. Then run the [tester checks](#what-a-tester-checks) yourself.
 
-If a stable release turns out bad, `scripts/rollback.sh` — and read its header
-first, because you cannot un-ship: the updater only moves forward, so reaching
-anyone who already updated means publishing the old code under a *higher*
-number.
-
-**You do not pass a version.** It is derived from the newest published stable
-tag, so nobody has to remember the rule or look it up:
-
-| Kind | Bump | Example |
-|------|------|---------|
-| `fix` | patch | `1.0.0` -> `1.0.1` |
-| `feature` | minor | `1.0.0` -> `1.1.0` |
-| `major` | major | `1.0.0` -> `2.0.0` |
-| `release` | none | promotes exactly what beta has been testing |
-
-### Branch names carry the version
-
-Name your branch for what it is, and the number follows:
-
-| Branch | Counts as | Effect on `X.Y.Z` |
-|--------|-----------|-------------------|
-| `feat/short-description` | a feature | **Y+1**, and Z resets to 0 |
-| `fix/short-description` | a fix | **Z+1** |
-| `chore/...`, `docs/...` | neither | nothing |
-| merging `beta` into `main` | a release | **nothing** — main publishes the number beta validated |
-
-```bash
-scripts/next_version.py --next --explain   # replay the merges, show each one
-scripts/next_version.py --current          # the newest version, any channel
-```
-
-The base is the **newest tag across every channel**, stable or beta. It is not
-the newest *stable* tag: beta was testing 1.6.7 while stable was 1.0.0, so a
-patch bump computed from stable gave 1.0.1 — below what testers already had
-installed. `release.sh` refuses to publish below what is out, and the updater
-would have shown installed apps an "update" that moved them backwards.
-
-From that base, every `feat/` and `fix/` branch merged since is replayed **in
-the order it landed**, one bump each. Order matters and is not cosmetic: a fix
-then a feature gives `X.(Y+1).0`, while a feature then a fix gives `X.(Y+1).1`.
-
-> **Merges into `dev`, `beta` and `main` must be `--no-ff`.** A fast-forward
-> creates no merge commit, so the branch name never enters the history and the
-> landing is invisible to the replay. The release number would then depend on
-> whether a merge happened to be fast-forwardable, which is not a property of
-> the work. `promote.sh` passes `--no-ff` for you; pass it yourself when you
-> merge by hand, and prefer a merge commit when merging a PR on GitHub.
-
-**Direct commits do not move the version**, whatever their prefix. A merge is
-what "landing" means; counting the commits inside one as well would bump the
-number several times for a single piece of work. If you push `fix: typo`
-straight to `dev`, the version does not change — put it on a `fix/` branch if
-it should.
-
-Pass a version explicitly to override, e.g. `scripts/promote.sh feature 1.6.7`.
-
-`--dry-run` prints every git command without running one. Use it the first time.
-
-**Merging `beta` into `main` releases automatically.** `release.yml` reads the
-version beta validated, records the tag, builds all three platforms and
-publishes, so the installers users download are swapped without a manual step.
-The same workflow cuts a beta when `dev` lands on `beta`, and a nightly on the
-cron — one file, three triggers.
-It does nothing if that version is already tagged.
-
-Each tag kicks off a **~45 minute three-OS build** that publishes installers and
-the signed updater manifest. Installed apps pick the update up on next launch —
-nobody re-downloads anything, and there is nothing to upload by hand.
-
-### What can stop you
-
-`release.sh` refuses to tag when:
-
-- the working tree is dirty, or the tag already exists
-- the version is **older than what's published** — the updater would drag
-  installed apps backwards, and that can't be undone
-- **CI isn't green** for the exact commit being tagged
-
-and CI fails the publish if any installer reaches GitHub's **2 GiB** asset limit
-(it warns past 90%).
-
-None of this can be un-shipped, which is the whole reason the guards exist. If
-one blocks you, it is almost always right.
+If startup fails, the screen shows the error and the log path.
 
 ### If a release goes wrong
 
-A bad **beta** is just another beta tag — bump the counter and re-promote.
+A bad **beta** is fixed by the next push to `beta`.
 
-A bad **stable** is fixed forward: `scripts/promote.sh fix <next-patch>`. Don't
-delete the tag or the release; installed apps follow whatever `latest` points at,
-and yanking it strands anyone mid-update.
+A bad **stable** cannot be un-shipped: the updater only moves forward, so an app
+that already updated never moves back, and deleting the release does not reach
+it.
+
+```bash
+scripts/rollback.sh            # mark it prerelease; /releases/latest falls back in seconds
+scripts/rollback.sh --reship   # also reach people who updated: old code, HIGHER number
+scripts/rollback.sh --undo     # false alarm
+```
+
+Never delete a published tag or release by hand; installed apps follow
+`latest`, and yanking it strands anyone mid-update.
 
 ---
 
 ## Beta testing
 
-Beta exists to answer one question CI cannot: **does the packaged app actually
-run on a real machine that isn't a developer's?** Every bug that has reached a
-user so far was invisible to the test suite, because the suite tests source code
-and users run an installer.
+Beta answers the one question CI cannot: does the packaged app run on a machine
+that is not a developer's?
 
-### The two landing pages
+### The download pages
 
-There is one public site with two channel pages, both deployed by
-[`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml):
+One GitHub Pages site (a repository gets exactly one), two pages, both built by
+`.github/workflows/deploy-pages.yml` from `landing.html`:
 
-| URL | Built from | Download buttons serve | Audience |
-|-----|------------|------------------------|----------|
-| `https://get-thinkstack.github.io/ThinkStack/` | `landing.html` on **main** | the newest **stable** release | the public |
-| `https://get-thinkstack.github.io/ThinkStack/beta/` | `landing.html` on **beta** | the newest **prerelease** | invited testers |
+| URL | Built from | Buttons download |
+|---|---|---|
+| `https://get-thinkstack.github.io/ThinkStack/` | `main` | the newest stable release |
+| `https://get-thinkstack.github.io/ThinkStack/beta/` | `beta` | the rolling `beta` release |
 
-`dev` has no page. It is ordinary development; nothing it produces is downloadable
-by anyone outside the team.
+- `/beta/` is generated from the same file, with `/releases/latest/download/`
+  rewritten to `/releases/download/beta/`. It does not look up "the newest
+  prerelease": that once picked up nightly.
+- The stable checkout is pinned to the default branch, or a push to `beta` would
+  publish beta's page as the public one.
+- Both pages rebuild on every run (a push touching `landing.html` or `assets/`,
+  a published release, or a manual run).
 
-Three things about this are worth understanding before you change it:
+Send testers the `/beta/` URL; the banner names the exact build.
 
-- **A repository gets exactly one GitHub Pages site.** A separate site for beta
-  is not possible; a subpath is. The upside is that `/beta/` is *generated* from
-  the same `landing.html`, so the two channels cannot drift apart.
-- **The beta tag is substituted at deploy time.** GitHub resolves
-  `/releases/latest/` to the newest *stable* release on purpose and offers no
-  equivalent URL for prereleases, so the workflow looks up the newest prerelease
-  and rewrites the five download URLs. `/beta/` stays a static file — no
-  client-side API call, nothing to rate-limit, no way for the buttons to break in
-  a tester's browser.
-- **The stable checkout is pinned to the default branch.** A bare `checkout`
-  takes the triggering ref, so a push to `beta` would otherwise publish beta's
-  page as the *public* one, handing pre-release downloads to everybody.
+### What a tester checks
 
-The deploy runs on: a push to `main` or `beta` touching `landing.html`, any
-published release (a new beta tag changes what `/beta/` must point at), or
-manually from the Actions tab. Both pages are rebuilt on every run, so a deploy
-triggered by one branch can never publish a stale copy of the other.
+In order; each has caught a real bug.
 
-If no prerelease exists yet, `/beta/` still deploys — its buttons point at the
-releases page and the banner says so, rather than 404ing.
+1. **It launches**, and the loading screen names each step. Note the time from a
+   cold start (first run after install).
+2. **The `spawn` step names the bundled backend:** `Backend: .../api/thinkstack-api`.
+   If it falls back to a system Python, stop: the app cannot find its own backend.
+3. **Ingest one PDF, offline.** The first thing to touch the embedding model, and
+   the proof it shipped.
+4. **Compile a Scribe document**, offline.
+5. **Add a model in Bench**, then ask Scribe for one paragraph and run one
+   analysis. Slow is fine; wrong or empty is not.
 
-### Getting builds to testers
-
-```bash
-scripts/promote.sh feature <version>     # dev -> beta, tags vX.Y.Z-beta.N
-```
-
-That publishes installers for all three OSes as a **prerelease** and triggers a
-Pages deploy, so `/beta/` picks up the new tag automatically. `latest` does not
-move, so the public page and everyone's existing install are untouched.
-
-Send testers the **`/beta/` URL**. They should not use the public page — it
-serves stable builds, and a tester on the wrong build files bugs against code you
-are not shipping. The green banner at the top of `/beta/` names the exact tag so
-they can confirm what they are running.
-
-### What a tester must actually check
-
-Not "does it look fine" — these five, in order. Each one has caught a real bug.
-
-1. **It launches.** The loading screen names each step with timings. Note the
-   time **from a cold start** (first run after install, not a second launch).
-2. **The `spawn:` line names the bundled backend** — a path ending in
-   `api/thinkstack-api`. If it says *"falling back to a system python"*, stop:
-   the app cannot find its own backend on that platform. That exact bug shipped
-   in v1.0.0-beta and presented as a spinner that never ended.
-3. **Ingest one PDF.** This is the first thing to touch the embedding model, and
-   the only check that proves the weights actually shipped. It must not need a
-   network connection.
-4. **Ask Scribe to write one paragraph.** This is the plain-text generation
-   path, the one that is not grammar-constrained. Slow is fine — the bundled
-   0.5B on a CPU takes ~20s. Wrong or empty is not.
-5. **Run one analysis.** With only the baseline model this degrades to the 0.5B
-   and will be rougher than a 1.5B. It must still produce something coherent.
-
-Also confirm the first-run model prompt appears **once**, states what it wants to
-download and why, and downloads **nothing** if you decline.
+A beta is validated when all three OSes pass. Record who tested what where the
+team can see it. Until then, do not ship.
 
 ### Reporting a failure
 
-Send the screenshot **and** the log. The loading screen shows the log path on
-failure; the file holds the full timestamped trace including backend output.
+Send the screenshot and the log. The loading screen shows the log path on
+failure; the file is `backend.log` in Tauri's `app_log_dir()`:
 
-| OS | Log path | Confirmed |
-|----|----------|-----------|
+| OS | Log | Confirmed by running it |
+|---|---|---|
 | Linux | `~/.local/share/com.thinkstack.app/logs/backend.log` | yes |
-| macOS | `~/Library/Logs/com.thinkstack.app/backend.log` | **no — first tester please confirm** |
-| Windows | `%LOCALAPPDATA%\com.thinkstack.app\logs\backend.log` | **no — first tester please confirm** |
+| macOS | `~/Library/Logs/com.thinkstack.app/backend.log` | no; first tester please confirm |
+| Windows | `%LOCALAPPDATA%\com.thinkstack.app\logs\backend.log` | no; first tester please confirm |
 
-Only the Linux path has been verified by running it. The other two follow
-Tauri's documented `app_log_dir()` layout; if the file isn't there, say so and
-we'll correct this table.
+### Not bugs: unsigned-build friction
 
-### Not bugs — expected friction on unsigned builds
-
-Report these only if the workaround fails:
-
-- **macOS** — "Apple could not verify ThinkStack is free of malware." The build
-  is not notarized (that needs a paid Apple Developer account). On **macOS 15+
-  the right-click → Open trick no longer works**: go **System Settings → Privacy
-  & Security → Open Anyway**. On macOS 14 and earlier, right-click → Open. One
-  time either way.
-- **Windows** — SmartScreen blue box. **More info** → **Run anyway**. One time.
-- **Linux** — the AppImage needs `chmod +x` before it will run.
-
-We do not yet pay for Apple/Windows code-signing certificates, so every tester
-sees these.
-
-### Sign-off
-
-A beta is validated when **all three OSes** have completed the five checks above.
-Record who tested what where the team can see it. Until then, do not run
-`scripts/promote.sh release` — a stable tag moves `latest` and auto-updates every
-installed app, and cannot be un-shipped.
+macOS "could not verify" and Windows SmartScreen are expected until the builds
+are signed; the workaround is in the [README](README.md#install). On Linux the
+AppImage needs `chmod +x`. Report them only if the workaround fails.
 
 ---
 
-## Repository layout and dependencies
+## Scripts and tools
 
-```text
-main.py            fastapi app: serves the react spa and /api
-config.py          pydantic-settings config (env prefix: THINKSTACK_)
-api/               12 routers: documents, search, graph, analysis, gaps,
-                   encryption, papers, paper_files, models, registry, hf,
-                   system
-domain/            core logic, one package per capability:
-                     ingestion/       pdf_parser, layout, layout_metadata,
-                                      chunker, metadata_extractor
-                     knowledge_base/  embedding_service, repository
-                     search/          semantic search over chunk embeddings
-                     analysis/        summarizer, claim_extractor, theme_clusterer
-                     gap_finder/      gap_pipeline (gaps + suggestions, one call)
-                     paper_writer/    compiler (the largest single module),
-                                      files (a project is a directory; this is
-                                      the boundary around it), indexing
-                                      (generates .ind, since the bundled engine
-                                      runs BibTeX but not makeindex)
-                     encryption/      kdf (argon2), cipher, envelope, vault
-                     model_manager/   registry, router, catalog, manifest,
-                                      reconcile, discovery, downloader,
-                                      huggingface
-                     fine_tuning/     data_collector
-infrastructure/    ollama_client (llm runtime), local_vector_store, hardware,
-                   capability (every hardware-derived decision, from injected
-                   facts), vulkan (what graphics devices exist), acceleration
-                   + accel_download (the optional GPU engine), file_manager,
-                   atomic_io, caches and histories
-frontend/          react 19 + vite spa (the Paper and Ink interface)
-                     features.js      every feature declared once; the nav,
-                                      the routes and the brand mark render
-                                      from it
-                     utils/shell.js   sidebar state. A feature at any depth
-                                      calls requestFocus() for room; only the
-                                      logo's own collapse is persisted
-src-tauri/         tauri 2 desktop shell (rust): lib.rs, diagnosis.rs
-scripts/           devops only
-tools/             developer utilities
-tests/             the pytest suite
-```
+`scripts/` is devops only; `tools/` is developer utilities.
 
-7,377 lines across 51 modules. Small enough to read; do that before guessing.
+| Script | Does |
+|---|---|
+| `setup.sh` | one-time environment bootstrap |
+| `install-hooks.sh` | activate `.githooks/` (once per clone) |
+| `dev.sh` | backend + Vite, optionally the desktop window |
+| `preflight.sh` | what CI runs, before you push |
+| `validate.sh` | the full local gate |
+| `fetch-tex.sh` | download Tectonic and warm its package cache |
+| `build.sh` | local production build into `local/` |
+| `package-appimage.sh` | package the Tauri AppDir into an AppImage |
+| `compose-updater-manifest.sh` | build the signed `latest.json` |
+| `make_bundled_manifest.py` | write `bundled.json`, what this build ships |
+| `validate_bundle.py` | exercise a frozen bundle (see Quality gates) |
+| `check_pins.py` | refuse unpinned requirements |
+| `next_version.py` | the version rules, and the next number |
+| `_ship_changelog.sh`, `_promote_changelog.py` | rename `[Unreleased]` to the shipped version (run by `ship.sh`) |
+| `promote.sh` | merge only (`--no-ff`): `feature`, `fix`, `major` dev → beta (which publishes a beta); `release` beta → main, which publishes nothing (use `ship.sh`) |
+| `ship.sh` | publish stable: merge, dispatch, verify |
+| `rollback.sh` | get users off a bad stable |
+| `set-repo.sh` | retarget the project at another GitHub owner/repo |
+| `selftest.sh` / `selftest.ps1` | check an installed, running build for what has broken in shipped builds (Unix / Windows) |
 
-### Every runtime dependency
-
-This table is the answer to "what does a clean machine need?". It was
-compiled by walking every import and every `subprocess`/`Command::new` call,
-after we shipped a build whose flagship feature needed a package no user had.
-
-**Python — all frozen into the bundle by PyInstaller:**
-
-`argon2` `cryptography` `fastapi` `fitz` (pymupdf) `httpx` `llama_cpp`
-`numpy` `pdfplumber` `psutil` `pydantic` `pydantic_settings` `rank_bm25`
-`sentence_transformers` `torch` `uvicorn`
-
-**Model weights — shipped inside the installer:**
-
-| Asset | Purpose | Bundled |
-|---|---|---|
-| `qwen2.5-0.5b-instruct-q4_k_m.gguf` | general, search, Scribe | yes |
-| `all-MiniLM-L6-v2` | embeddings (ingest + search) | yes |
-| `qwen2.5-1.5b-instruct-q4_k_m.gguf` | analysis, gap finder | no — offered on consent |
-
-**External binaries:**
-
-| Binary | Used by | Status |
-|---|---|---|
-| `tectonic` | paper writer, PDF compilation | **Bundled** (`scripts/fetch-tex.sh`), with a package cache warmed against the writer's whole preamble, so a clean machine compiles offline. A system `pdflatex`/`tectonic` is used only when the bundled one is absent, i.e. source checkouts. |
-| `nvidia-smi` | Rust hardware diagnosis | optional, timeout-guarded; absent simply means "no GPU" |
-| `taskkill` | Rust, Windows shutdown | ships with Windows |
-
-**Every runtime dependency is now shipped.** `nvidia-smi` and `taskkill` are the
-only externals left, and neither is required: one is an optional GPU probe, the
-other is part of Windows.
-
-**If you add a dependency, add it here.** A dependency that exists only in
-`requirements.txt` is invisible to whoever later asks why a fresh install
-fails on someone else's machine.
-
-### Verifying it
-
-`scripts/validate_bundle.py` runs against a built bundle and exercises the
-real paths — ingest (embedding model), search (vector similarity), inference
-(llama.cpp). CI runs it on macOS, Windows and Linux on every build, so a
-dependency that did not ship fails the build rather than reaching a user.
+| Tool | Does |
+|---|---|
+| `tools/verify_gpu.py`, `tools/fix_gpu_dlls.py` | CUDA from source (above) |
+| `tools/finetune.py` | fine-tune on the collected training pairs |
+| `tools/check_paper_writer.py` | manual end-to-end Scribe check; run directly, pytest does not collect it |
 
 ---
 
-## Adding a model
+## Runtime dependencies
 
-Models are declared in `domain/model_manager/catalog.py`. The baseline is
-**bundled** in the installer so a fresh install works offline; everything else is
-optional and fetched only with explicit consent, and only when the machine can
-run it.
+What a clean machine needs. Everything is shipped; nothing must be installed.
 
-Adding one to `release.config.json`'s `models` puts it back **inside the
-installer** — keep the two in step, and mind the 2 GiB asset ceiling.
+- **Python packages:** `requirements.txt`, frozen into the backend by PyInstaller.
+- **Bundled data:** the embedding model (`all-MiniLM-L6-v2`) and Tectonic with a
+  warmed package cache. No language model.
+- **External binaries:** `nvidia-smi` (optional GPU probe in the Rust shell,
+  timeout-guarded; absent means "no NVIDIA GPU") and `taskkill` (part of
+  Windows). A system `pdflatex` / `tectonic` is used only by source checkouts.
+- **Optional download:** the Vulkan inference engine, on request (FEATURES).
 
-Discovery already finds models the user has via Ollama and LM Studio, matching on
-a canonical `family/size` key, so we never re-download weights they already have.
+**If you add a runtime dependency, add it to `requirements.txt` and make
+`validate_bundle.py` exercise it.** A dependency that is only installed is
+invisible to whoever asks why a fresh install fails; `--hidden-import` names a
+module to bundle, it does not install one.
+
+---
+
+## Adding a model to the catalog
+
+The catalog of downloadable models is `domain/model_manager/catalog.py`. Nothing
+is bundled: `release.config.json` keeps `"models": []`, and putting a model there
+would put it back inside every installer (mind the 2 GiB asset limit). Never make
+a reasoning model (Qwen3, DeepSeek-R1, QwQ) a default; see ADR 2026-08-05.
+
+Discovery matches models the user already has on a canonical `family/size` key.
 If you add a model with unusual naming, check `discovery.model_key()` reduces it
-the way you expect and add a case to `tests/test_model_manager.py`.
-
----
-
-## Questions
-
-Open an issue, or read [docs/ADR.md](docs/ADR.md) — most "why is it like this?"
-questions are answered there, with the failure that motivated the decision.
+the way you expect, and add a case to `tests/test_model_manager.py`.

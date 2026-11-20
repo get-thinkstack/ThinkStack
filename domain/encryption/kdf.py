@@ -1,9 +1,8 @@
-"""
-key derivation module.
+"""Password -> 256-bit AES key, with Argon2id.
 
-turns a human password into a 256-bit aes key using argon2id.
-the same password always produces a different key per paper because
-each paper gets its own random salt.
+Each paper gets its own random salt, so the same password yields a different
+key per paper. Argon2id is memory-hard: guessing passwords on a GPU costs
+memory per guess, not just compute.
 """
 
 import os
@@ -54,17 +53,8 @@ def generate_salt() -> bytes:
 
 
 def derive_key(password: str, salt: bytes, params: KdfParams) -> bytes:
-    """derive a 256-bit key from a password and salt using argon2id.
-
-    args:
-        password: the user's plaintext password. never stored, never
-            logged, used here and then discarded by the caller.
-        salt: random bytes unique to this paper. not secret.
-        params: cost parameters to use for this derivation.
-
-    returns:
-        32 raw bytes suitable for use as an aes-256 key.
-    """
+    """32 raw bytes for AES-256. The password is never stored or logged; the
+    salt is per paper and not secret."""
     return hash_secret_raw(
         secret=password.encode("utf-8"),
         salt=salt,

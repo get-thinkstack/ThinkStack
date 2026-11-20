@@ -26,12 +26,15 @@ release.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
 import pytest
 
 SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "fetch-tex.sh"
+# how many documents the warm-up compiles (the `for DOC in ...` loop)
+WARM_DOCS = len(re.search(r"for DOC in ([^;]+);", SCRIPT.read_text()).group(1).split())
 
 # A fake engine, in place of the real download. `fetch-tex.sh` skips fetching
 # when an executable already sits at the destination, which is the seam these
@@ -67,7 +70,9 @@ if [ "$n" -le "$FAIL_TIMES" ]; then
     exit 1
 fi
 
-echo "%PDF-1.5 warmed" > "$outdir/warm.pdf"
+# the real engine names the PDF after the .tex it was given
+for arg in "$@"; do case "$arg" in *.tex) job="$(basename "$arg" .tex)";; esac; done
+echo "%PDF-1.5 warmed" > "$outdir/$job.pdf"
 echo "note: cache warmed"
 exit 0
 """
@@ -114,7 +119,7 @@ class TestTransientThrottling:
         result = run(dest)
 
         assert result.returncode == 0, result.stdout + result.stderr
-        assert invocations(count_file) == 2
+        assert invocations(count_file) == 1 + WARM_DOCS   # one retry, then every document
         assert (dest / "cache").is_dir()
 
     def test_it_keeps_trying_past_a_second_failure(self, dest, tmp_path):
@@ -123,7 +128,7 @@ class TestTransientThrottling:
         result = run(dest)
 
         assert result.returncode == 0, result.stdout + result.stderr
-        assert invocations(count_file) == 3
+        assert invocations(count_file) == 2 + WARM_DOCS   # two retries, then every document
 
     def test_the_retry_is_reported_rather_than_hidden(self, dest, tmp_path):
         install_fake_engine(dest, tmp_path, fail_times=1)
@@ -192,3 +197,65 @@ class TestAPartialCacheIsNotAWarmCache:
         assert second.returncode == 0, second.stdout + second.stderr
         assert invocations(count_file) == after_first, "it should not rewarm"
         assert "warm" in (second.stdout + second.stderr).lower()
+
+
+class TestAStampFromOtherWarmDocumentsIsNotTrusted:
+    """The stamp used to mean only "some run finished". Warm documents were
+    then extended, and every existing cache, including a developer's data/tex,
+    kept the old one: the stamp was there, so nothing re-warmed."""
+
+    def test_a_stamp_written_by_an_older_script_is_rewarmed(self, dest, tmp_path):
+        count_file = install_fake_engine(dest, tmp_path, fail_times=0)
+        (dest / "cache" / "files").mkdir(parents=True)
+        (dest / "cache" / "files" / "old.sty").write_text("old")
+        (dest / ".cache-warmed").write_text("2026-08-01T00:00:00Z\n")
+        result = run(dest)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert invocations(count_file) >= 1, "an old stamp must not be trusted"
+
+
+class TestEveryStarterTemplateIsWarmed:
+    """The cache is warmed by compiling documents written into fetch-tex.sh.
+
+    Anything a starter template loads that those documents do not is missing
+    on an offline machine. On 2026-11-19, with a cache built exactly as CI
+    builds it, the paper, article, CV and report templates produced NO PDF
+    offline (`\\usetikzlibrary{arrows.meta, ...}` was never warmed) and Beamer
+    was absent entirely. This compares the two lists instead of trusting a
+    comment that asks people to keep them in step.
+    """
+
+    @staticmethod
+    def _warm_documents() -> str:
+        text = SCRIPT.read_text()
+        docs = re.findall(r"<<'TEX'\n(.*?)\nTEX\n", text, re.S)
+        assert docs, "no warm document found in fetch-tex.sh"
+        return "\n".join(docs)
+
+    @staticmethod
+    def _needs(source: str) -> set[str]:
+        needs = set()
+        for kind, body in re.findall(r"\\(documentclass|usepackage|usetikzlibrary)(?:\[[^\]]*\])?\{([^}]*)\}", source):
+            needs |= {f"{kind}:{x.strip()}" for x in body.split(",") if x.strip()}
+        return needs
+
+    def test_every_template_needs_only_what_is_warmed(self):
+        from domain.paper_writer import templates
+        warmed = self._needs(self._warm_documents())
+        missing = {}
+        for t in templates.ALL:
+            gap = self._needs(templates.render(t.id, "x")) - warmed
+            if gap:
+                missing[t.id] = sorted(gap)
+        assert not missing, f"not in any warm document: {missing}"
+
+
+def test_a_local_build_always_lets_fetch_tex_prove_the_cache():
+    """build.sh ran fetch-tex.sh only when the engine binary was missing, so a
+    local build bundled whatever cache sat in data/tex, proven or not.
+    fetch-tex.sh decides from its own stamp; build.sh must always ask it."""
+    build = (SCRIPT.parent / "build.sh").read_text()
+    call = build.index("bash scripts/fetch-tex.sh data/tex")
+    guard = build.rfind('if [ ! -x "data/tex/tectonic" ]', 0, call)
+    assert guard == -1 or build.rfind("fi", guard, call) != -1, \
+        "fetch-tex.sh is still gated on the binary being missing"

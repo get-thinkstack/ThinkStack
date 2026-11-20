@@ -1,23 +1,12 @@
 """Files a project uses that do not live inside it.
 
-Everything in `files.py` is project-relative on purpose: `safe_path()` resolves
-a name and refuses anything that lands outside the project. That is right for
-what it does, and it is exactly why this is a separate module rather than a
-loosening of it. A linked file is a different thing with different rules, and
-mixing the two would mean the boundary that protects the workspace now has an
-exception in it.
+A separate module, not a loosening of `files.safe_path()`, so the boundary
+that protects the workspace has no exception in it.
 
-── Referenced, not copied ──
-
-A link records where a file IS. It does not take a copy, for the same reason
-imported models are referenced rather than copied: a user with a 40MB PDF should
-not acquire a second one because the application preferred a tidy folder, and a
-.bib shared between three projects should be one file that stays in step.
-Copying is available as a deliberate act -- `copy_into_project` -- for anyone who
-wants a project that travels as a unit.
-
-The cost of that choice is accepted rather than overlooked: a referenced file
-can move. Which is the rest of this module.
+A link records where a file IS; nothing is copied unless the user asks
+(`copy_into_project`). The compiler puts linked files' directories on its
+search path (ADR 2026-08-23). The cost is that a referenced file can move,
+which is the rest of this module.
 
 ── Finding it again ──
 
@@ -36,16 +25,11 @@ rename, a drop into `figures/`, and a move beside a sibling chapter. It does not
 walk the filesystem -- searching a home directory while somebody waits is worse
 than asking them where the file went, and the ask is already built.
 
-What this cannot do is worth stating, since the alternative is pretending: a
-copy has a different identity and is a different file; a move to another
-filesystem does not preserve an inode; and an editor that saves by writing a
-temporary file and renaming it over the original produces a new identity for
-what the author considers the same document. The first case in the list handles
-that last one, which is why path is tried before identity rather than after.
-
-Content hashing would survive all three. It also costs a full read of every file
-on every check and cannot tell two copies of the same document apart, which for
-a bibliography shared between projects is precisely the wrong answer.
+Limits: a copy has a new identity (it is a different file); a move to another
+filesystem loses the inode; an editor that saves via temp-file-and-rename
+changes the identity, which is why the PATH is tried first. Content hashing
+was rejected: a full read per check, and it cannot tell two copies of one
+shared .bib apart.
 """
 
 from __future__ import annotations

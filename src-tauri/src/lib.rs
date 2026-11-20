@@ -24,11 +24,9 @@ mod diagnosis;
 // navigates here once the backend answers, and the backend serves the real UI
 // from the copy PyInstaller bundled.
 //
-// It used to point at frontend/dist, which embedded the whole SPA a second
-// time: 872 KB of dead weight in every installer, and two copies of the
-// interface that could disagree about what they were. tauri.conf.json cannot
-// hold a comment (it rejects unknown fields), so the reason lives here, next
-// to the address that makes the embedded copy unnecessary.
+// Do NOT point it at frontend/dist: that embeds a second copy of the whole
+// interface, which can disagree with the one the backend serves. (The reason
+// lives here because tauri.conf.json rejects comments.)
 const BACKEND_ADDR: &str = "127.0.0.1:8000";
 
 /// How long to wait for the backend socket before declaring the launch failed.

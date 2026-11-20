@@ -20,10 +20,8 @@ import './index.css';
 /**
  * A page turns; it does not fly in.
  *
- * This used to animate opacity, y AND a blur(6px) filter on a spring. The blur
- * was the expensive third of it -- a full-page compositing pass every frame of
- * every navigation, on a machine that is also running a language model -- and
- * it is the one part of the effect nobody could see.
+ * No blur filter: it costs a full-page compositing pass every frame of every
+ * navigation, on a machine that is also running a language model.
  *
  * What is left is 90ms of opacity, which is a CSS animation (`.page-turn`).
  * framer-motion drove it until it did not earn the ~100 kB it was adding to the
@@ -108,12 +106,9 @@ function FeatureGuide() {
 /**
  * The page region, and the one place that decides how wide a page may be.
  *
- * A single `max-width: 1400px` used to apply to every screen, which is right
- * for reading and wrong for working: on a 1920px window Scribe's three panes
- * were squeezed into 1400 with dead space beside them, so the dividers looked
- * broken when they were only running out of room. Whether a page is a document
- * or a workspace is a fact about the page, so it is declared in features.js
- * rather than matched on a path here.
+ * A document page is width-capped for reading; a workspace (Scribe) takes the
+ * whole window. Which one a page is, is declared in features.js, never
+ * matched on a path here.
  *
  * A component because it needs useLocation, which only works below the router.
  */
@@ -329,14 +324,6 @@ export default function App() {
 
   return (
     <>
-      {/* The first-run "your machine can run a better model" modal is gone.
-          It interrupted whatever the user was doing to offer a model Bench
-          already lists, kept its own localStorage record of what had been
-          declined, and reappeared during page load after the model it was
-          offering had been dealt with elsewhere. Bench is the one place.
-
-          The two blurred orbs that used to sit behind everything are gone too.
-          The paper is the background now. */}
       <BrowserRouter>
         <div className={`app-layout ${collapsed ? 'is-collapsed' : ''}`}>
           <ReleaseFocusOnNavigate />
@@ -379,18 +366,13 @@ export default function App() {
 
               <div className="status-indicator">
                 <div className={`status-dot ${llmStatus !== 'connected' ? 'disconnected' : ''}`} />
-                {/* "local · slm" used to sit here with margin-left: auto,
-                    which in a 196px margin pushed it onto a line of its own.
-                    It is also not news: everything in this app runs locally,
-                    and the first-run note says so once. The dot and the words
-                    are the whole signal. */}
+                {/* The dot and the words are the whole signal; "local" is not
+                    news in an app where everything is local. */}
                 <span>{llmStatus === 'connected' ? 'System Online' : `LLM: ${llmStatus}`}</span>
               </div>
 
-              {/* The model prompt is asked once, so there has to be a way back
-                  to it: declining used to be irreversible from inside the app,
-                  because the flag lives in the webview's localStorage, which
-                  even reinstalling does not clear. */}
+              {/* Update app: the updater checks for a release only on this
+                  click, never on launch (ADR 2026-07-30). */}
               <div className="sidebar-tools">
                 <button
                   className={`sidebar-tool ${

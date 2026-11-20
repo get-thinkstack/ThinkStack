@@ -79,10 +79,9 @@ else
 fi
 
 # ── 2. warm the package cache ──
-# Every package the paper writer's preamble loads. If you add one to
-# domain/paper_writer/compiler.py's _PREAMBLE, add it here too -- otherwise the
-# first user to trigger it needs a network connection we promised they would
-# not need.
+# What the starter templates load must be in a warm document below, or the
+# first user to compile one needs a network we promised they would not.
+# tests/test_fetch_tex.py compares the two lists.
 CACHE="$DEST/cache"
 
 # Written only after a compile has actually produced a PDF, and checked instead
@@ -108,7 +107,13 @@ STAMP="$DEST/.cache-warmed"
 WARM_ATTEMPTS="${TEX_WARM_ATTEMPTS:-4}"
 WARM_RETRY_DELAY="${TEX_WARM_RETRY_DELAY:-15}"
 
-if [ -f "$STAMP" ] && [ -d "$CACHE" ] && [ -n "$(ls -A "$CACHE" 2>/dev/null)" ]; then
+# The stamp records WHICH warm documents proved the cache: a checksum of this
+# script, which contains them. A cache proved by an older version of them is
+# warmed again rather than trusted.
+WARM_KEY="warm-docs $(cksum < "$0" | cut -d' ' -f1-2)"
+
+if [ -f "$STAMP" ] && grep -qF "$WARM_KEY" "$STAMP" 2>/dev/null \
+   && [ -d "$CACHE" ] && [ -n "$(ls -A "$CACHE" 2>/dev/null)" ]; then
     echo -e "  ${GREEN}cache already warm${NC} ($(du -sh "$CACHE" | cut -f1))"
 else
     if [ -d "$CACHE" ] && [ -n "$(ls -A "$CACHE" 2>/dev/null)" ]; then
@@ -134,7 +139,14 @@ else
 \usepackage{tikz}
 \usepackage{pgfplots}
 \pgfplotsset{compat=1.18}
+\usetikzlibrary{arrows.meta, positioning, shapes.geometric}
+\newcommand\warmshapes{\rmfamily a\textbf{a}\textit{a}\textsl{a}\textsc{a}\textbf{\textit{a}}%
+ \sffamily a\textbf{a}\textit{a}\ttfamily a\textbf{a}\textit{a}\rmfamily $x^2_i\sum\alpha$}
 \begin{document}
+% Tectonic caches one font file per size and shape, and only those a warm
+% document typesets. Every standard size, every family and shape, with maths.
+\foreach \s in {5,6,7,8,9,10,10.95,12,14.4,17.28,20.74,24.88}{%
+  {\fontsize{\s}{\s}\selectfont\warmshapes}\par}
 \section{Warm}\label{sec:warm}
 $E=mc^2$\quad$\alpha\beta\gamma$\quad\textcolor{blue}{colour}
 \begin{table}[h]\centering
@@ -146,6 +158,63 @@ $E=mc^2$\quad$\alpha\beta\gamma$\quad\textcolor{blue}{colour}
 \begin{figure}[h]\centering
 \begin{tikzpicture}\begin{axis}\addplot {x^2};\end{axis}\end{tikzpicture}
 \caption{pgfplots}\end{figure}
+\end{document}
+TEX
+    # The Slides starter. A class cannot share a document with article.
+    cat > "$WARM/warm-beamer.tex" <<'TEX'
+\documentclass{beamer}
+\usepackage[utf8]{inputenc}
+\begin{document}
+\begin{frame}{Warm}\begin{itemize}\item one\end{itemize}\end{frame}
+\end{document}
+TEX
+    # LaTeX's default size is 10pt (size10.clo), and every warm document above
+    # is 12pt or Beamer, so a plain \documentclass{article} failed offline.
+    # One small document per class and base size, plus the index package.
+    # Without fontenc, XeTeX-based Tectonic uses the OpenType Latin Modern
+    # files: one per shape and design size. Each document below typesets
+    # all of them, so a plain document's \emph or \textbf is cached too.
+    cat > "$WARM/warm-fonts.tex" <<'TEX'
+\newcommand\warmshapes{\rmfamily a\textbf{a}\textit{a}\textsl{a}\textsc{a}\textbf{\textit{a}}%
+ \sffamily a\textbf{a}\textit{a}\ttfamily a\textbf{a}\textit{a}\rmfamily $x^2_i\sum\alpha$}
+\foreach \s in {5,6,7,8,9,10,10.95,12,14.4,17.28,20.74,24.88}{%
+  {\fontsize{\s}{\s}\selectfont\warmshapes}\par}
+TEX
+    cat > "$WARM/warm-10.tex" <<'TEX'
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage{pgffor}
+\usepackage{imakeidx}
+\usepackage{hyperref}
+\makeindex
+\begin{document}
+\input{warm-fonts}
+\section{Warm}x\index{x}\index{x!y}\newpage z\index{z}
+\printindex
+\end{document}
+TEX
+    cat > "$WARM/warm-11.tex" <<'TEX'
+\documentclass[11pt]{article}
+\usepackage{pgffor}
+\begin{document}
+\input{warm-fonts}
+\section{Warm}x
+\end{document}
+TEX
+    cat > "$WARM/warm-report.tex" <<'TEX'
+\documentclass{report}
+\usepackage{pgffor}
+\begin{document}
+\input{warm-fonts}
+\chapter{Warm}x
+\end{document}
+TEX
+    cat > "$WARM/warm-book.tex" <<'TEX'
+\documentclass{book}
+\usepackage{pgffor}
+\begin{document}
+\input{warm-fonts}
+\chapter{Warm}x
 \end{document}
 TEX
     mkdir -p "$CACHE"
@@ -160,16 +229,20 @@ TEX
     # <jobname>.out. hyperref writes the PDF outline to warm.out for jobname
     # "warm", so capturing stdout there made LaTeX read this log as TeX source
     # and fail with "Missing $ inserted" on a download progress line.
+    # Every document here is compiled; tests/test_fetch_tex.py fails if a
+    # starter template (domain/paper_writer/templates.py) loads anything that
+    # none of them do.
     ENGINE_OUT="$(mktemp)"
+    for DOC in warm warm-beamer warm-10 warm-11 warm-report warm-book; do
     attempt=1
     while : ; do
         set +e
-        TECTONIC_CACHE_DIR="$CACHE_ABS" "$DEST/$BIN" -X compile "$WARM/warm.tex" \
+        TECTONIC_CACHE_DIR="$CACHE_ABS" "$DEST/$BIN" -X compile "$WARM/$DOC.tex" \
             --outdir "$WARM" > "$ENGINE_OUT" 2>&1
         WARM_RC=$?
         set -e
 
-        [ "$WARM_RC" -eq 0 ] && [ -f "$WARM/warm.pdf" ] && break
+        [ "$WARM_RC" -eq 0 ] && [ -f "$WARM/$DOC.pdf" ] && break
 
         if [ "$attempt" -ge "$WARM_ATTEMPTS" ]; then
             echo -e "${RED}TeX cache warm-up FAILED (exit ${WARM_RC}) after ${attempt} attempts${NC}"
@@ -193,10 +266,11 @@ TEX
         WARM_RETRY_DELAY=$((WARM_RETRY_DELAY * 2))
         attempt=$((attempt + 1))
     done
+    done
 
     rm -f "$ENGINE_OUT"
     # only now is the cache known to be complete enough to compile the preamble
-    date -u +%Y-%m-%dT%H:%M:%SZ > "$STAMP"
+    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $WARM_KEY" > "$STAMP"
     echo -e "  ${GREEN}cache warm${NC} ($(du -sh "$CACHE" | cut -f1)) - compiles offline from here"
     rm -rf "$WARM"
 fi

@@ -1,14 +1,11 @@
-"""browse Hugging Face for models, and fetch one.
+"""Bench's Hugging Face browser: search, list a repo's GGUFs, download one.
 
-The only routes in ThinkStack that reach the internet. Each is the direct
-result of a click: nothing here runs on startup, on page load, or in the
-background, because an offline-first app that quietly queries a remote API on
-render is not offline-first in any sense a user would recognise.
+Every call here is the direct result of a click; nothing runs on startup, page
+load or in the background, because this is the internet.
 
-The download route takes a repo id and a filename and builds the URL itself.
-It never accepts a URL. The local API is reachable from the webview, which
-Tauri treats as remote content, so an endpoint that fetched whatever URL it was
-handed would be a general-purpose downloader pointed by whoever could reach it.
+The download route builds the URL from a repo id and a filename. It never
+accepts a URL: the local API is reachable from the webview, so an endpoint that
+fetched any URL it was handed would be a downloader aimed by whoever reached it.
 """
 
 from __future__ import annotations
@@ -126,12 +123,8 @@ async def download(request: HfDownloadRequest):
 
 
 async def _download_and_register(spec: ModelSpec, tasks: list[str]) -> None:
-    """download, then put it in the registry so it is actually usable.
-
-    Without the second half a completed download leaves a file in the models
-    directory that nothing routes to -- the user would have waited for a
-    gigabyte and then had to go and find it under "already on this machine".
-    """
+    """Download, then register it, so the finished file is assignable in Bench
+    rather than an unrouted file in the models directory."""
     result = await asyncio.to_thread(downloader.download, spec, settings.models_dir)
     if result.get("status") != "done":
         return

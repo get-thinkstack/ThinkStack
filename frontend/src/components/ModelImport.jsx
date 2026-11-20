@@ -94,8 +94,8 @@ export default function ModelImport({ tasks, onImport, onClose, busy, error }) {
           ))}
         </div>
         <p className="model-import-hint">
-          You can change this later. Anything left unassigned keeps using the
-          bundled model.
+          You can change this later. A job left unticked falls back to another
+          model you have, if there is one.
         </p>
       </div>
 

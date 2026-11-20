@@ -1,4 +1,7 @@
-"""Bibliographic metadata: title, authors, abstract, year.
+"""Bibliographic metadata: title, authors, abstract, year, arXiv id, DOI.
+
+Called by the upload route with the flat text and page 1's layout. Its result
+labels map nodes and search hits and becomes BibTeX entries in Scribe.
 
 Three sources, in descending order of how much they know:
 
@@ -34,29 +37,17 @@ _CURRENT_YEAR = datetime.now().year
 def _line_is_authors(line: str) -> bool:
     """Whether a line is the author list, judged without any layout.
 
-    Requires a separator to have been present: without one, "Deep Residual
-    Learning" reads as a name and the title would be thrown away. Two or more
-    separated parts that all look like people is a much safer signal, and it
-    is what stops the author line being glued onto the title -- the symptom
-    that made every stored BERT title read "...Language Understanding Jacob
-    Devlin".
+    Needs two or more separated parts that all look like people. Without the
+    separator rule "Deep Residual Learning" reads as a name; without this check
+    at all, the author line is glued onto the title.
     """
     parts = [p.strip() for p in NAME_SEPARATOR.split(line) if p.strip()]
     return len(parts) >= 2 and all(looks_like_name(p) for p in parts)
 
 
 def _extract_title(text: str) -> str:
-    """extract the paper title from the first lines of text.
-
-    assumes the title appears in the first few non-empty lines before
-    any abstract or author section.
-
-    args:
-        text: the full document text.
-
-    returns:
-        extracted title string, or empty string if not found.
-    """
+    """Title from the first non-empty lines of flat text, or "". The
+    no-layout fallback."""
     lines = text.strip().split("\n")
     title_lines = []
 
@@ -80,17 +71,8 @@ def _extract_title(text: str) -> str:
 
 
 def _extract_authors(text: str) -> list[str]:
-    """extract author names from the text near the title.
-
-    looks for common author formatting patterns including comma-separated
-    names, numbered affiliations, and email-adjacent lines.
-
-    args:
-        text: the full document text.
-
-    returns:
-        list of author name strings.
-    """
+    """Author names near the title in flat text (comma lists, numbered
+    affiliations, lines beside emails). The no-layout fallback."""
     lines = text.strip().split("\n")
     authors = []
 
@@ -110,17 +92,7 @@ def _extract_authors(text: str) -> list[str]:
 
 
 def _extract_abstract(text: str) -> str:
-    """extract the abstract section from the paper text.
-
-    searches for explicit abstract markers and captures the text between
-    the abstract heading and the next major section heading.
-
-    args:
-        text: the full document text.
-
-    returns:
-        abstract text string, or empty string if not found.
-    """
+    """Text between an "Abstract" heading and the next section heading, or ""."""
     patterns = [
         r"(?i)abstract[\s\.\-:]*\n(.*?)(?:\n\s*(?:introduction|keywords|1[\.\s]))",
         r"(?i)abstract[\s\.\-:]*(.*?)(?:\n\s*\n)",
@@ -162,9 +134,8 @@ def _extract_year(text: str) -> str:
         stated year  a copyright line or "Published ... at VENUE 2019"
         (nothing)    an empty year is a fact; a wrong one poisons a bibliography
 
-    The old version took the first four-digit number in the first 3000
-    characters, which on attention.pdf is 2014 -- part of Google's copyright
-    boilerplate, three years off the real date.
+    Never "the first four-digit number": on attention.pdf that is 2014, from
+    Google's copyright boilerplate, three years off.
     """
     # `arXiv:` is unambiguous, so it is worth finding wherever it is. The
     # stamp is rotated in the left margin, and PyMuPDF emits rotated text
@@ -192,17 +163,7 @@ def _extract_year(text: str) -> str:
 
 
 def extract_metadata_regex(text: str) -> DocumentMetadata:
-    """extract paper metadata using regex patterns.
-
-    applies multiple heuristic regex patterns to extract title, authors,
-    abstract, and publication year from the raw paper text.
-
-    args:
-        text: the full document text.
-
-    returns:
-        populated DocumentMetadata instance.
-    """
+    """All four fields from flat text by pattern. Used when there is no layout."""
     return DocumentMetadata(
         title=_extract_title(text),
         authors=_extract_authors(text),
@@ -217,9 +178,8 @@ async def extract_metadata_slm(
 ) -> DocumentMetadata:
     """Metadata from the local model. Falls back to regex if it is unavailable.
 
-    Given a page, the prompt carries font sizes rather than flat text -- see
-    `layout_digest`. Without them the model is looking at the same undifferentiated
-    string that produced the bug this module exists to fix.
+    Given a page, the prompt carries font sizes (`layout_digest`), not flat
+    text: flat text has lost the signal that marks the title.
     """
     if page is not None and page.spans:
         body = (
@@ -301,11 +261,9 @@ def title_is_plausible(title: str) -> bool:
 def metadata_is_plausible(metadata: DocumentMetadata) -> bool:
     """A usable result has a plausible title AND at least one author.
 
-    Both halves matter. The shipped bug was a guard that only asked whether
-    the title was EMPTY -- and the broken extractor never returned empty, it
-    returned Google's copyright notice. A guard that tests for silence can
-    never catch confident wrongness, so the model path was unreachable on
-    every paper it existed to rescue.
+    Test plausibility, never just emptiness: extraction fails confidently (a
+    copyright notice as the title), not silently, and a guard that waits for
+    an empty title never hands the model the papers it exists to rescue.
     """
     return title_is_plausible(metadata.title) and bool(metadata.authors)
 

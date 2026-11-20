@@ -1,4 +1,5 @@
-"""tests for crash-safe json persistence."""
+"""atomic_write_json: valid output, no temp file left, and the original file
+survives a serialization failure."""
 
 import json
 

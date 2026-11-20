@@ -1,9 +1,13 @@
-"""
-document api routes.
+"""Library routes: upload, list, read, correct and delete papers.
 
-handles pdf upload, listing, retrieval, and deletion endpoints.
-orchestrates the full ingestion pipeline from upload through
-chunking and embedding storage.
+`POST /upload` is the ingestion pipeline:
+
+    save PDF -> text (pdf_parser) -> page-1 layout -> metadata
+      -> chunks (chunker) -> embed + store (repository)
+      -> queue analysis (analysis.precompute), after the response
+
+Ingest must survive its optional steps. A failed layout read or analysis
+queue is logged; it never discards a paper whose chunks are already stored.
 """
 
 import logging
@@ -19,6 +23,7 @@ from infrastructure.file_manager import (
     list_stored_pdfs,
     delete_pdf,
     get_pdf_path,
+    get_stored_path,
 )
 from domain.ingestion.pdf_parser import extract_layout, extract_text, get_page_count
 from domain.ingestion.chunker import chunk_pages
@@ -32,6 +37,7 @@ from domain.knowledge_base.repository import (
     get_chunks_by_doc_id,
     delete_chunks_by_doc_id,
     get_collection_stats,
+    is_encrypted,
     update_document_metadata,
 )
 from infrastructure.analysis_cache import doc_analysis_cache
@@ -43,17 +49,9 @@ router = APIRouter()
 
 @router.post("/upload")
 async def upload_document(file: UploadFile = File(...)):
-    """upload and process a pdf research paper.
+    """Ingest one PDF and return its metadata and chunk count.
 
-    accepts a pdf file, extracts text, identifies metadata, creates
-    chunks, generates embeddings, and stores everything in the
-    knowledge base.
-
-    args:
-        file: the uploaded pdf file.
-
-    returns:
-        document metadata and processing statistics.
+    Analysis is queued, so the response does not wait for a model.
     """
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="only pdf files are accepted")
@@ -72,12 +70,9 @@ async def upload_document(file: UploadFile = File(...)):
                 detail="could not extract text from the pdf",
             )
 
-        # Page 1 with font sizes and positions intact. The title and author
-        # list are only identifiable from that; full_text has flattened it.
-        # Guarded: layout is an upgrade, not a requirement. A PDF whose page
-        # tree PyMuPDF cannot walk still has text, and losing the document
-        # over a nicer title would be a bad trade -- extract_metadata falls
-        # back to the flat-text path when page is None.
+        # Title and authors are only identifiable from page-1 layout (font
+        # sizes, positions); full_text has flattened it. Optional: with no
+        # layout, extract_metadata falls back to the flat text.
         try:
             layout = extract_layout(str(file_path))
         except Exception as e:  # noqa: BLE001 - layout is optional, ingest is not
@@ -91,19 +86,9 @@ async def upload_document(file: UploadFile = File(...)):
         chunks = chunk_pages(pages, doc_id)
         stored_count = store_chunks(chunks, metadata)
 
-        # Queue the analysis instead of awaiting it.
-        #
-        # This used to `await analyze_document(...)` here, which put a ~50 s
-        # model call inside the upload request -- the browser sat on a pending
-        # POST for the whole of it, and uploading three papers meant three
-        # minutes of apparent hang. The work still happens at ingest time (so
-        # the canvas is ready before the user opens it); it just happens after
-        # the response, and a re-cluster and gap scan are queued behind it.
-        # Guarded: by this point the pdf is saved and its chunks are stored, so
-        # the document IS ingested. Letting a queue failure fall through to the
-        # handler below would delete it and report a 500 for a paper that is
-        # actually in the library. The analysis is recoverable; the ingest is
-        # not worth throwing away with it.
+        # Queued, never awaited: a model call here holds the upload open for
+        # tens of seconds per paper. Guarded because the paper is already
+        # stored; a queue failure reaching the handler below would delete it.
         try:
             schedule_for_new_document(doc_id, full_text, metadata.title)
         except Exception as e:  # noqa: BLE001 - analysis is optional, ingest is not
@@ -131,11 +116,8 @@ async def upload_document(file: UploadFile = File(...)):
 
 @router.get("")
 async def list_documents():
-    """list all ingested documents with their metadata.
-
-    returns:
-        list of document summaries including file and chunk information.
-    """
+    """Every paper with its metadata and chunk count, plus the Library's
+    summary figures (chunks, analysed papers, gaps in the newest scan)."""
     stored_files = list_stored_pdfs()
     stats = get_collection_stats()
 
@@ -163,10 +145,8 @@ async def list_documents():
             "metadata": doc_metadata,
         })
 
-    # The library dashboard's other two figures, in the call it already makes.
-    # `gaps` is the newest run rather than a running total: a gap scan covers
-    # the whole library and supersedes the one before it, so summing every run
-    # would count the same gap once per rescan and only ever climb.
+    # The newest gap run, not a sum: each scan covers the whole library and
+    # supersedes the last, so summing would count a gap once per rescan.
     latest_gap_run = (gap_history.list() or [{}])[0]
 
     return {
@@ -180,15 +160,12 @@ async def list_documents():
 
 @router.get("/{doc_id}")
 async def get_document(doc_id: str):
-    """get detailed information about a specific document.
+    """One paper: metadata, every chunk in full, and the joined text.
 
-    args:
-        doc_id: the document identifier.
-
-    returns:
-        document details including all chunk texts and metadata.
+    An encrypted paper is listed with its metadata and NO text; reading it
+    needs the password (POST /api/encryption/decrypt).
     """
-    path = get_pdf_path(doc_id)
+    path = get_stored_path(doc_id)
     if not path:
         raise HTTPException(status_code=404, detail="document not found")
 
@@ -198,14 +175,15 @@ async def get_document(doc_id: str):
 
     metadata = chunks["metadatas"][0] if chunks["metadatas"] else {}
     texts = chunks["documents"] if chunks["documents"] else []
+    if is_encrypted(metadata):
+        # Also covers papers locked before text was blanked at rest.
+        texts = ["" for _ in texts]
 
     return {
         "doc_id": doc_id,
         "filename": path.name,
-        # whole chunks, not a 500-char preview of each: litgraph's reader shows
-        # the paper itself, and it marks passages per chunk -- a truncated chunk
-        # would drop the marked sentence as often as it kept it. this costs
-        # nothing on the wire that full_text below was not already sending.
+        # Whole chunks, never previews: the LitGraph reader marks passages per
+        # chunk, and a truncated chunk drops the marked sentence.
         "chunks": [
             {"chunk_id": cid, "text": txt, "metadata": meta}
             for cid, txt, meta in zip(
@@ -229,18 +207,15 @@ async def get_document_pdf(doc_id: str):
     disposition downloads the file and leaves the iframe blank, the same trap
     the paper-writer preview hit.
     """
+    # Encrypted first: its plaintext PDF is gone, and the reader treats 403
+    # as "locked" where 404 would mean "lost".
+    chunks = get_chunks_by_doc_id(doc_id)
+    if is_encrypted((chunks.get("metadatas") or [{}])[0]):
+        raise HTTPException(status_code=403, detail="document is encrypted")
+
     path = get_pdf_path(doc_id)
     if not path:
         raise HTTPException(status_code=404, detail="document not found")
-
-    # the stored pdf is NOT encrypted at rest: encryption covers the chunk
-    # text in the vector store, and the original file sits in papers_dir as
-    # plaintext. refusing here is what makes "encrypt" mean anything for the
-    # reader -- otherwise this route hands back everything it withholds.
-    chunks = get_chunks_by_doc_id(doc_id)
-    meta = (chunks.get("metadatas") or [{}])[0]
-    if meta.get("is_encrypted") in ("true", True):
-        raise HTTPException(status_code=403, detail="document is encrypted")
 
     return FileResponse(
         path=str(path),
@@ -263,19 +238,15 @@ MAX_AUTHOR_CHARS = 120
 
 @router.patch("/{doc_id}/metadata")
 async def correct_reference(doc_id: str, body: ReferenceUpdate):
-    """Correct what was extracted from a paper.
+    """Correct a paper's extracted title, authors or year.
 
-    Extraction gets titles right about 93% of the time and author lists 86%,
-    so roughly one paper in seven is stored under something wrong. That data
-    is not cosmetic: it labels every node on the map, names every search hit,
-    and is what a BibTeX entry is built from. This is the only place to
-    repair it, and repairing it here fixes every paper cited from then on --
-    a references.bib already written keeps what it has, because that file is
-    the author's.
+    This metadata labels map nodes, names search hits and builds BibTeX
+    entries, and extraction is wrong for a minority of papers, so this is the
+    one place to repair it. Later citations use the fix; a references.bib
+    already written keeps what it has, because that file is the author's.
 
-    An empty year is allowed and an empty title is not. A paper with no stated
-    year is a fact the extractor reports honestly; a paper with no name cannot
-    be found again.
+    An empty year is allowed (the paper states none). An empty title is not
+    (the paper could not be found again).
     """
     fields: dict = {}
 
@@ -320,20 +291,10 @@ async def correct_reference(doc_id: str, body: ReferenceUpdate):
 
 @router.delete("/{doc_id}")
 async def delete_document(doc_id: str):
-    """delete a document and all its associated data.
-
-    removes the pdf file and all chunks from the knowledge base.
-
-    args:
-        doc_id: the document identifier to delete.
-
-    returns:
-        confirmation of deletion.
-    """
+    """Delete a paper: its PDF, its chunks and its cached analysis."""
     pdf_deleted = delete_pdf(doc_id)
     chunks_deleted = delete_chunks_by_doc_id(doc_id)
-    # drop any cached gap-analysis for this document so a re-upload under a new
-    # id is never served a previous document's summary.
+    # Its cached analysis goes too, or the orphan is still counted as analysed.
     doc_analysis_cache.delete(doc_id)
 
     if not pdf_deleted and not chunks_deleted:

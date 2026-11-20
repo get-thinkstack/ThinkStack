@@ -1,8 +1,8 @@
 """Source line to page position, and back.
 
-Every compile already runs with `--synctex`, so every project on disk carries a
-`main.synctex.gz` that TeX wrote and nothing has ever read. The only code that
-touched the file hid it from the project tree. This reads it.
+Every compile runs with `--synctex`, so every project carries a
+`main.synctex.gz`. This parses it; api/routes_paper_files.py serves both
+directions (no interface calls them yet).
 
 WHAT THE FILE IS. A gzipped text log of boxes. After a small header giving the
 unit and the input files, the body is one record per box:

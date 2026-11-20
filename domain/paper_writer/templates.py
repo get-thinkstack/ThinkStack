@@ -1,15 +1,8 @@
 """What a new document starts as.
 
-Scribe is reached through a research application and its only starter was a
-research paper -- abstract, methodology, results. That is the narrower of the
-two things it could be. A LaTeX editor that compiles offline, needs no account
-and carries its own TeX engine is worth having for a letter, a CV, a set of
-lecture notes or an assignment, and most people opening one are not writing a
-paper.
-
-So the paper is one template among several rather than the only shape on offer.
-Citing a library is then what makes it BETTER for research rather than what
-makes it usable at all.
+Six starters: paper (the default), article, letter, CV, report, Beamer
+slides. Scribe is a LaTeX editor first; citing the library makes it better for
+research, not usable at all (ADR 2026-08-22).
 
 Each template is a complete document. They deliberately do not share a preamble
 beyond what `compiler._PREAMBLE` provides: a CV wants different packages from a

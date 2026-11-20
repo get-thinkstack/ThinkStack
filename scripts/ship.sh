@@ -172,6 +172,12 @@ echo -e "${CYAN}[merge]${NC} ${BETA_BRANCH} -> ${MAIN_BRANCH}"
 START_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 trap 'git checkout --quiet "$START_BRANCH" 2>/dev/null || true' EXIT
 
+# CHANGELOG [Unreleased] -> this version, committed on beta and carried to
+# dev, so the merge below ships the notes. Nothing pending: no commit.
+echo -e "  ${CYAN}[changelog]${NC} [Unreleased] -> v${VERSION}"
+run bash scripts/_ship_changelog.sh "$VERSION" \
+    || fail "could not promote the changelog; nothing was merged"
+
 run git fetch --quiet origin "+refs/heads/${MAIN_BRANCH}:refs/remotes/origin/${MAIN_BRANCH}" \
     || fail "could not fetch ${MAIN_BRANCH}"
 run git checkout --quiet -B "$MAIN_BRANCH" "refs/remotes/origin/${MAIN_BRANCH}" \

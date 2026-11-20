@@ -15,16 +15,8 @@ from typing import Union
 
 
 def atomic_write_json(path: Union[str, Path], data) -> None:
-    """serialize ``data`` to ``path`` atomically.
-
-    args:
-        path: destination file path.
-        data: any json-serializable object.
-
-    raises:
-        TypeError / ValueError: if ``data`` is not json-serializable. the
-            existing file at ``path`` (if any) is preserved in this case.
-    """
+    """Write `data` as JSON to `path`, all or nothing. TypeError/ValueError if
+    it is not serializable, and the existing file is left untouched."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")

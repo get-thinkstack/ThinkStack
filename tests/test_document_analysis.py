@@ -1,4 +1,5 @@
-"""tests for the single-call per-document summary+claims analysis."""
+"""analyze_document (summary + claims in one call): claims normalised, missing
+fields defaulted, and None (not an exception) on model error or bad output."""
 
 import json
 

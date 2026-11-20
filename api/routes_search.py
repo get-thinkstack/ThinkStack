@@ -1,8 +1,7 @@
-"""
-search api routes.
+"""Search route: meaning-based retrieval over every stored chunk.
 
-exposes semantic search over the knowledge base, either as a ranked list
-of chunks or rolled up to the papers that contain them.
+The ranking lives in domain/search/semantic_search.py. LitGraph's search box
+calls this with `group_by_doc` to get papers, each with its matching chunks.
 """
 
 import logging
@@ -29,20 +28,7 @@ class SearchRequest(BaseModel):
 
 @router.post("")
 async def search(request: SearchRequest):
-    """search the knowledge base by meaning.
-
-    embeds the query and ranks it against every stored chunk by cosine
-    similarity, with a small bonus for chunks containing query tokens
-    verbatim so rare literal terms stay findable.
-
-    args:
-        request: search parameters including query text and filters.
-
-    returns:
-        ranked results with relevance scores. with ``group_by_doc`` the
-        results are papers carrying their matching chunks; otherwise they
-        are individual chunks.
-    """
+    """Rank every chunk against the query; papers if `group_by_doc`, else chunks."""
     search_query = SearchQuery(
         query=request.query,
         top_k=request.top_k,

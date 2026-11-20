@@ -1,9 +1,15 @@
-"""
-thinkstack application entry point.
+"""The backend process: one FastAPI app on 127.0.0.1 serving /api and the built
+interface.
 
-configures and starts the fastapi server with all api routers,
-static file serving for the react frontend, cors middleware,
-and startup/shutdown lifecycle events.
+Started by the desktop shell (src-tauri/src/lib.rs) as the frozen
+`thinkstack-api` binary, or by `scripts/dev.sh` from source. In order:
+
+    1. before any import of llama.cpp: probe and select the GPU engine
+    2. register MIME types (Windows), build the app, CORS for the dev server
+    3. mount every router under /api/<prefix>
+    4. serve frontend/dist: hashed assets cached forever, index.html never
+    5. lifespan: data dirs, seed + reconcile models, open the vector store,
+       start the background job queue (stopped on shutdown)
 """
 
 import logging
@@ -44,29 +50,13 @@ from fastapi.staticfiles import StaticFiles
 
 
 def register_web_mime_types() -> None:
-    """Say what a JavaScript module is, before anything is asked to serve one.
+    """Serve .js/.mjs as JavaScript on every OS (defect D-16).
 
-    D-16: on Windows the reader could not open a PDF, reporting
-
-        Failed to fetch dynamically imported module: .../pdf.worker.min-*.mjs
-
-    The file is present and is served. Its CONTENT TYPE is wrong, and the chain
-    that produces it is two lines:
-
-        mimetypes.init()        -> db.read_windows_registry()
-        starlette FileResponse  -> guess_type(path)[0] or "text/plain"
-
-    Python seeds its table from the Windows registry, which usually has no
-    entry for `.mjs` and often maps `.js` to text/plain. Starlette then falls
-    back to text/plain, and a browser refuses to execute a module script that
-    is not served as JavaScript. The asset arrives; the browser declines it.
-
-    None of this is visible on Linux or macOS, where the built-in table answers
-    correctly. That is why every suite passed while the reader was unusable on
-    a third of the platforms we ship to.
-
-    Called at import, not from a startup hook: StaticFiles is mounted below and
-    can answer a request the moment the app exists.
+    On Windows, `mimetypes` is seeded from the registry, which often lacks
+    `.mjs` or maps `.js` to text/plain; Starlette then serves the PDF viewer's
+    worker as text/plain and the browser refuses to run it. Invisible on Linux
+    and macOS. Called at import, because StaticFiles can answer as soon as the
+    app exists.
     """
     for suffix, kind in (
         (".mjs", "text/javascript"),
@@ -107,7 +97,7 @@ logger = logging.getLogger("thinkstack")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """handle startup and shutdown tasks."""
+    """Startup and shutdown; see step 5 in the module docstring."""
     logger.info("initializing thinkstack")
     ensure_directories()
     get_vector_store()
@@ -127,44 +117,21 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Cross-origin access, and why it is now a short list rather than "*".
+# CORS: only the Vite dev server (3001) is a permitted cross-origin caller.
+# Production is same-origin (the window loads the UI from this server).
 #
-# "Offline" describes what this application SENDS, not who may call it. The
-# backend is an HTTP server on 127.0.0.1, and the machine running it still has
-# a browser with a network. Any page the user opens can issue a request to
-# localhost -- nothing stops the request being made -- and the header below is
-# the browser asking whether that page may READ the reply.
-#
-# It used to answer "*", which means anyone. With it, a page the user happened
-# to visit could enumerate their library, read a paper, read a Scribe project
-# and delete a document, and the reply landed in that page's JavaScript. For an
-# application whose entire premise is that the documents never leave the
-# machine, that is the promise failing in the exact way it claims to prevent.
-#
-# Production does not need CORS at all: the window navigates to 127.0.0.1:8000
-# and the backend serves the interface from there, so the UI is SAME-ORIGIN.
-# The only cross-origin caller that has ever been wanted is the Vite dev server
-# on 3001 during `./scripts/dev.sh`, so that is the whole list.
-#
-# Credentials stay off. Nothing here uses cookies, and `allow_credentials` with
-# a wildcard is a combination browsers refuse anyway.
+# Any web page the user opens can SEND requests to 127.0.0.1; CORS only stops
+# it READING the reply. Never widen this to "*": that let any page read the
+# library and Scribe projects. Blind "simple" writes are stopped separately,
+# by _refuse_foreign_writes below. No cookies, so no credentials.
 DEV_ORIGINS = [
     "http://localhost:3001",
     "http://127.0.0.1:3001",
 ]
 
-# A refused project id is a 404 everywhere, from one place.
-#
-# ProjectIdError is raised at the single point that joins an id to a path, and
-# twenty-seven call sites reach the filesystem through it. Handled here rather
-# than in each route because the routes catch inconsistently -- some map
-# ValueError to 400, some let it become a 500 -- and a 500 carrying the message
-# echoed the attempted path back to the caller, which tells a probe that its
-# input reached something.
-#
-# 404, not 400: a caller has no business distinguishing "no such project" from
-# "that was not a project id", and answering differently confirms the id shape
-# matters.
+# A refused project id (compiler._get_project_dir) is a 404 everywhere,
+# handled once here: routes caught it inconsistently, and a 500 echoed the
+# attempted path to the caller. 404, not 400, so a probe learns nothing.
 @app.exception_handler(ProjectIdError)
 async def _bad_project_id(request, exc):        # noqa: ARG001 - signature is fastapi's
     return JSONResponse(status_code=404, content={"detail": "project not found"})
@@ -177,6 +144,28 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# The other half of the CORS note above: a foreign page can still SEND a
+# simple request (multipart, or no body) blind. Browsers always attach Origin
+# to a cross-site write, so a write whose Origin is not the app or the dev
+# server is refused before any route runs. No Origin means not a browser
+# (curl, tests, the bundle validator). GETs stay CORS's job: the loading
+# screen polls from tauri:// with GET.
+_WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+_OWN_ORIGINS = {
+    f"http://{settings.host}:{settings.port}",
+    f"http://127.0.0.1:{settings.port}",
+    f"http://localhost:{settings.port}",
+    *DEV_ORIGINS,
+}
+
+
+@app.middleware("http")
+async def _refuse_foreign_writes(request, call_next):
+    origin = request.headers.get("origin")
+    if request.method in _WRITE_METHODS and origin is not None and origin not in _OWN_ORIGINS:
+        return JSONResponse(status_code=403, content={"detail": "cross-origin write refused"})
+    return await call_next(request)
 
 app.include_router(documents_router, prefix="/api/documents", tags=["documents"])
 app.include_router(search_router, prefix="/api/search", tags=["search"])
@@ -196,30 +185,19 @@ app.include_router(models_router, prefix="/api/models", tags=["models"])
 # resource, split across two modules because setup and management are
 # different jobs with different consequences.
 app.include_router(registry_router, prefix="/api/models", tags=["models"])
-# The ONLY routes that reach the internet, kept under their own prefix so
-# that is obvious from the URL alone.
+# Hugging Face, under its own prefix so the internet calls are obvious from
+# the URL. (Catalog downloads and the GPU engine also download, on request.)
 app.include_router(hf_router, prefix="/api/hf", tags=["huggingface"])
 
 frontend_dist = settings.base_dir / "frontend" / "dist"
 
-# Caching rules for the bundled UI, and why they are not optional.
+# Caching: /assets forever, index.html NEVER.
 #
-# The desktop shell is a WebKit view pointed at http://127.0.0.1:8000, and it
-# keeps an HTTP cache that OUTLIVES the application: updating the app replaces
-# the binary, not the webview's cache. Nothing here sent any cache header, so
-# WebKit applied *heuristic* freshness -- with no Cache-Control it may reuse a
-# response for a fraction of its age without revalidating at all.
-#
-# index.html is the file that breaks: its name never changes, so a stale copy
-# keeps referencing the PREVIOUS build's asset filenames. An updated app then
-# renders the old UI, reports the old __APP_VERSION__ in the sidebar, and looks
-# for all the world like the update never installed. That is exactly what was
-# reported after 1.6.8 shipped -- a freshly downloaded build still showing
-# v1.6.7 and the old two-button Analysis screen.
-#
-# Vite content-hashes everything under /assets (index-B4FzKC14.js), so a new
-# build is always a new URL and can never be served stale. Those are safe to
-# cache permanently; index.html must never be cached.
+# The webview's HTTP cache outlives the app (an update replaces the binary,
+# not the cache), and without headers WebKit reuses responses heuristically.
+# A stale index.html points at the previous build's assets, so an updated app
+# shows the old UI and old version number. Vite content-hashes /assets, so
+# those can never be stale.
 INDEX_CACHE = "no-store, no-cache, must-revalidate, max-age=0"
 ASSET_CACHE = "public, max-age=31536000, immutable"
 

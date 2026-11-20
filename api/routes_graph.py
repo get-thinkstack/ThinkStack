@@ -1,10 +1,7 @@
-"""
-litgraph api routes.
+"""LitGraph route: the map of the library (domain/litgraph/graph_builder.py).
 
-serves the spatial map of the library. the graph is derived on every request
-from data that already persists -- embeddings, the analysis cache, and past
-analysis and gap runs -- so there is nothing to invalidate and no new state
-to keep consistent. no language-model call happens here.
+Rebuilt on every request from what already persists (embeddings, the analysis
+cache, past runs), so there is no graph state to invalidate. No model call.
 """
 
 import logging
@@ -19,11 +16,9 @@ router = APIRouter()
 
 @router.get("")
 async def graph():
-    """return the library graph: nodes, edges, themes and gaps.
+    """Nodes, edges, themes and gaps.
 
-    returns:
-        the full graph payload. every collection is present even when empty
-        so the client can show a per-layer empty state instead of guessing
-        whether a layer is absent or merely switched off.
+    Every collection is present even when empty, so the client can tell an
+    empty layer from a missing one.
     """
     return build_graph()

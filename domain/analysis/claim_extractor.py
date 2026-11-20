@@ -1,9 +1,6 @@
-"""
-claim extractor module.
+"""Claims from one paper (findings, methodology, limitations, future work).
 
-extracts structured claims, findings, and methodological details from
-research papers using the local slm. produces typed claim objects
-for downstream gap analysis.
+Used by LitGraph's Claims action. Output shape is coerced by parsing.py.
 """
 
 import json
@@ -34,19 +31,7 @@ extract the 3 to 5 most important claims."""
 
 
 async def extract_claims(doc_id: str, text: str) -> list[Claim]:
-    """extract structured claims from a research paper using the slm.
-
-    sends the paper text to the language model with a structured prompt
-    that requests typed claims with confidence levels and supporting
-    evidence.
-
-    args:
-        doc_id: the document identifier.
-        text: the paper text to analyze.
-
-    returns:
-        list of Claim objects extracted from the paper.
-    """
+    """Typed claims with confidence and evidence, from one model call."""
     truncated = text[:6000]
     prompt = EXTRACTION_PROMPT.format(text=truncated)
 

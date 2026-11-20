@@ -3,12 +3,10 @@ import { Sparkles, X } from 'lucide-react';
 import { firstRunNoteSeen, markFirstRunNoteSeen } from '../utils/firstRun';
 
 /**
- * Told once, on a new install: a model is included, and it is yours to change.
- *
- * NOT the modal this replaced. That one interrupted to sell a download, kept
- * its own record of what had been declined, and reappeared after the thing it
- * was offering had been dealt with elsewhere. This states a fact, offers a
- * door, and never comes back.
+ * Told once, on a new install: the app runs a language model on this machine,
+ * and Bench is where it is chosen. A banner, not a dialog, and it never
+ * returns (the dialog it replaced interrupted and kept coming back).
+
  *
  * It teaches rather than asks. A researcher has no reason to know that the app
  * runs a language model on their own machine, that it can be swapped, or that
@@ -39,12 +37,12 @@ export default function FirstRunNote({ onOpenBench }) {
       <span className="first-run-icon"><Sparkles size={16} /></span>
 
       <div className="first-run-body">
-        <strong>ThinkStack includes a small model, so it works right away.</strong>
+        <strong>ThinkStack runs language models on your own machine.</strong>
         <p>
-          Everything runs on your own machine — nothing is sent anywhere. The
-          included model is good at finding research gaps and drafting LaTeX.
-          For better summaries you can add a larger one, or use a model you
-          already have. You can also remove the included one entirely.
+          Nothing is sent anywhere. No model comes with the app: pick one in
+          Bench, or use one you already have through Ollama or LM Studio.
+          Reading, search and writing LaTeX work without one; summaries, gap
+          finding and writing at the cursor need one.
         </p>
       </div>
 

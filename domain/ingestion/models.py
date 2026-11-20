@@ -1,9 +1,4 @@
-"""
-ingestion domain models.
-
-data classes representing documents and their chunks as they flow
-through the ingestion pipeline from raw pdf to indexed knowledge.
-"""
+"""Data classes for ingestion: metadata, page layout (spans), and chunks."""
 
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -18,8 +13,7 @@ class DocumentMetadata:
     year: str = ""
     source: str = ""
     pages: int = 0
-    # Both are found while dating the paper and were thrown away until Scribe
-    # needed to cite it: a BibTeX entry carrying neither is a dead reference.
+    # Kept for citing: a BibTeX entry with neither is a dead reference.
     arxiv_id: str = ""
     doi: str = ""
 

@@ -1,460 +1,407 @@
-# ThinkStack — Features
+# Features
 
-A detailed reference for everything ThinkStack does. For "what is it and how do I
-get started", see [ABOUT.md](ABOUT.md). For shipping releases, see
-[../scripts/README.md](../scripts/README.md).
+What ThinkStack does, and how each part works. Why it is built that way is in
+[ADR.md](ADR.md); what is broken or unfinished is in [../ISSUES.md](../ISSUES.md).
 
-ThinkStack is an **offline, edge-AI research assistant**: a cross-platform desktop
-app that ingests papers, searches and analyses them, finds research gaps, and
-helps you write LaTeX — all running locally with no cloud dependency.
+The app has four sections. Three follow the order research happens in; the
+fourth is the workshop.
 
-The app has four sections. Three follow the order the work happens:
+| Section | Job | Main code |
+|---|---|---|
+| **Library** | collect: import, correct, encrypt | `domain/ingestion/`, `domain/knowledge_base/`, `domain/encryption/` |
+| **LitGraph** | understand: search, map, analyse, find gaps | `domain/search/`, `domain/litgraph/`, `domain/analysis/`, `domain/gap_finder/` |
+| **Scribe** | write: LaTeX projects, generation, citations, compile | `domain/paper_writer/` |
+| **Bench** | what this machine can run, and with which model | `domain/model_manager/`, `infrastructure/capability.py` |
 
-| Section | What it does |
-| --- | --- |
-| **Library** | Collect — upload, encrypt and manage papers. |
-| **LitGraph** | Understand — the map of your collection, and every analysis run. |
-| **Scribe** | Write — AI-assisted LaTeX drafting and compilation. |
-| **Bench** | Measure — what this machine can run, and the models it runs it with. |
-
-- [Document ingestion](#document-ingestion)
-- [Offline knowledge base](#offline-knowledge-base)
-- [Semantic search](#semantic-search)
+- [Library](#library)
+- [Search](#search)
 - [LitGraph](#litgraph)
-- [Analysis & gap finder](#analysis--gap-finder)
-- [Local LLM inference](#local-llm-inference)
-- [Scribe — AI-assisted paper writer (LaTeX)](#scribe--ai-assisted-paper-writer-latex)
-- [Paper encryption](#paper-encryption)
-- [Hardware-aware model loading](#hardware-aware-model-loading)
-- [Fine-tuning data collection](#fine-tuning-data-collection)
+- [Scribe](#scribe)
+- [Bench](#bench)
+- [Local inference](#local-inference)
 - [Updates](#updates)
-- [Roadmap](#roadmap)
-- [Known limitations](#known-limitations)
+- [Training-data collection](#training-data-collection)
 
-## Document ingestion
+---
 
-Turns a PDF into searchable, analysable knowledge.
+## Library
 
-- **Cascading PDF parser** — tries PyMuPDF (fast) first, falls back to pdfplumber
-  for scanned or complex layouts.
-- **Chunking** — splits text into overlapping chunks that respect paragraph and
-  sentence boundaries, keeping page numbers via word-overlap scoring.
-- **Metadata extraction** — title and authors are read from the page *layout*,
-  not from the text. A PDF stores glyphs with a size and a position, and the
-  title is the largest horizontal text at the top of page 1 with the authors on
-  the rows beneath it; flattening the page to a string throws that away. Year
-  comes from the arXiv identifier or a stated copyright line, and is left empty
-  when the paper states none. A small-language-model fallback runs only when the
-  result fails a plausibility check, and is handed the font sizes rather than
-  the flat text.
+### Ingesting a PDF
 
-  Scored against 56 papers sampled at random across 15 arXiv categories, with
-  arXiv's own metadata as ground truth: **92.9% titles, 85.7% exact author
-  lists, 92.9% years**. Handles single and double column, 2 to 31 authors,
-  small-caps and hyphenated titles, ligatures, accents, and author blocks laid
-  out in columns, in one comma-separated line, or one author per row.
-- **Corrections** — one paper in seven is still stored under something wrong,
-  and that data labels every node on the map, names every search hit and is
-  what a BibTeX entry is built from. Title, authors and year are editable in
-  the Library, and the fix carries into every paper cited from then on.
+`POST /api/documents/upload` runs the pipeline in this order:
 
-## Offline knowledge base
+    save PDF -> extract text -> read page-1 layout -> metadata -> chunk
+             -> embed + store -> queue analysis (after the response)
 
-- **Custom NumPy vector store** — embeddings and metadata are stored as JSON on
-  disk with cosine-similarity search in NumPy. No external database (no ChromaDB,
-  no server) — it just works offline for collections up to a few thousand chunks.
-- **Local embeddings** — `sentence-transformers` (`all-MiniLM-L6-v2`), a 22M-param
-  model that runs on the CPU (a 64-chunk batch embeds in ~0.2s).
+- **Text extraction** tries PyMuPDF first and falls back to pdfplumber for
+  layouts PyMuPDF cannot read (`domain/ingestion/pdf_parser.py`).
+- **Chunking** splits text into overlapping chunks on paragraph and sentence
+  boundaries, keeping the page number of each (`chunker.py`).
+- **Embedding** uses `all-MiniLM-L6-v2` through `sentence-transformers`, on the
+  CPU, loaded on first use and reused. It is bundled; a packaged build that is
+  missing it logs a packaging error before falling back to a download.
+- **Analysis is queued, not awaited.** Summary and claims are computed in the
+  background job queue right after ingest, then themes are re-clustered and a
+  gap scan queued. The upload returns immediately; LitGraph is ready by the time
+  it is opened.
 
-## Semantic search
+### Metadata
 
-Search is purely meaning-based. The query is embedded and scored by cosine
-similarity against **every chunk of every paper** — not a pre-truncated
-candidate pool — so a passage buried on page 40 is as findable as one in the
-abstract.
+Title and authors are read from **page layout**, not flat text
+(`layout.py`, `layout_metadata.py`). A PDF stores every glyph with a size and a
+position: the title is the largest horizontal text near the top of page 1, and
+the authors are the rows beneath it. Flattening the page to a string throws that
+away.
 
-- **Exact-token bonus** — a small bonus (+0.05 × the fraction of query tokens
-  appearing verbatim) is added after the cosine score. Meaning still decides the
-  ordering; a literal match can only break a near-tie upward. This is what keeps
-  rare tokens like `FedAvg` or an author surname findable without letting
-  keyword overlap outrank a genuinely better semantic match.
-- **Per-paper rollup** — `group_by_doc` returns papers rather than loose chunks,
-  each carrying *every* chunk of its own that matched, in reading order. This is
-  what LitGraph draws and what the reader pane steps through.
+- A paper with no title is shown under its filename.
+- Year comes from the arXiv identifier or a stated copyright line, and is left
+  empty when the paper states none.
+- A small-language-model fallback runs only when the layout result fails a
+  plausibility check, and it is given the font sizes rather than flat text.
+- Handles one and two columns, many authors, small caps, hyphenated titles,
+  ligatures, accents, and author blocks laid out in columns, in one
+  comma-separated line, or one per row.
+- Accuracy is measured on randomly sampled arXiv papers against arXiv's own
+  metadata, not on hand-picked ones; the method and latest scores are in the ADR
+  (2026-08-12 entries).
 
-An earlier version fused semantic search with BM25 keyword search via Reciprocal
-Rank Fusion. It was removed: paraphrase queries — the ones semantic search
-exists for — were routinely out-ranked by lexically similar noise. See
-[ADR.md](ADR.md).
+**Corrections.** Title, authors and year are editable in the Library. The fix
+carries into every later citation, because that metadata labels map nodes,
+names search hits and builds BibTeX entries.
+
+### The knowledge base
+
+Chunks, embeddings and metadata are persisted in SQLite (`vectors.db`) and
+searched with exact cosine similarity over one in-memory NumPy matrix
+(`infrastructure/local_vector_store.py`). No database server; persistence
+needs only the standard library's `sqlite3`. Every write goes through
+`domain/knowledge_base/repository.py`; search, grounding and the LitGraph builder
+read the store directly. Author lists are stored as JSON, because a comma is
+BibTeX syntax and cannot separate names safely (`author_codec.py`).
+
+### Encryption
+
+A paper can be encrypted **at rest** with a password
+(`domain/encryption/at_rest.py`, routes in `api/routes_encryption.py`):
+
+    encrypt   chunk texts -> one envelope on each chunk, then the text is
+              blanked; the PDF -> `<file>.pdf.tsenc`, then the original is
+              deleted; the cached summary and claims are dropped
+    read      the text, with the password; nothing changes
+    remove    text and PDF restored exactly
+
+While encrypted, the paper stays in the Library and on the map (its embeddings
+are kept, so search by meaning still finds it), but no route returns its text
+or PDF without the password. Embeddings reveal a paper's topic, not its words.
+Papers encrypted before 2026-11-19 are only partly at rest; see ISSUES.
+
+- **Key:** Argon2id turns the password into a 256-bit key, with a fresh random
+  salt per paper.
+- **Cipher:** AES-256-GCM. A wrong password fails the authentication tag check
+  instead of returning garbage.
+- **Envelope:** everything except the password travels in one versioned string,
+  `TSENC1.<kdf params>.<salt>.<nonce>.<ciphertext>`, so the format can change
+  later without breaking old papers.
+
+---
+
+## Search
+
+Purely meaning-based (`domain/search/semantic_search.py`). The query is embedded
+and scored against **every chunk of every paper**, not a pre-filtered pool, so a
+passage on page 40 is as findable as the abstract.
+
+- **Exact-token bonus.** A small bonus (`EXACT_TOKEN_BONUS` × the fraction of
+  query tokens that appear verbatim) is added after the cosine score. It can only
+  break near-ties, which keeps rare literal terms (`FedAvg`, a surname) findable
+  without letting keyword overlap outrank a better semantic match. Keyword search
+  (BM25 + rank fusion) was removed; see ADR 2026-08-01.
+- **Per-paper rollup.** `group_by_doc` returns papers, each with every matching
+  chunk in reading order. That is what LitGraph draws.
+- **Grounding.** Scribe can pass search results into a generation so the model
+  writes from what the papers say (`grounding.py`).
+
+---
 
 ## LitGraph
 
-One canvas for the middle of the workflow. It replaced three separate pages
-(Search, Analysis, Gap Finder), which were three views onto the same question:
-what is in this collection, and what is missing from it.
+One canvas for the middle of the work. It replaced three pages (Search,
+Analysis, Gap Finder), which were three views of the same question: what is in
+this collection, and what is missing.
 
-- **Position encodes meaning** — each paper's chunk embeddings are averaged to a
-  centroid and projected to 2D with PCA, so papers arguing about the same things
-  sit together. Nothing is hand-placed.
-- **Edges are similarity** — cosine between centroids above a threshold, capped
-  to each paper's strongest few neighbours so a tightly-focused library does not
-  render as a hairball.
-- **Territory is theme** — clusters from a theme run are drawn as soft hulls.
-- **Gaps are amber nodes** — placed at the centroid of the papers they cite, with
-  dashed evidence edges back to each one.
-- **Claims fan out** — double-click a paper to expand its extracted claims as
-  sub-nodes.
-- **The map is the selector** — shift-drag a lasso, or run a search, and the
-  resulting set is what Summarize / Claims / Themes / Find-gaps operate on.
-- **The plate can be relaxed, by degree** — one dial from the projection exactly
-  as PCA computed it, through overlap loosened with clusters intact, to a free
-  layout where position is shape rather than meaning. It is a relaxation *of*
-  the projection, not a second layout beside it: every paper keeps a spring back
-  to its own projected home, so the map never stops being a reading of the
-  embedding space.
-- **Take hold of a paper** — drag one to pin it and see what it is tied to.
-  A press that does not move is a selection, not a zero-distance drag.
-- **Read a neighbourhood** — the panel says where a paper sits before it lists
-  anything, and its neighbours can be followed out to a chosen depth.
+**How the map is built** (`domain/litgraph/graph_builder.py`, rebuilt on every
+request from stored embeddings, the analysis cache and past runs, so there is no
+graph state to go stale):
 
-The graph is derived on every request from data that already persists
-(embeddings, the analysis cache, past runs), so there is no graph state to
-invalidate and no extra model call to build it.
+| Mark | Meaning |
+|---|---|
+| position | each paper's chunk embeddings averaged to a centroid, projected to 2D with PCA, then nudged apart until no two are closer than `MIN_SEP` |
+| edge | cosine between centroids above `EDGE_THRESHOLD`, at most `MAX_EDGES_PER_NODE` per paper so a focused library is not a hairball |
+| territory | a theme: a soft hull around papers clustered together |
+| amber node | a research gap, placed at the centroid of the papers that evidence it, with dashed edges back to each |
+| sub-nodes | a paper's extracted claims, fanned out on double-click |
 
-## Analysis & gap finder
+**Using it.**
 
-- Single- and multi-paper comparative **summarization**.
-- **Thematic clustering** across a set of papers.
-- **Gap analysis** — surfaces contradictions, methodological gaps, and missing
-  validation, then proposes actionable research directions.
+- **Search by meaning.** The map dims to what matched, with a ring showing how
+  strong each match is.
+- **Select.** Shift-drag a loop, run a search, or tick papers in the list. The
+  selection is what *Summarize*, *Claims*, *Themes* and *Find gaps* run on.
+- **Read a paper.** The panel says where the paper sits, lists its neighbours
+  (followable to a chosen depth), and opens the passages that matched.
+- **Take hold of a paper.** Drag it to pin it and see what it is tied to. A
+  press that does not move is a selection, not a drag.
+- **Relax the plate.** One dial from the PCA projection exactly, through overlap
+  loosened with clusters intact, to a free layout. Every paper keeps a spring to
+  its projected home, so the map is always a reading of the embedding space.
+- **New papers do not move the map under you.** After an ingest the map offers
+  to rebuild rather than redrawing itself (an empty map draws immediately).
+- **Runs are kept.** Every analysis and gap scan is saved and can be reopened or
+  deleted from the Runs drawer.
 
-## Bench — model management
+**Analysis** (`domain/analysis/`):
 
-One screen for what the machine can run and what it runs it with.
+- Summaries of one paper or a comparison across several.
+- Key-claim extraction.
+- Themes: **membership is decided by cosine between paper centroids**; the model
+  only names each group (ADR 2026-08-01).
+- Model output is valid JSON by grammar, but not necessarily the *right* JSON.
+  `parsing.py` coerces the shapes small models actually return (a claim as a bare
+  string is still a claim) and validates categories.
 
-**Your machine.** Memory, processor, graphics, and how much text can be read at
-once, with plain-language advice. Re-examine picks up changes such as closing
-other applications.
+**Gap finding** (`domain/gap_finder/gap_pipeline.py`) finds contradictions,
+methodological gaps and missing validation across the selected papers, proposes
+research directions, and deduplicates findings that say the same thing.
 
-**Models.** A card per model showing what each job it is assigned to. Editing
-those assignments takes effect on the next request; no restart. A model that is
-assigned but not actually being used — too large for the memory free right now,
-or outranked by a better one — says so on its own card.
+---
 
-**Adding a model.** Three routes, all leading to the same registry:
-- *Add a model* opens a native file dialog (or a typed path outside the desktop
-  build) for a `.gguf` you already have. The file is **referenced where it is**,
-  never copied, so a multi-gigabyte import costs no extra disk.
-- *Already on this machine* lists models found via Ollama, LM Studio or the
-  models folder, assignable in one click. Ollama-served models are shown but not
-  assignable: it stores weights as blobs llama.cpp cannot open, and the router
-  reaches them over HTTP instead.
-- *Get more models* lists what ThinkStack can fetch, each judged against this
-  machine, and searches Hugging Face.
+## Scribe
 
-**Removing a model.** Two distinct actions, because they are different
-intentions: *Stop using it* forgets the model and leaves the file alone;
-*Delete permanently* is offered **only** for files ThinkStack created. An
-imported model lives in the user's own folder and is never deleted from here.
-Removing the included model is allowed, and says first what will stop working.
+A LaTeX editor that compiles offline. **It needs no library**: a fresh install
+can create, write and compile a document without ingesting anything. The `cite`
+trigger simply finds nothing.
 
-**Hugging Face.** The only part of ThinkStack that reaches the internet. Search
-runs on submit, never as you type; the interface says so. Typing a full
-`owner/name` goes straight to that repository's files. Each quantisation is
-shown with its size against available memory and whether it will run at a useful
-speed here — before the download, not after. Download addresses are constructed
-from a repository id and filename, never accepted from the caller.
+### Projects
 
-## Task routing
+- **A paper is a folder** on disk, and the file tree is the way into it
+  (`domain/paper_writer/files.py`, `FileTree.jsx`). Add figures, split a paper
+  into section files, keep a `.bib` beside it. Right-click for new file or
+  folder, rename (F2), duplicate, copy/paste, delete; drop files onto a paper to
+  add them; drag files between folders and between papers. Every path goes
+  through `safe_path()`, which resolves first and then refuses anything outside
+  the project.
+- **Starter documents:** research paper, article, letter, CV, report, Beamer
+  slides. The **+** in the tree lists them with what each gives you; choosing is
+  the same click that creates. The list comes from the backend
+  (`templates.py`), so the menu cannot offer one that does not exist, and an
+  unknown id gives you the paper rather than an error.
+- **Editor and PDF side by side**, with dividers that remember their position.
+  One file open at a time. The compiled PDF is the only preview.
+- **Keyboard:** `Ctrl+K` opens a palette of every screen and every paper. The
+  tree sorts by name or last edit and filters once there are enough projects.
 
-Four jobs route independently: general, analysis, gap finding, and Scribe.
-Resolution order, strongest claim first:
+### Using files that live elsewhere
 
-    a model the user assigned  ->  a model a release assigned  ->  what this
-    build bundled  ->  the deprecated task map  ->  the included model
+`domain/paper_writer/links.py`.
 
-Each candidate must exist *and* fit the memory free right now. A model skipped
-for size is reported rather than silently dropped, so a disappointing summary
-has an explanation.
-
-## Local LLM inference
-
-- **Dual runtime** — supports both `llama.cpp` (direct GGUF loading) and Ollama.
-- **Structured output** — a GBNF grammar constrains `llama.cpp` output to strict
-  JSON or LaTeX where the task needs it.
-- **Task-based model routing** — every generation names the task it is
-  (`general`, `analysis`, `gap_analysis`, `latex_writer`), and the router picks
-  the model assigned to that task in Bench. Light work such as metadata
-  extraction stays on the fast 0.5B; structured-JSON analysis routes to a
-  heavier 1.5B that produces reliable JSON. Only one model is resident at a
-  time; the runtime swaps on demand to cap memory.
-
-## Scribe — AI-assisted paper writer (LaTeX)
-
-Write ideas in plain language, get compilable LaTeX, and compile it locally with
-no account, no queue and no time limit.
-
-**Scribe needs no library.** It carries its own TeX engine and compiles offline,
-so writing does not depend on having read anything: a new install can open it
-and finish a document without ingesting a single PDF. The Library says so when
-it is empty rather than leaving "drop a PDF here" as the only instruction.
-
-- **Start as something other than a paper** — six starter documents: research
-  paper, article, letter, CV, report and Beamer slides. The **+** in the tree
-  opens them as a menu, and each says what it gives you rather than only naming
-  itself, so "CV" is a choice you can make without first making it once to find
-  out. Choosing is the same click that creates, so nothing is selected now and
-  quietly applied to a paper later. The set is served by the backend, so the
-  menu cannot list a template that no longer exists; an unrecognised one gives
-  you the paper rather than an error.
-- **A paper is a folder** — a project is a directory on disk, and the file tree
-  is the way into it. Add figures, split a long paper into section files, keep a
-  `.bib` beside the document. Right-click for new file/folder, rename (F2),
-  duplicate, copy/paste and delete; drop files straight onto a paper to add them.
-  One file open at a time, as in Overleaf — a tab strip would cost height the
-  editor and the preview want.
-- **Figures work** — `\includegraphics{chart.png}` resolves because the file can
-  actually be put next to `main.tex`. The compiler always ran with the project
-  directory as its working directory; until the tree existed there was simply no
-  way to place a second file there. Clicking an image previews it and shows the
-  exact `\includegraphics` line to paste.
-- **Editor and PDF, half the window each**, with draggable dividers that remember
-  where you left them. The compiled PDF is the only preview: a second, browser-side
-  renderer was removed because it disagreed with the real PDF, so what you looked
-  at was never what you would publish.
-- **Write at the cursor** — select plain English, press `Ctrl+Enter`, and it
-  becomes LaTeX where you are working, not appended at the end. Optionally
-  grounded in papers from your library, so the model writes from what they
-  actually say.
-- **Auto-compile** — rebuilds a moment after you stop typing (an "Auto" toggle
-  turns it off and the Compile button drives it by hand). Compiling saves first,
-  so an autocompile is also an autosave.
-- **Auto-healing compiler** — what makes it robust. When compilation would fail it:
-  - injects missing `\usepackage` lines the body needs (tikz, pgfplots, booktabs,
-    …) — no more "Environment tikzpicture undefined";
-  - wraps a bare AI snippet into a complete document;
-  - isolates a single broken figure/table behind a placeholder so the rest of the
-    paper still produces a PDF, and as a last resort neutralises all figures
-    rather than failing outright.
-- **Choose it by navigating to it** — linking opens a window you browse, with
-  `Ctrl+O` for a file and `Ctrl+K Ctrl+O` for a folder. Files the project cannot
-  use are shown but not selectable, so a folder never looks emptier than it is.
-- **Use a file without moving it** — link a figure, `.tex`, `.bib` or anything
-  else that lives elsewhere on the machine, and **write its bare name**:
+- **Link a file or folder without copying it**, then write its bare name:
   `\includegraphics{chart.png}` resolves to the linked file where it sits. The
-  compile is told where to look rather than the file being copied in, so one
-  `references.bib` can be shared by three papers and stay a single file. If it
-  is renamed or moved, it is found again by its filesystem identity and the
-  reference repairs itself; if it genuinely goes, the panel says **missing**
-  and offers to locate it rather than quietly dropping the entry, and the
-  compile carries on without it. Copying it in is still there for when a
-  project needs to travel as a unit.
-- **Link anything, not only what LaTeX reads** — a dataset, a README, an image
-  format the engine cannot open. A file type LaTeX cannot use is useless to a
-  document rather than dangerous to one, and refusing it told authors their own
-  files were not allowed in their own folder. The chooser still marks which
-  files a document could actually reference, as a hint rather than a refusal.
-- **Cite from your library, inline** — type `cite` and the library drops down
-  under the caret; keep typing to filter on title, author, year or key; press
-  Enter and the word becomes `\cite{vaswani2017attention}` with the entry
-  written into the project's own `references.bib`. Dismiss it and `cite` is
-  still just a word, and a word compiles.
+  compile is given the file's directory as a search path, so one
+  `references.bib` can serve three papers and stay one file. Copying in is still
+  available for a project that must travel as a unit.
+- **Links survive renames.** Each link stores the path *and* the OS file
+  identity (inode + device on Unix, NTFS file id on Windows). On open: try the
+  path; if it is gone, look for the identity in folders the project already
+  refers to; only then mark it **missing** and offer to locate it. A missing link
+  never breaks the compile.
+- **Anything can be linked**, not only what LaTeX reads. The chooser marks which
+  files a document could reference, as a hint.
+- **Choosing is navigating.** The picker browses directories through the backend
+  (`Ctrl+O` for a file, `Ctrl+K Ctrl+O` for a folder), so the same window works
+  in the desktop app and in a browser tab.
+- Clicking an image previews it and shows the `\includegraphics` line to paste.
 
-  Citation numbers are not tracked, deliberately: BibTeX renumbers every
-  `\cite` on each recompile and orders the reference list itself, so emitting
-  keys gets that for free. The `.bib` is the authority — a key already written
-  there is never recomputed, so a citation already typed cannot break when the
-  library grows, and the file stays yours to edit by hand.
-- **Bibliographies and indexes build themselves** — the bundled engine runs BibTeX
-  on its own. It does *not* run makeindex, so `\printindex` used to fail with
-  `Undefined control sequence \indexentry`; ThinkStack now generates the `.ind`
-  itself (sub-entries, `sort@printed` keys, `|hyperpage` encapsulators and
-  `|(`…`|)` page ranges) and runs a second pass. Nothing extra to install. A
-  document that cites papers but never declared a bibliography is given one, so
-  a citation cannot silently resolve to `[?]`.
-- **See what the document cites without opening the .bib** — a bibliography
-  panel lists every entry, marks the ones nothing cites, and reads the source
-  rather than the compiled PDF, so an entry appears the moment it is written.
-- **Save the PDF where you want it, named after the paper** — the **Save PDF**
-  button asks the desktop window for a location, and the file is written as the
-  paper's title reduced to what every filesystem accepts, not as the project id.
-  In a browser it stays an ordinary download, because a page cannot choose a
-  folder — but it arrives correctly named either way.
-- **Reach anything from the keyboard** — `Ctrl+K` opens a palette listing every
-  screen and every paper; type to filter, Enter to go. The tree itself sorts by
-  name or last edit, filters once there are enough projects to be worth
-  narrowing, and shows when each was last touched.
-- **Drag a file where it belongs** — including into another paper. Folders are
-  the drop targets; a file is not, because "beside it" would be a reorder this
-  tree does not have. Folders themselves do not move across papers: that is an
-  unbounded subtree with no size known in advance.
-- **Error surfacing** — when a compile fails, the parsed engine diagnostics (and
-  missing-TeX-package install hints) show directly in the UI.
+### Writing with the model
 
-## Paper encryption
+Select plain English and press `Ctrl+Enter`: it becomes LaTeX at the cursor, not
+appended at the end. Optionally grounded in papers from the library. Needs a
+model: the one assigned to Scribe (`latex_writer`) in Bench, or the router's
+fallback.
 
-Optional password protection for a paper's text, done with modern authenticated
-encryption:
+### Citations
 
-- **Key derivation** — Argon2id turns your password into a 256-bit key, with a
-  fresh random salt per paper (tuned to ~0.3–0.6s to resist brute force).
-- **Cipher** — AES-256-GCM; decrypting with the wrong password fails loudly (the
-  authentication tag check) rather than returning corrupted text.
-- **Self-contained envelope** — everything needed to decrypt except the password
-  travels in one versioned `TSENC1` string (KDF params + salt + nonce +
-  ciphertext), so an encrypted paper is portable and future-proof.
+Type `cite` and the library drops down under the caret; filter by title, author,
+year or key; Enter writes `\cite{vaswani2017attention}` and adds the entry to the
+project's `references.bib` (`bibliography.py`). Dismiss it and `cite` stays a
+word.
 
-## Hardware-aware model loading and suggestion
+- **Numbers are not tracked.** BibTeX renumbers on every compile, so emitting
+  keys gets correct numbering for free.
+- **The `.bib` is the authority.** A key already written there is never
+  recomputed, so a typed citation cannot break when the library grows, and the
+  file stays yours to edit.
+- A bibliography panel lists every entry and marks the ones nothing cites. It
+  reads the source, so an entry appears the moment it is written.
+- A document that cites but never declared a bibliography is given one, so a
+  citation cannot silently become `[?]`.
 
-ThinkStack sizes itself to the machine it runs on.
+### Compiling
 
-- On launch the native Tauri shell runs a **hardware diagnosis** (RAM, CPU, GPU
-  via `nvidia-smi` under a timeout) and hands it to the backend — so the app never
-  has to import heavy ML libraries just to detect hardware.
-- **Specification-based model selection** — a heavier model is loaded only if it
-  fits the available-RAM budget (with headroom reserved for your other running
-  apps); otherwise it gracefully downgrades to a lighter model instead of running
-  out of memory.
-- **CPU-only by default** — runs on any machine with no graphics drivers at all.
+`domain/paper_writer/compiler.py`.
+
+- **Engine:** the bundled Tectonic, with a package cache warmed by
+  `scripts/fetch-tex.sh`, so every starter template and an ordinary article,
+  report or book compiles on a clean machine with no network
+  (`tests/test_offline_templates.py` proves it with `--only-cached`). Every
+  compile tries the cache alone first and reaches the network only for a file
+  the cache truly lacks (ADR 2026-11-20). A document needing another package downloads it on
+  its first compile. A system
+  `tectonic` or `pdflatex` is used only when the bundled one is absent (source
+  checkouts).
+- **Auto-compile** a moment after you stop typing; compiling saves first. An
+  *Auto* toggle hands control to the Compile button.
+- **Auto-healing.** When a compile would fail, the compiler injects missing
+  `\usepackage` lines (tikz, pgfplots, booktabs, ...), wraps a bare snippet into a
+  full document, isolates a broken figure or table behind a placeholder, and as a
+  last resort neutralises all figures, so you still get a PDF.
+- **Indexes:** Tectonic runs BibTeX but not makeindex, so ThinkStack generates the
+  `.ind` itself (`indexing.py`) and runs a second pass.
+- **Errors:** engine diagnostics and missing-package hints are shown in the UI.
+  A table row with the wrong number of cells is named in plain language
+  (`_check_tables`); it is reported, never silently padded or truncated.
+- **Save PDF** asks the desktop window where to save and names the file after
+  the paper's title. In a browser it is an ordinary download.
+- Every compile writes `main.synctex.gz`; `synctex.py` reads it (see
+  FUTURE_WORK for the unfinished half).
+
+---
+
+## Bench
+
+### Your machine
+
+Memory, processor, graphics and how much text can be read at once, with
+plain-language advice. *Re-examine* picks up changes such as closing other
+applications. All hardware-derived decisions are made in
+`infrastructure/capability.py` from facts passed in, so they are testable
+without the hardware.
+
+### Models
+
+A card per model shows which jobs it does. Editing assignments takes effect on
+the next request; no restart. A model that is assigned but not being used (too
+large for the memory free right now, or outranked) says so on its card.
+
+**No language model ships in the installer.** Three ways to get one, all into
+the same registry (`registry.py`):
+
+- **Add a model:** a native file dialog (or a typed path outside the desktop app)
+  for a `.gguf` you have. It is **referenced where it is, never copied**.
+- **Already on this machine:** models found in ThinkStack's model folder, a
+  running Ollama server, Ollama's on-disk store, and LM Studio. Ollama-served
+  models are reached over HTTP; their blobs cannot be opened by llama.cpp
+  directly.
+- **Get more models:** ThinkStack's catalog (`catalog.py`), each judged against
+  this machine, plus Hugging Face search.
+
+**Reusing what you have.** Runtimes name the same weights differently
+(`qwen2.5:1.5b`, `Qwen2.5-1.5B-Instruct-Q4_K_M.gguf`). `discovery.model_key()`
+reduces each to `family/size` (`qwen2.5/1.5b`) so they compare equal.
+Quantisation is ignored on purpose: a q4 and a q8 do the same job here. Every
+probe is optional and guarded; a missing tool finds nothing and never delays
+startup.
+
+**Removing a model** is two actions: *Stop using it* forgets the model and keeps
+the file; *Delete permanently* is offered only for files ThinkStack downloaded
+itself. An imported file is never deleted from here.
+
+**Hugging Face.** Search runs on submit, not as you type. Typing `owner/name`
+goes straight to that repository. Each quantisation shows its size against free
+memory and whether it will run at a useful speed here, before you download.
+Download URLs are built from a repository id and filename, never accepted from
+the caller.
+
+**Suggestions consider speed, not only fit.** Without a usable GPU, suggestions
+are capped at `CPU_COMFORTABLE_GB`. Larger models are still listed, marked as
+slow.
+
+### Which model does which job
+
+Four tasks route independently: `general`, `analysis`, `gap_analysis`,
+`latex_writer`. `domain/model_manager/router.py` resolves each, strongest claim
+first:
+
+    user-assigned (Bench) -> release-assigned (manifest) -> bundled.json
+      -> TASK_MODEL_MAP / .env (deprecated) -> base model path
+
+`bundled.json` is empty now that no model ships, so on a fresh install a task
+resolves to nothing until a model is added. Each candidate must exist *and* fit
+the memory free right now. A model skipped
+for size is reported, so a weak summary has an explanation. Every generation
+call must name its task; one that does not silently gets `general`.
 
 ### Graphics acceleration, on request
 
-ThinkStack ships a processor-only inference engine so the installer stays small
-and works everywhere. If your machine has graphics hardware it can use, Bench
-offers to add the graphics engine — about **90 MB**, downloaded only if you ask.
-Linux and Windows builds are published and the offer can be fulfilled today.
+The bundled inference engine is processor-only, so the installer works on every
+machine. If yours has graphics hardware llama.cpp can use, Bench offers to
+download the Vulkan build of the engine (`infrastructure/acceleration.py`,
+`accel_download.py`).
 
-- **Vulkan, so it is not one vendor.** NVIDIA, AMD, Intel and integrated
-  graphics all work, through the Vulkan loader that ships **with your graphics
-  driver**. Nothing from NVIDIA, AMD or Intel is ever downloaded; the only
-  download is ThinkStack's own graphics engine, which exists on no machine
-  because it is ours. On Linux this includes cards reachable through Mesa's
-  open-source drivers, so a machine with no proprietary driver installed is
-  often still accelerated.
-- **It names the device it would use.** A laptop can report three — a discrete
-  card, an integrated chip, and a software renderer that is really the
-  processor. All three are listed; the software one is shown and excluded,
-  because offloading to it would be *slower* than the processor already doing
-  the work.
-- **The size shown is measured**, read from the release manifest rather than
-  estimated, because the figure you agree to should be the figure downloaded.
-- **It is checked before it is switched on.** The libraries are verified against
-  a checksum, then loaded in a separate process. Only if that process survives
-  is acceleration enabled. If it cannot run on your machine, nothing changes and
-  you are told why.
-- **Reversible.** "Go back to the processor" turns it off and keeps the files,
-  so turning it on again is instant.
-- **macOS is not covered yet.** The right path on a Mac is Metal, not Vulkan —
-  Vulkan only reaches macOS through MoltenVK, a translation layer over Metal,
-  which is slower than the native path and an extra dependency for a worse
-  result. The bundled engine is not built with Metal either, so a Mac currently
-  runs on the processor and Bench says so rather than offering something it
-  cannot deliver. A Metal build is separate work.
-- You can **change the active model** yourself; the choice persists across
-  restarts.
+- **Vulkan, so any vendor:** NVIDIA, AMD, Intel, integrated, through the Vulkan
+  loader your graphics driver already installed. On Linux that includes cards on
+  Mesa's open-source drivers. Only ThinkStack's own engine is downloaded, never a
+  driver.
+- **It names the device it would use** (`infrastructure/vulkan.py`). A software
+  renderer (llvmpipe) is listed but excluded: it is the CPU pretending to be a
+  GPU, and offloading to it is slower.
+- **The size shown is read from the release manifest**, not estimated.
+- **Checked before it is switched on:** checksum, then loaded in a separate
+  process; only if that survives is it enabled. Otherwise nothing changes and you
+  are told why.
+- **Reversible:** "Go back to the processor" keeps the files, so turning it on
+  again is instant.
+- **Not on macOS.** The right path there is Metal, which the engine is not built
+  with; Bench says so rather than offering it.
 
-**Optional NVIDIA acceleration (advanced).** The shipped build is CPU-only, which
-is why AMD and Apple Metal are reported but not used for offload — attempting it
-would fail at model load. To run analysis on an NVIDIA GPU from a source
-checkout, install the CUDA build and repair the two DLL issues the prebuilt wheel
-has on toolkit-less machines:
+---
 
-```bash
-pip install llama-cpp-python \
-  --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
-python tools/fix_gpu_dlls.py   # installs CUDA runtime DLLs, swaps a compatible CPU backend
-python tools/verify_gpu.py     # prints tokens/sec and confirms offload
-```
+## Local inference
 
-`fix_gpu_dlls.py` is idempotent — re-run it after any reinstall of
-llama-cpp-python. Set `THINKSTACK_LLM_GPU_LAYERS=-1` to force full offload, or
-`0` to force CPU.
+`infrastructure/ollama_client.py`.
 
-### Reusing models you already have
+- **Two runtimes:** `llama.cpp` loading a GGUF directly, or a running Ollama over
+  HTTP.
+- **Structured output:** a GBNF grammar constrains `llama.cpp` to strict JSON
+  where a task needs it. A thinking model (Qwen3) would emit `{}` under it,
+  because its `<think>` block has nowhere to go, so its think block is
+  pre-filled empty and the grammar applies to the answer. Any reasoning left in
+  plain-text output is stripped before it reaches a document.
+- **One model resident at a time;** the runtime swaps on demand to cap memory.
+- **Sized to the machine.** The Tauri shell reads RAM, CPU and GPU at launch
+  (`src-tauri/src/diagnosis.rs`, `nvidia-smi` under a timeout) and hands the
+  result to the backend, so the backend never imports heavy ML libraries just to
+  detect hardware. A model loads only if it fits the available-memory budget with
+  headroom; otherwise a smaller one is used.
 
-If you already run **Ollama** or **LM Studio**, ThinkStack finds those models and
-uses them instead of downloading its own copy. Nothing is ever fetched that your
-machine already stores.
-
-This matters because every runtime names the same weights differently:
-
-| Where it came from | What it's called |
-|--------------------|------------------|
-| Ollama | `qwen2.5:1.5b` |
-| LM Studio | `Qwen2.5-1.5B-Instruct-Q4_K_M.gguf` |
-| ThinkStack | `qwen2.5-1.5b-instruct-q4_k_m.gguf` |
-
-All three are the same model. ThinkStack reduces them to a canonical
-`family/size` key (`qwen2.5/1.5b`) so they compare equal, then loads the copy you
-already have. Quantisation is ignored on purpose — a `q4` and a `q8` of the same
-model do the same job here, and re-downloading one because you have the other is
-exactly the waste this avoids.
-
-Models are discovered from ThinkStack's own directory, a running Ollama server,
-Ollama's on-disk store (so it works even when Ollama isn't running), and LM
-Studio. Every probe is optional and independently guarded: a missing tool or an
-unreadable directory simply finds nothing, and never delays startup.
-
-## Fine-tuning data collection
-
-- Every AI generation passively logs a prompt→output training pair as JSONL under
-  `data/training/`, in chat format (system/user/assistant), ready for future
-  QLoRA fine-tuning.
-- Separate datasets for `latex_generation` and `gap_analysis`. It's privacy-safe:
-  the data stays on your device and never leaves it.
+---
 
 ## Updates
 
-**Nothing is checked automatically.** ThinkStack never contacts the network
-unless you ask it to — an offline-first app that quietly phones home on every
-launch is not offline in any sense that matters, even though the check carries
-no personal data.
+Nothing is checked automatically. Press **Update app** in the sidebar: if a
+newer build exists you are told the version and asked before anything
+downloads. The bundle is verified against ThinkStack's public key, installed in
+place, and the app restarts with papers, projects and settings kept. The sidebar
+shows the running version, which is what a bug report should quote.
 
-Press **Update app** in the sidebar to check. If a newer build exists you are
-told the version and asked before anything downloads; the bundle is then
-verified against ThinkStack's public key, installed in place, and the app
-restarts. Your papers, projects and settings are kept. The sidebar also shows
-the version you are running, which is what a bug report should quote.
+Channels are **stable**, **beta** (testers) and **nightly**; how each is
+published is in [CONTRIBUTING.md](../CONTRIBUTING.md#releasing).
 
-Three channels exist: **stable** (everyone), **beta** (invited testers), and
-**nightly**. See [../scripts/README.md](../scripts/README.md).
+---
 
-## Roadmap
+## Training-data collection
 
-Planned and in-progress work:
-
-- **Feature-specific SLMs on CPU** — quantized small models downloaded and
-  selected based on the user's hardware (the hardware-aware loading above is the
-  foundation for this).
-- **Federated cloud fine-tuning** — train QLoRA adapters on cloud GPUs, then sync
-  tiny `.gguf` adapters down to apply over the local base model.
-- **Secure P2P sharing** — share papers/drafts/analysis directly with specific
-  peers via libp2p + public-key signatures, no central server.
-- **Citation edges in LitGraph** — reference lists are not parsed today, so every
-  edge on the map is semantic similarity. Citation edges would sit alongside them.
-- **Density terrain** — shading the sparse regions *inside* the library hull, so
-  the map draws the hole in the literature rather than only the papers around it.
-
-## Known limitations
-
-- **Full-corpus scan per search** — every query scores every chunk. That is what
-  makes the search exhaustive, and it is fine at a few thousand chunks; an ANN
-  index is the upgrade if collections get much larger.
-- **Hover re-renders the whole canvas** — LitGraph rebuilds its SVG on hover-out.
-  Invisible at typical library sizes; a dim-only path is the upgrade.
-- **TeX cache covers the shipped preamble only** — the bundled package cache is
-  warmed against every package the paper writer's preamble loads. A document that
-  pulls in some other package needs a network connection the first time it is
-  compiled; everything the app itself generates works offline.
-- **Ollama JSON retries** — GBNF makes `llama.cpp` output reliable, but there's no
-  extensive retry logic if the optional Ollama runtime returns malformed JSON.
-- **Metadata extraction has a long tail** — 43 of 56 randomly sampled papers come
-  back exactly right on title, authors *and* year together. What still defeats it:
-  mathematics inside a title, publisher cover pages that precede the paper (an
-  Elsevier "Highlights" sheet is page 1), and brand-new arXiv submissions that
-  carry no stamp yet, where the year is reported empty rather than guessed. Rules
-  over layout features are what GROBID learns instead, from labelled papers; the
-  route past this plateau is a small classifier, not more rules.
-- **Scanned PDFs have no text layer** — no glyphs means no layout and no text, so
-  neither extraction nor search can recover anything. This needs OCR, which is
-  not shipped.
+Each Scribe generation is logged as a prompt → output pair in chat format
+(system / user / assistant) as JSONL under the data directory's `training/`
+folder, for future fine-tuning (`domain/fine_tuning/data_collector.py`). It never
+leaves the device. `save_gap_analysis_pair` exists but nothing calls it yet, so
+analysis is not collected.

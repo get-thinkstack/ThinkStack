@@ -1,8 +1,8 @@
-"""
-analysis api routes.
+"""LitGraph's analysis actions: summarize, claims, themes, and their history.
 
-provides endpoints for paper summarization, claim extraction,
-and thematic clustering powered by the local slm.
+Every run is saved to the run history. Single-paper summaries and claims are
+also merged into the analysis cache, because that cache is what the canvas
+draws; a result only in the history would never appear on the map.
 """
 
 import logging
@@ -23,10 +23,9 @@ router = APIRouter()
 
 
 def _record(analysis_type: str, doc_ids: list[str], result: dict) -> dict:
-    """save an analysis run to history and stamp the response with its id.
+    """Save a run to history and stamp the response with its id.
 
-    the stored record keeps the analysis ``type`` so the ui can re-render the
-    matching view when a past run is reopened.
+    The record keeps its `type` so a reopened run renders the right view.
     """
     saved = analysis_history.add({
         "type": analysis_type,
@@ -60,11 +59,11 @@ def _get_doc_text(doc_id: str, password: str | None = None) -> str:
     if is_enc == "true" or is_enc is True:
         if not password:
             raise HTTPException(status_code=403, detail="document is encrypted. password required.")
-        from domain.encryption.vault import decrypt_paper, WrongPasswordError
+        from domain.encryption.vault import open_text, WrongPasswordError
         from domain.encryption.envelope import EnvelopeFormatError
         envelope = first_meta.get("encrypted_envelope")
         try:
-            return decrypt_paper(envelope, password)
+            return open_text(envelope, password)[0]
         except WrongPasswordError:
             raise HTTPException(status_code=403, detail="incorrect password")
         except EnvelopeFormatError:
@@ -80,16 +79,13 @@ async def summarize(request: AnalysisRequest):
     if len(request.doc_ids) == 1:
         text = _get_doc_text(request.doc_ids[0], request.password)
         summary = await summarize_single(request.doc_ids[0], text)
-        # into the cache the canvas reads, not only the run history. a summary
-        # asked for by hand is the same fact as one computed at ingest, and
-        # without this the node stays labelled unanalyzed after you ran it.
+        # Into the canvas's cache as well as the history (see module docstring).
         doc_analysis_cache.merge(request.doc_ids[0], summary=summary.summary_text)
     else:
         texts = {}
         for doc_id in request.doc_ids:
             texts[doc_id] = _get_doc_text(doc_id, request.password)
-        # a comparative summary is about the set, not about any one paper, so
-        # it is deliberately not cached per document.
+        # A comparative summary is about the set, so it is not cached per paper.
         summary = await summarize_multiple(request.doc_ids, texts)
 
     return _record("summarize", request.doc_ids, asdict(summary))
@@ -103,8 +99,7 @@ async def claims(request: AnalysisRequest):
         text = _get_doc_text(doc_id, request.password)
         doc_claims = await extract_claims(doc_id, text)
         as_dicts = [asdict(c) for c in doc_claims]
-        # same reason as summarize: the canvas draws claim sub-nodes from the
-        # cache, so claims extracted on demand have to land there too.
+        # Claim sub-nodes are drawn from the cache, so claims land there too.
         doc_analysis_cache.merge(doc_id, claims=as_dicts)
         all_claims.extend(as_dicts)
 

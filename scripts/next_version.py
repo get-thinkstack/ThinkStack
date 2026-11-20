@@ -15,9 +15,8 @@ the moment it is true, rather than reconstructed later from a list of merges.
 X is not inferred from anything. "This is a new generation of the product" is
 not a claim a branch name can make, so only the release workflow moves it.
 
-"Current" means the newest published STABLE tag (vX.Y.Z), not whatever happens
-to sit in tauri.conf.json, because that file is only bumped as part of cutting a
-release and is therefore behind between releases.
+Versions come from git tags, never from tauri.conf.json, which lags between
+releases.
 
 The kind can be given, or inferred from the commit subjects since that tag using
 the conventional-commit prefixes this project already uses. Inference is
@@ -55,9 +54,9 @@ SEMVER_TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 #
 # Basing on the newest STABLE tag is how the number goes backwards: beta has
 # been testing 1.6.7 while the newest stable is 1.0.0, so a patch bump computed
-# from stable is 1.0.1 -- lower than what testers already run. release.sh
-# refuses to publish below what is out, and the updater would show installed
-# apps an "update" that moves them backwards.
+# from stable is 1.0.1 -- lower than what testers already run. ship.sh and
+# release.yml refuse to publish below what is out, and the updater would show
+# installed apps an "update" that moves them backwards.
 VERSION_TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?$")
 
 # Branch names as they appear in a merge subject:

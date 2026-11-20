@@ -1,12 +1,11 @@
 // Startup hardware diagnosis.
 //
 // Runs once, in the Tauri shell, BEFORE the Python backend is spawned, and hands
-// the result to the backend as a JSON env var (THINKSTACK_HW_PROFILE). Doing it
-// here — in native Rust — is deliberate: the old path made Python `import torch`
-// and call `torch.cuda.is_available()` just to size the model, which is slow
-// (torch import) and can stall for seconds on a half-broken CUDA driver. Reading
-// RAM/CPU natively and probing the GPU with a *timeout* makes the whole thing
-// sub-100ms and never hangs, so the loading screen is not held hostage by it.
+// the result to the backend as a JSON env var (THINKSTACK_HW_PROFILE). Native,
+// so the backend never imports torch just to size a model (slow, and it can
+// stall on a broken CUDA driver). The GPU probe (nvidia-smi) runs under a
+// timeout, so diagnosis never holds the loading screen. Which Vulkan devices
+// can accelerate is a separate, later question: infrastructure/vulkan.py.
 //
 // Everything degrades to a safe CPU-only profile: any probe that errors or times
 // out simply lowers the tier, it never fails the launch.
